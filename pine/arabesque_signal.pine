@@ -1,0 +1,301 @@
+// ═══════════════════════════════════════════════════════════════════════
+// ARABESQUE — Signal Generator v1
+// BB Mean Reversion + Contextual Filters + Prop-Friendly Alerts
+// ═══════════════════════════════════════════════════════════════════════
+//
+// PHILOSOPHIE :
+//   Entrée sur excès (close sous BB lower) dans un contexte favorable
+//   (tendance macro intacte). Le Pine ne gère PAS les sorties — il envoie
+//   un signal d'entrée avec toutes les données nécessaires pour que le
+//   position manager Python gère trailing, giveback, deadfish, etc.
+//
+// ANTI-BIAIS :
+//   - HTF avec lookahead=barmerge.lookahead_off (pas de données futures)
+//   - Signal uniquement sur barstate.isconfirmed (pas d'intrabar)
+//   - Alerte freq_once_per_bar_close (pas de doublon)
+//   - Le JSON inclut le prix close pour que Python vérifie le slippage
+//
+// USAGE :
+//   Graphique 1H sur l'instrument souhaité.
+//   Créer une alerte "Any alert() function call" → webhook URL.
+//
+// ═══════════════════════════════════════════════════════════════════════
+
+//@version=6
+indicator("Arabesque Signal v1", overlay=true, max_bars_back=600)
+
+// ─── INPUTS ─────────────────────────────────────────────────────────
+
+// Bollinger Bands (signal timeframe = chart TF, typiquement 1H)
+bb_len    = input.int(20,    "BB Length",          minval=10, maxval=50)
+bb_mult   = input.float(2.0, "BB StdDev Mult",    minval=1.0, maxval=4.0, step=0.1)
+bb_mult_3 = input.float(3.0, "BB StdDev Mult (extreme)", minval=2.0, maxval=5.0, step=0.1)
+
+// Régime HTF (4H par défaut)
+htf        = input.timeframe("240", "HTF Timeframe")
+ema_fast   = input.int(50,   "HTF EMA Fast",      minval=10, maxval=100)
+ema_slow   = input.int(200,  "HTF EMA Slow",      minval=50, maxval=500)
+adx_len    = input.int(14,   "HTF ADX Length",     minval=7, maxval=30)
+adx_thresh = input.float(25, "ADX Trend Threshold", minval=10, maxval=50, step=1)
+
+// ATR pour SL/sizing (sur le TF signal)
+atr_len    = input.int(14,   "ATR Length",         minval=7, maxval=30)
+sl_atr     = input.float(1.5,"SL distance (×ATR)", minval=0.5, maxval=4.0, step=0.1)
+
+// Filtres d'entrée
+rsi_len    = input.int(14,   "RSI Length",         minval=7, maxval=30)
+rsi_os     = input.int(30,   "RSI Oversold",       minval=15, maxval=40)
+rsi_ob     = input.int(70,   "RSI Overbought",     minval=60, maxval=85)
+min_bb_width = input.float(0.005, "Min BB Width (filter squeeze)", minval=0.001, maxval=0.05, step=0.001)
+
+// Exécution
+max_spread_atr = input.float(0.3, "Max spread (×ATR) for alert", minval=0.05, maxval=1.0, step=0.05)
+
+// ─── INDICATEURS SIGNAL TF (1H) ────────────────────────────────────
+
+// Bollinger Bands sur typical price (comme BB_RPB_TSL)
+tp_src = (high + low + close) / 3
+bb_basis = ta.sma(tp_src, bb_len)
+bb_dev   = bb_mult * ta.stdev(tp_src, bb_len)
+bb_dev_3 = bb_mult_3 * ta.stdev(tp_src, bb_len)
+
+bb_upper = bb_basis + bb_dev
+bb_lower = bb_basis - bb_dev
+bb_upper_3 = bb_basis + bb_dev_3
+bb_lower_3 = bb_basis - bb_dev_3
+bb_width = (bb_upper - bb_lower) / bb_basis
+
+// ATR, RSI
+atr_val = ta.atr(atr_len)
+rsi_val = ta.rsi(close, rsi_len)
+
+// Williams %R — VRAI calcul (pas percentrank)
+// %R = (Highest_High - Close) / (Highest_High - Lowest_Low) × -100
+// Range : -100 (survente) à 0 (surachat)
+wr_14_hh = ta.highest(high, 14)
+wr_14_ll = ta.lowest(low, 14)
+wr_14 = wr_14_hh != wr_14_ll ? (wr_14_hh - close) / (wr_14_hh - wr_14_ll) * -100 : -50
+
+wr_96_hh = ta.highest(high, 96)
+wr_96_ll = ta.lowest(low, 96)
+wr_96 = wr_96_hh != wr_96_ll ? (wr_96_hh - close) / (wr_96_hh - wr_96_ll) * -100 : -50
+
+// CMF simplifié (Chaikin Money Flow)
+mfv     = ((close - low) - (high - close)) / math.max(high - low, 0.0001) * volume
+cmf_val = ta.sma(mfv, 20) / math.max(ta.sma(volume, 20), 1)
+
+// EMA locale (pour deadfish/tendance LTF)
+ema_20  = ta.ema(close, 20)
+ema_200_ltf = ta.ema(close, 200)
+
+// ─── INDICATEURS HTF (4H) — ANTI-LOOKAHEAD ─────────────────────────
+
+// Toutes les données HTF utilisent lookahead=barmerge.lookahead_off
+// → on obtient la valeur HTF de la DERNIÈRE bougie HTF FERMÉE
+// → jamais de données futures
+
+htf_ema_fast_val = request.security(syminfo.tickerid, htf,
+     ta.ema(close, ema_fast), lookahead=barmerge.lookahead_off)
+
+htf_ema_slow_val = request.security(syminfo.tickerid, htf,
+     ta.ema(close, ema_slow), lookahead=barmerge.lookahead_off)
+
+htf_atr = request.security(syminfo.tickerid, htf,
+     ta.atr(atr_len), lookahead=barmerge.lookahead_off)
+
+// ADX sur HTF
+// Pine v6 : ta.dmi retourne [plus, minus, adx]
+[htf_dmi_plus, htf_dmi_minus, htf_adx] = request.security(syminfo.tickerid, htf,
+     ta.dmi(adx_len, adx_len), lookahead=barmerge.lookahead_off)
+
+htf_close = request.security(syminfo.tickerid, htf,
+     close, lookahead=barmerge.lookahead_off)
+
+// ─── RÉGIME HTF ─────────────────────────────────────────────────────
+
+// Tendance macro : EMA50 > EMA200 = bullish, sinon bearish
+htf_bull = htf_ema_fast_val > htf_ema_slow_val
+htf_bear = htf_ema_fast_val < htf_ema_slow_val
+
+// Force de tendance : ADX > seuil = trending, sinon ranging
+htf_trending = htf_adx > adx_thresh
+htf_ranging  = htf_adx <= adx_thresh
+
+// Régime combiné
+regime_bull_range = htf_bull and htf_ranging      // Mean reversion LONG idéal
+regime_bear_range = htf_bear and htf_ranging      // Mean reversion SHORT idéal
+regime_bull_trend = htf_bull and htf_trending     // Possible LONG mais prudent
+regime_bear_trend = htf_bear and htf_trending     // Possible SHORT mais prudent
+
+// ─── SIGNAUX D'ENTRÉE ───────────────────────────────────────────────
+
+// LONG : excès baissier dans un contexte pas hostile
+// Conditions nécessaires :
+//   1. Close sous BB lower (excès)
+//   2. RSI en survente (<30)
+//   3. BB width suffisant (pas de squeeze = pas de breakout imminent)
+//   4. Contexte HTF : tendance macro pas violemment bearish
+//      (on accepte : bull+range, bull+trend, bear+range)
+//      (on refuse : bear+trend → trop dangereux pour du mean reversion)
+//   5. Bougie confirmée
+
+long_excess    = close < bb_lower
+long_rsi       = rsi_val < rsi_os
+long_vol_ok    = bb_width > min_bb_width
+long_regime_ok = not regime_bear_trend  // refuse seulement bear+trend
+long_signal    = barstate.isconfirmed and long_excess and long_rsi and long_vol_ok and long_regime_ok
+
+// SHORT : excès haussier (miroir)
+short_excess    = close > bb_upper
+short_rsi       = rsi_val > rsi_ob
+short_vol_ok    = bb_width > min_bb_width
+short_regime_ok = not regime_bull_trend  // refuse seulement bull+trend
+short_signal    = barstate.isconfirmed and short_excess and short_rsi and short_vol_ok and short_regime_ok
+
+// ─── CALCULS SL / TP ───────────────────────────────────────────────
+
+// SL : distance fixe en ATR (Python ajustera selon contexte)
+long_sl  = close - sl_atr * atr_val
+short_sl = close + sl_atr * atr_val
+
+// TP indicatif : retour au BB mid (mean reversion pure)
+// Python peut override avec trailing/giveback
+long_tp  = bb_basis
+short_tp = bb_basis
+
+// R:R calculé
+long_risk   = close - long_sl
+long_reward = long_tp - close
+long_rr     = long_risk > 0 ? long_reward / long_risk : 0
+
+short_risk   = short_sl - close
+short_reward = close - short_tp
+short_rr     = short_risk > 0 ? short_reward / short_risk : 0
+
+// ─── ALERTES JSON ───────────────────────────────────────────────────
+
+// Format JSON complet pour le position manager Python.
+// Inclut TOUT ce dont Python a besoin pour :
+//   - Vérifier le slippage (tv_close vs prix broker)
+//   - Calculer le sizing (atr, sl)
+//   - Gérer les sorties (rsi, cmf, bb_mid, wr, regime)
+//   - Logger/auditer (tous les indicateurs au moment du signal)
+
+if long_signal
+    alert_msg = '{'
+     + '"v":1'
+     + ',"strategy":"arabesque_mr_v1"'
+     + ',"side":"buy"'
+     + ',"symbol":"' + syminfo.ticker + '"'
+     + ',"exchange":"' + syminfo.prefix + '"'
+     + ',"tf":"' + timeframe.period + '"'
+     + ',"tv_close":' + str.tostring(close, '#.#####')
+     + ',"tv_open":' + str.tostring(open, '#.#####')
+     + ',"sl":' + str.tostring(long_sl, '#.#####')
+     + ',"tp_indicative":' + str.tostring(long_tp, '#.#####')
+     + ',"rr":' + str.tostring(long_rr, '#.##')
+     + ',"atr":' + str.tostring(atr_val, '#.#####')
+     + ',"atr_htf":' + str.tostring(htf_atr, '#.#####')
+     + ',"rsi":' + str.tostring(rsi_val, '#.#')
+     + ',"cmf":' + str.tostring(cmf_val, '#.###')
+     + ',"bb_lower":' + str.tostring(bb_lower, '#.#####')
+     + ',"bb_mid":' + str.tostring(bb_basis, '#.#####')
+     + ',"bb_upper":' + str.tostring(bb_upper, '#.#####')
+     + ',"bb_width":' + str.tostring(bb_width, '#.####')
+     + ',"wr_14":' + str.tostring(wr_14, '#.#')
+     + ',"wr_96":' + str.tostring(wr_96, '#.#')
+     + ',"ema200_ltf":' + str.tostring(ema_200_ltf, '#.#####')
+     + ',"htf_ema_fast":' + str.tostring(htf_ema_fast_val, '#.#####')
+     + ',"htf_ema_slow":' + str.tostring(htf_ema_slow_val, '#.#####')
+     + ',"htf_adx":' + str.tostring(htf_adx, '#.#')
+     + ',"regime":"' + (regime_bull_range ? "bull_range" : regime_bull_trend ? "bull_trend" : regime_bear_range ? "bear_range" : "bear_trend") + '"'
+     + ',"max_spread_atr":' + str.tostring(max_spread_atr, '#.##')
+     + '}'
+    alert(alert_msg, alert.freq_once_per_bar_close)
+
+if short_signal
+    alert_msg = '{'
+     + '"v":1'
+     + ',"strategy":"arabesque_mr_v1"'
+     + ',"side":"sell"'
+     + ',"symbol":"' + syminfo.ticker + '"'
+     + ',"exchange":"' + syminfo.prefix + '"'
+     + ',"tf":"' + timeframe.period + '"'
+     + ',"tv_close":' + str.tostring(close, '#.#####')
+     + ',"tv_open":' + str.tostring(open, '#.#####')
+     + ',"sl":' + str.tostring(short_sl, '#.#####')
+     + ',"tp_indicative":' + str.tostring(short_tp, '#.#####')
+     + ',"rr":' + str.tostring(short_rr, '#.##')
+     + ',"atr":' + str.tostring(atr_val, '#.#####')
+     + ',"atr_htf":' + str.tostring(htf_atr, '#.#####')
+     + ',"rsi":' + str.tostring(rsi_val, '#.#')
+     + ',"cmf":' + str.tostring(cmf_val, '#.###')
+     + ',"bb_lower":' + str.tostring(bb_lower, '#.#####')
+     + ',"bb_mid":' + str.tostring(bb_basis, '#.#####')
+     + ',"bb_upper":' + str.tostring(bb_upper, '#.#####')
+     + ',"bb_width":' + str.tostring(bb_width, '#.####')
+     + ',"wr_14":' + str.tostring(wr_14, '#.#')
+     + ',"wr_96":' + str.tostring(wr_96, '#.#')
+     + ',"ema200_ltf":' + str.tostring(ema_200_ltf, '#.#####')
+     + ',"htf_ema_fast":' + str.tostring(htf_ema_fast_val, '#.#####')
+     + ',"htf_ema_slow":' + str.tostring(htf_ema_slow_val, '#.#####')
+     + ',"htf_adx":' + str.tostring(htf_adx, '#.#')
+     + ',"regime":"' + (regime_bull_range ? "bull_range" : regime_bull_trend ? "bull_trend" : regime_bear_range ? "bear_range" : "bear_trend") + '"'
+     + ',"max_spread_atr":' + str.tostring(max_spread_atr, '#.##')
+     + '}'
+    alert(alert_msg, alert.freq_once_per_bar_close)
+
+// ─── VISUALISATION ──────────────────────────────────────────────────
+
+// BB bands
+p_upper = plot(bb_upper, "BB Upper", color=color.new(color.red, 70))
+p_lower = plot(bb_lower, "BB Lower", color=color.new(color.green, 70))
+plot(bb_basis, "BB Mid", color=color.new(color.gray, 50))
+fill(p_upper, p_lower, color=color.new(color.gray, 92))
+
+// BB extreme bands (dotted)
+plot(bb_upper_3, "BB Upper 3σ", color=color.new(color.red, 85), style=plot.style_cross)
+plot(bb_lower_3, "BB Lower 3σ", color=color.new(color.green, 85), style=plot.style_cross)
+
+// HTF EMAs
+plot(htf_ema_fast_val, "HTF EMA Fast", color=color.new(color.orange, 40), linewidth=2)
+plot(htf_ema_slow_val, "HTF EMA Slow", color=color.new(color.blue, 40), linewidth=2)
+
+// Signaux
+plotshape(long_signal,  "LONG",  shape.triangleup,   location.belowbar, color.green, size=size.small)
+plotshape(short_signal, "SHORT", shape.triangledown,  location.abovebar, color.red,   size=size.small)
+
+// SL levels
+plot(long_signal  ? long_sl  : na, "Long SL",  color=color.red,   style=plot.style_cross, linewidth=2)
+plot(short_signal ? short_sl : na, "Short SL", color=color.red,   style=plot.style_cross, linewidth=2)
+plot(long_signal  ? long_tp  : na, "Long TP",  color=color.green, style=plot.style_cross, linewidth=2)
+plot(short_signal ? short_tp : na, "Short TP", color=color.green, style=plot.style_cross, linewidth=2)
+
+// Régime background
+bgcolor(regime_bear_trend ? color.new(color.red, 95) :
+     regime_bull_trend ? color.new(color.green, 95) : na, title="Regime BG")
+
+// ─── INFO TABLE ─────────────────────────────────────────────────────
+
+var table infoTable = table.new(position.top_right, 2, 6, bgcolor=color.new(color.gray, 90))
+
+if barstate.islast
+    regime_str = regime_bull_range ? "BULL RANGE" :
+                 regime_bull_trend ? "BULL TREND" :
+                 regime_bear_range ? "BEAR RANGE" : "BEAR TREND"
+    regime_clr = regime_bull_range ? color.green :
+                 regime_bull_trend ? color.lime :
+                 regime_bear_range ? color.orange : color.red
+
+    table.cell(infoTable, 0, 0, "Régime",   text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 0, regime_str,  text_color=regime_clr,  text_size=size.small)
+    table.cell(infoTable, 0, 1, "ADX",       text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 1, str.tostring(htf_adx, '#.#'), text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 0, 2, "RSI",       text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 2, str.tostring(rsi_val, '#.#'), text_color=rsi_val < rsi_os ? color.green : rsi_val > rsi_ob ? color.red : color.white, text_size=size.small)
+    table.cell(infoTable, 0, 3, "BB Width",  text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 3, str.tostring(bb_width, '#.####'), text_color=bb_width < min_bb_width ? color.red : color.white, text_size=size.small)
+    table.cell(infoTable, 0, 4, "ATR",       text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 4, str.tostring(atr_val, '#.#####'), text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 0, 5, "CMF",       text_color=color.white, text_size=size.small)
+    table.cell(infoTable, 1, 5, str.tostring(cmf_val, '#.###'), text_color=cmf_val > 0 ? color.green : color.red, text_size=size.small)

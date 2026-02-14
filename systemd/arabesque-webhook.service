@@ -1,0 +1,25 @@
+[Unit]
+Description=Arabesque v2 Webhook Server
+After=network.target
+
+[Service]
+Type=simple
+User=raphael
+WorkingDirectory=/home/raphael/dev/arabesque
+ExecStart=/home/raphael/dev/arabesque/venv/bin/python -m arabesque.webhook.server
+Restart=on-failure
+RestartSec=5
+
+# Environment
+Environment=ARABESQUE_CONFIG_PATH=/home/raphael/dev/arabesque/config/settings.yaml
+Environment=ARABESQUE_MODE=dry_run
+# Secrets via fichier séparé (pas dans le service file)
+EnvironmentFile=-/home/raphael/dev/arabesque/config/.env
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=arabesque
+
+[Install]
+WantedBy=multi-user.target
