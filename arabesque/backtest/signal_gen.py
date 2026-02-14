@@ -65,6 +65,7 @@ class SignalGenConfig:
     sl_method: str = "swing"        # "swing" = recent swing low/high, "atr" = N*ATR
     sl_atr_mult: float = 1.5        # Multiplicateur ATR pour SL si method=atr
     sl_swing_bars: int = 10          # Lookback pour swing low/high
+    min_sl_atr: float = 0.8         # SL minimum = 0.8 * ATR (évite les R minuscules)
 
 
 class BacktestSignalGenerator:
@@ -261,26 +262,34 @@ class BacktestSignalGenerator:
     def _compute_sl(
         self, row: pd.Series, df: pd.DataFrame, idx: int, side: Side
     ) -> float:
-        """Calcule le SL basé sur swing low/high ou ATR."""
+        """Calcule le SL basé sur swing low/high ou ATR.
+
+        Enforce un R minimum de min_sl_atr * ATR pour éviter les SL absurdes.
+        """
         atr = row["atr"]
+        close = row["Close"]
+        min_dist = self.cfg.min_sl_atr * atr
 
         if self.cfg.sl_method == "swing":
             if side == Side.LONG:
                 sl = row.get("swing_low", 0)
-                # Buffer de 0.2 ATR sous le swing low
                 if sl > 0:
                     sl -= 0.2 * atr
+                # Enforce minimum distance
+                if sl <= 0 or (close - sl) < min_dist:
+                    sl = close - min_dist
             else:
                 sl = row.get("swing_high", 0)
                 if sl > 0:
                     sl += 0.2 * atr
+                if sl <= 0 or (sl - close) < min_dist:
+                    sl = close + min_dist
             return sl
 
         # Fallback ATR
-        close = row["Close"]
         if side == Side.LONG:
-            return close - self.cfg.sl_atr_mult * atr
-        return close + self.cfg.sl_atr_mult * atr
+            return close - max(self.cfg.sl_atr_mult * atr, min_dist)
+        return close + max(self.cfg.sl_atr_mult * atr, min_dist)
 
     # ── Indicateurs ──────────────────────────────────────────────────
 

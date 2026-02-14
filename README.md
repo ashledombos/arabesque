@@ -255,11 +255,102 @@ systemctl --user enable --now arabesque-webhook
 | +2.0R | 1.2R | Protéger 0.8R |
 | +3.0R | 1.5R | Laisser courir |
 
-## Instruments supportés
+## Lire un rapport de backtest
 
-L'univers complet FTMO est mappé pour Yahoo Finance (120+ tickers) :
-42 paires FX, 30 cryptos, 5 métaux, 4 énergies, 13 indices,
-7 matières premières agricoles, 23 actions US/EU.
+Exemple de rapport :
+```
+  ARABESQUE BACKTEST — EURUSD (in_sample)
+  Bars       : 12077
+  Signals    : 891 generated, 750 rejected
+
+  TRADES     : 141  (min 30 = OK)
+  Win rate   : 55%
+  Avg win    : +1.22R
+  Avg loss   : -0.87R
+
+  EXPECTANCY : +0.172R  (+$86 cash)
+  Total R    : +24.2R  (+$12,100 cash)
+
+  PROFIT FACTOR : 1.42
+
+  MAX DD     : 4.8%  ($4,800 cash)
+
+  TIMING     :
+    Avg bars   : 8  (wins: 6, losses: 11)
+
+  EXITS      :
+    exit_sl            : 89
+    exit_tp            :  4
+    exit_giveback      : 22
+    exit_deadfish      : 16
+    exit_time_stop     : 10
+
+  REJECTIONS :
+    slippage_too_high  : 420
+    cooldown           : 230
+    bb_squeeze         :  80
+    duplicate          :  20
+```
+
+### Métriques clés — ce que tu dois regarder
+
+**Expectancy (R)** : Le plus important. C'est le profit moyen par trade en multiples du risque.
++0.15R = bon, +0.30R = très bon, -0.05R = breakeven avec frais. Si c'est négatif, ne pas trader.
+
+**Profit Factor** : Gains bruts / pertes brutes. PF > 1.2 = tradable. PF > 1.5 = bon.
+
+**Win Rate** : Avec le trailing adaptatif on vise 45-55%. Pas besoin de 70%+ car les wins sont plus gros que les losses (avg win > avg loss en R).
+
+**Max DD** : Drawdown max en % du capital initial. FTMO limite à 8% total et 3% daily. Si le backtest dépasse, les guards l'auraient coupé en live.
+
+**Trades** : Min 30 pour que les stats soient significatives. Idéalement 100+.
+
+### Exits — comment les trades se terminent
+
+- **exit_sl** : SL touché. Inclut DEUX cas : SL original (perte = -1R) ET trailing SL (profit, le SL a été remonté). C'est l'exit la plus fréquente.
+- **exit_tp** : TP touché (BB mid pour mean-reversion, 2R pour trend).
+- **exit_giveback** : Le prix a rendu trop de profit non réalisé (>50% du MFE).
+- **exit_deadfish** : Le trade stagne (flat depuis trop de barres, range < 0.5R).
+- **exit_time_stop** : Max barres atteint (48h pour mean-reversion).
+- **exit_trailing** : Le trailing SL adaptatif a été touché (rarement distinct de exit_sl).
+
+### Le trailing adaptatif (5 paliers)
+
+**Oui, il est actif dans le backtest.** C'est le MÊME PositionManager que le live.
+
+Quand le trade va dans le bon sens, le SL se resserre automatiquement :
+- MFE atteint +0.5R → SL remonté à 0.3R du high (lock petit profit)
+- MFE atteint +1.0R → SL remonté à 0.5R du high (protéger 0.5R)
+- MFE atteint +1.5R → SL remonté à 0.8R du high
+- MFE atteint +2.0R → SL remonté à 1.2R du high
+- MFE atteint +3.0R → SL remonté à 1.5R du high (laisser courir)
+
+C'est pour ça que beaucoup de "exit_sl" sont en fait des wins : le SL a été remonté au-dessus de l'entrée par le trailing.
+
+### Rejections — pourquoi des signaux sont ignorés
+
+- **slippage_too_high** : Le prix à l'exécution (open barre suivante) a trop bougé par rapport au signal. Normal en backtest sur données 1H.
+- **cooldown** : Un trade sur le même instrument était pris il y a moins de 5 barres.
+- **bb_squeeze** : BB width trop étroit (<0.3%), pas assez de volatilité.
+- **duplicate** : Un trade est déjà ouvert sur cet instrument.
+- **volume_zero** : Le sizing donne 0 lots (R trop petit ou contract size inadapté).
+
+### Comparaison in-sample / out-of-sample
+
+Le split par défaut est 70/30. L'important : les métriques out-of-sample ne doivent pas être dramatiquement pires que l'in-sample. Un léger recul est normal. Si l'expectancy passe de +0.3R à -0.1R, c'est de l'overfitting.
+
+### R:R (Risk/Reward Ratio)
+
+**Le R:R n'est PAS fixe à 1.** Il dépend de la stratégie :
+
+- **Mean-reversion** : SL = 0.8×ATR minimum (swing low sinon), TP = BB mid. Le R:R dépend de la distance au BB mid. Typiquement 0.5-2.0 selon la largeur des BB.
+- **Trend** : SL = 1.5×ATR, TP indicatif = 2R. Mais le trailing gère la vraie sortie, donc les gagnants peuvent courir bien au-delà de 2R.
+
+### Instruments supportés
+
+120+ instruments FTMO mappés pour Yahoo Finance. Si un instrument donne 0 trades, vérifier :
+1. Yahoo fournit-il le volume ? (gold, indices via futures = pas toujours)
+2. Le contract size est-il mappé ? (vérifier `_contract_size()` dans runner.py)
 
 ## Principes de design
 
@@ -277,3 +368,17 @@ Un trade à +2R = 2× le risque. Indépendant de l'instrument et du sizing.
 
 **Counterfactuels** : chaque signal rejeté est suivi pour voir ce qui serait
 arrivé → calibrer les guards (trop stricts ? pas assez ?).
+
+## Changelog
+
+### v2.1 — Bugfixes backtest (14 Feb 2026)
+
+**Bug 1 fixé — slippage_too_high tuait 96% des signaux** : Le guard comparait `|open[bar+1] - close[bar]|` comme du slippage. Sur 1H, le gap entre close et open suivant = 1h de mouvement normal. Fix : le guard compare maintenant au open de la barre d'exécution.
+
+**Bug 2 fixé — volume_zero tuait XAUUSD, BTC, SP500** : Le sizing utilisait 100K (lot FX) pour TOUT. Fix : contract sizes instrument-aware (gold=100oz, BTC=1 coin, indices=$1/point, etc.).
+
+**Bug 3 fixé — R minuscules (2-5 pips)** : Le swing low SL sur 10 barres donnait des SL absurdement proches. Fix : minimum SL = 0.8×ATR enforcé. Résultat : R ≈ 12-20 pips sur EURUSD.
+
+**Ajout — Module Trend** : Détection BB squeeze → expansion → breakout avec ADX + EMA + CMF. Complémentaire au mean-reversion. Usage : `--strategy trend` ou `--strategy combined`.
+
+**Ajout — Analyse des logs** : `scripts/analyze.py` pour parser les logs JSONL du paper trading. Performance report, calibration guards, daily summary, export CSV.

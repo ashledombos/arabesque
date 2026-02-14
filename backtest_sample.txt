@@ -1,0 +1,2587 @@
+
+============================================================
+  ARABESQUE BACKTEST — EURUSD (EURUSD=X)
+  Strategy: COMBINED
+============================================================
+  Downloading data...
+  Loaded 17253 bars from 2023-05-01 23:00:00+00:00 to 2026-02-13 22:00:00+00:00
+  Indicators computed
+  In-sample:  12077 bars (2023-05-01 → 2025-04-15)
+  Out-sample: 5176 bars (2025-04-15 → 2026-02-13)
+
+--- IN-SAMPLE ---
+  [2023-05-12 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-05-12 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-05-12 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-05-12 15:00:00+00:00] REJECTED: slippage_too_high
+  [2023-05-12 16:00:00+00:00] REJECTED: slippage_too_high
+  [2023-05-17 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-05-17 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-05-17 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-05-23 10:00:00+00:00] OPEN LONG @ 1.07825 SL=1.07708 R=0.00117
+  [2023-05-30 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-05-30 11:00:00+00:00] REJECTED: slippage_too_high
+  Bar 500/12077 | Open: 0 | Closed: 1 | Equity: 100,163
+  [2023-05-31 06:00:00+00:00] OPEN LONG @ 1.06880 SL=1.06846 R=0.00034
+  [2023-06-01 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-01 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-01 15:00:00+00:00] OPEN SHORT @ 1.07517 SL=1.07573 R=0.00056
+  [2023-06-02 16:00:00+00:00] OPEN LONG @ 1.07145 SL=1.07102 R=0.00043
+  [2023-06-05 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-06 11:00:00+00:00] OPEN LONG @ 1.06834 SL=1.06799 R=0.00035
+  [2023-06-07 13:00:00+00:00] OPEN SHORT @ 1.07403 SL=1.07439 R=0.00036
+  [2023-06-08 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-08 10:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-08 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-08 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-08 13:00:00+00:00] OPEN SHORT @ 1.07692 SL=1.07740 R=0.00048
+  [2023-06-12 08:00:00+00:00] OPEN SHORT @ 1.07786 SL=1.07873 R=0.00086
+  [2023-06-13 06:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-13 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-13 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-14 14:00:00+00:00] OPEN LONG @ 1.08586 SL=1.08408 R=0.00178
+  [2023-06-21 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-21 15:00:00+00:00] OPEN SHORT @ 1.09533 SL=1.09655 R=0.00123
+  [2023-06-23 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-23 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-23 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-27 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-27 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-27 10:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-27 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-28 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-28 15:00:00+00:00] REJECTED: slippage_too_high
+  Bar 1000/12077 | Open: 0 | Closed: 10 | Equity: 100,057
+  [2023-06-29 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-30 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-04 20:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-05 17:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-05 18:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-06 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-07 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-07 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-07 15:00:00+00:00] OPEN SHORT @ 1.09651 SL=1.09687 R=0.00036
+  [2023-07-10 15:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-10 16:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-10 17:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-10 18:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-19 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-19 15:00:00+00:00] OPEN LONG @ 1.11978 SL=1.11786 R=0.00193
+  [2023-07-20 12:00:00+00:00] OPEN LONG @ 1.11865 SL=1.11804 R=0.00061
+  [2023-07-24 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-25 10:00:00+00:00] OPEN SHORT @ 1.10466 SL=1.10611 R=0.00146
+  [2023-07-26 10:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-26 18:00:00+00:00] OPEN SHORT @ 1.11040 SL=1.11072 R=0.00032
+  [2023-07-27 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-27 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-27 09:00:00+00:00] REJECTED: slippage_too_high
+  Bar 1500/12077 | Open: 0 | Closed: 15 | Equity: 102,111
+  [2023-08-02 12:00:00+00:00] OPEN LONG @ 1.09633 SL=1.09609 R=0.00024
+  [2023-08-04 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-04 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-04 14:00:00+00:00] OPEN SHORT @ 1.10245 SL=1.10336 R=0.00091
+  [2023-08-08 10:00:00+00:00] OPEN LONG @ 1.09573 SL=1.09538 R=0.00035
+  [2023-08-10 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-10 08:00:00+00:00] OPEN SHORT @ 1.10210 SL=1.10288 R=0.00078
+  [2023-08-11 15:00:00+00:00] OPEN SHORT @ 1.09592 SL=1.09825 R=0.00233
+  [2023-08-14 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-14 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-16 16:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-16 18:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-16 19:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-21 11:00:00+00:00] OPEN SHORT @ 1.09104 SL=1.09169 R=0.00066
+  [2023-08-22 07:00:00+00:00] OPEN SHORT @ 1.09271 SL=1.09334 R=0.00063
+  [2023-08-22 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-22 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-22 14:00:00+00:00] OPEN LONG @ 1.08563 SL=1.08345 R=0.00218
+  [2023-08-23 07:00:00+00:00] OPEN LONG @ 1.08233 SL=1.08142 R=0.00090
+  [2023-08-24 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-24 15:00:00+00:00] REJECTED: slippage_too_high
+  Bar 2000/12077 | Open: 0 | Closed: 24 | Equity: 103,773
+  [2023-08-29 01:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-29 02:00:00+00:00] OPEN SHORT @ 1.08371 SL=1.08411 R=0.00040
+  [2023-08-29 16:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-29 17:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-29 19:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-30 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-30 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-31 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-31 10:00:00+00:00] OPEN LONG @ 1.08774 SL=1.08649 R=0.00125
+  [2023-09-01 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-01 15:00:00+00:00] OPEN LONG @ 1.07908 SL=1.07872 R=0.00036
+  [2023-09-05 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-05 08:00:00+00:00] OPEN LONG @ 1.07523 SL=1.07435 R=0.00087
+  [2023-09-05 14:00:00+00:00] OPEN LONG @ 1.07133 SL=1.07093 R=0.00040
+  [2023-09-06 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-07 11:00:00+00:00] REJECTED: bb_squeeze
+  [2023-09-07 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-07 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-11 04:00:00+00:00] OPEN SHORT @ 1.07369 SL=1.07413 R=0.00044
+  [2023-09-14 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-14 15:00:00+00:00] OPEN SHORT @ 1.06600 SL=1.06844 R=0.00243
+  [2023-09-18 15:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-20 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-20 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-20 14:00:00+00:00] OPEN SHORT @ 1.07208 SL=1.07308 R=0.00099
+  [2023-09-21 00:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-22 10:00:00+00:00] OPEN SHORT @ 1.06375 SL=1.06550 R=0.00175
+  [2023-09-25 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-25 12:00:00+00:00] OPEN SHORT @ 1.06240 SL=1.06387 R=0.00147
+  Bar 2500/12077 | Open: 0 | Closed: 34 | Equity: 104,224
+  [2023-09-26 15:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-27 13:00:00+00:00] OPEN SHORT @ 1.05233 SL=1.05420 R=0.00187
+  [2023-09-28 15:00:00+00:00] OPEN SHORT @ 1.05788 SL=1.05834 R=0.00046
+  [2023-09-29 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-29 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-29 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-02 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-02 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-02 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-02 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-02 15:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-02 16:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-04 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-05 18:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-06 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-06 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-10 08:00:00+00:00] OPEN SHORT @ 1.06059 SL=1.06126 R=0.00066
+  [2023-10-10 15:00:00+00:00] OPEN SHORT @ 1.06182 SL=1.06234 R=0.00052
+  [2023-10-12 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-12 13:00:00+00:00] OPEN LONG @ 1.05549 SL=1.05502 R=0.00047
+  [2023-10-13 10:00:00+00:00] OPEN LONG @ 1.05215 SL=1.05174 R=0.00042
+  [2023-10-13 15:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-17 15:00:00+00:00] OPEN SHORT @ 1.05956 SL=1.05990 R=0.00034
+  [2023-10-18 14:00:00+00:00] OPEN LONG @ 1.05416 SL=1.05345 R=0.00071
+  [2023-10-19 12:00:00+00:00] OPEN SHORT @ 1.05779 SL=1.05819 R=0.00040
+  [2023-10-19 17:00:00+00:00] OPEN SHORT @ 1.06002 SL=1.06130 R=0.00128
+  [2023-10-23 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-23 15:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-23 16:00:00+00:00] OPEN SHORT @ 1.06658 SL=1.06698 R=0.00041
+  [2023-10-24 14:00:00+00:00] REJECTED: slippage_too_high
+  Bar 3000/12077 | Open: 0 | Closed: 45 | Equity: 107,600
+  [2023-10-25 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-26 02:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-26 03:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-30 12:00:00+00:00] OPEN SHORT @ 1.06082 SL=1.06103 R=0.00021
+  [2023-10-31 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-31 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-31 10:00:00+00:00] OPEN SHORT @ 1.06658 SL=1.06728 R=0.00070
+  [2023-11-01 09:00:00+00:00] OPEN LONG @ 1.05526 SL=1.05476 R=0.00049
+  [2023-11-02 00:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-02 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-03 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-03 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-03 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-03 14:00:00+00:00] OPEN SHORT @ 1.07218 SL=1.07294 R=0.00076
+  [2023-11-07 09:00:00+00:00] OPEN LONG @ 1.06879 SL=1.06864 R=0.00015
+  [2023-11-08 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-09 19:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-09 20:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-14 11:00:00+00:00] REJECTED: bb_squeeze
+  [2023-11-14 12:00:00+00:00] OPEN SHORT @ 1.07243 SL=1.07351 R=0.00107
+  [2023-11-14 17:00:00+00:00] OPEN SHORT @ 1.08733 SL=1.08784 R=0.00051
+  [2023-11-21 02:00:00+00:00] OPEN LONG @ 1.09645 SL=1.09489 R=0.00155
+  [2023-11-21 18:00:00+00:00] OPEN LONG @ 1.09119 SL=1.09044 R=0.00075
+  [2023-11-22 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-22 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-22 15:00:00+00:00] REJECTED: slippage_too_high
+  Bar 3500/12077 | Open: 0 | Closed: 54 | Equity: 104,478
+  [2023-11-24 14:00:00+00:00] OPEN SHORT @ 1.09390 SL=1.09422 R=0.00032
+  [2023-11-28 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-28 15:00:00+00:00] OPEN SHORT @ 1.09834 SL=1.10038 R=0.00204
+  [2023-11-30 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-30 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-30 10:00:00+00:00] OPEN LONG @ 1.09215 SL=1.09116 R=0.00098
+  [2023-12-04 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-04 15:00:00+00:00] OPEN SHORT @ 1.08157 SL=1.08402 R=0.00245
+  [2023-12-05 16:00:00+00:00] OPEN SHORT @ 1.07877 SL=1.08135 R=0.00259
+  [2023-12-06 20:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-07 17:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-12 09:00:00+00:00] OPEN SHORT @ 1.07961 SL=1.08011 R=0.00050
+  [2023-12-15 16:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-19 14:00:00+00:00] OPEN LONG @ 1.09826 SL=1.09641 R=0.00185
+  [2023-12-20 12:00:00+00:00] REJECTED: slippage_too_high
+  Bar 4000/12077 | Open: 0 | Closed: 61 | Equity: 102,349
+  [2023-12-22 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-22 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-22 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-27 11:00:00+00:00] REJECTED: bb_squeeze
+  [2023-12-27 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-27 13:00:00+00:00] OPEN LONG @ 1.10749 SL=1.10618 R=0.00131
+  [2024-01-02 11:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-03 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-03 11:00:00+00:00] OPEN SHORT @ 1.09234 SL=1.09382 R=0.00148
+  [2024-01-04 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-05 09:00:00+00:00] OPEN SHORT @ 1.09139 SL=1.09269 R=0.00129
+  [2024-01-05 15:00:00+00:00] OPEN SHORT @ 1.09796 SL=1.10000 R=0.00204
+  [2024-01-08 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-09 15:00:00+00:00] OPEN LONG @ 1.09226 SL=1.09202 R=0.00024
+  [2024-01-10 15:00:00+00:00] OPEN SHORT @ 1.09690 SL=1.09736 R=0.00046
+  [2024-01-11 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-16 00:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-16 02:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-16 03:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-17 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-22 02:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-23 06:00:00+00:00] REJECTED: slippage_too_high
+  Bar 4500/12077 | Open: 0 | Closed: 67 | Equity: 104,968
+  [2024-01-23 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-23 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-24 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-24 10:00:00+00:00] OPEN SHORT @ 1.09008 SL=1.09123 R=0.00115
+  [2024-01-25 15:00:00+00:00] OPEN LONG @ 1.08350 SL=1.08315 R=0.00035
+  [2024-01-29 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-29 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-29 14:00:00+00:00] OPEN LONG @ 1.08104 SL=1.08062 R=0.00041
+  [2024-01-31 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-31 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-01 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-01 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-01 18:00:00+00:00] OPEN SHORT @ 1.08722 SL=1.08799 R=0.00077
+  [2024-02-02 13:00:00+00:00] OPEN LONG @ 1.08117 SL=1.08066 R=0.00051
+  [2024-02-05 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-05 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-05 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-05 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-08 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-12 00:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-12 07:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-13 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-13 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-13 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-15 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-15 14:00:00+00:00] OPEN SHORT @ 1.07774 SL=1.07851 R=0.00077
+  [2024-02-20 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-20 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-20 14:00:00+00:00] REJECTED: slippage_too_high
+  Bar 5000/12077 | Open: 0 | Closed: 73 | Equity: 102,595
+  [2024-02-22 00:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-26 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-26 13:00:00+00:00] OPEN LONG @ 1.08620 SL=1.08520 R=0.00099
+  [2024-02-28 05:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-28 06:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-28 08:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-28 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-29 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-06 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-06 13:00:00+00:00] OPEN SHORT @ 1.08866 SL=1.08881 R=0.00015
+  [2024-03-07 18:00:00+00:00] OPEN LONG @ 1.09466 SL=1.09257 R=0.00209
+  [2024-03-14 13:00:00+00:00] OPEN LONG @ 1.09165 SL=1.09114 R=0.00051
+  [2024-03-18 17:00:00+00:00] REJECTED: bb_squeeze
+  [2024-03-19 07:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-20 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-20 18:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-20 19:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-20 20:00:00+00:00] REJECTED: slippage_too_high
+  Bar 5500/12077 | Open: 0 | Closed: 77 | Equity: 101,240
+  [2024-03-21 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-21 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-27 14:00:00+00:00] REJECTED: bb_squeeze
+  [2024-03-28 08:00:00+00:00] OPEN LONG @ 1.07963 SL=1.07925 R=0.00039
+  [2024-04-01 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-01 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-01 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-03 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-03 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-03 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-03 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-05 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-05 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-10 12:00:00+00:00] OPEN LONG @ 1.07848 SL=1.07803 R=0.00045
+  [2024-04-15 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-15 17:00:00+00:00] OPEN SHORT @ 1.06295 SL=1.06493 R=0.00198
+  [2024-04-17 17:00:00+00:00] OPEN SHORT @ 1.06692 SL=1.06733 R=0.00042
+  Bar 6000/12077 | Open: 0 | Closed: 81 | Equity: 99,996
+  [2024-04-23 07:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-23 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-23 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-25 06:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-25 08:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-26 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-26 15:00:00+00:00] OPEN LONG @ 1.06903 SL=1.06752 R=0.00152
+  [2024-04-30 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-01 18:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-03 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-03 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-06 12:00:00+00:00] REJECTED: bb_squeeze
+  [2024-05-06 13:00:00+00:00] REJECTED: bb_squeeze
+  [2024-05-09 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-10 13:00:00+00:00] REJECTED: bb_squeeze
+  [2024-05-13 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-13 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-15 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-15 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-15 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-15 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-17 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-17 10:00:00+00:00] REJECTED: slippage_too_high
+  Bar 6500/12077 | Open: 0 | Closed: 82 | Equity: 100,195
+  [2024-05-22 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-22 18:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-23 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-24 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-24 11:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-24 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-27 10:00:00+00:00] REJECTED: bb_squeeze
+  [2024-05-28 03:00:00+00:00] REJECTED: bb_squeeze
+  [2024-05-29 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-29 15:00:00+00:00] OPEN LONG @ 1.08151 SL=1.08104 R=0.00047
+  [2024-05-30 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-31 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-03 14:00:00+00:00] OPEN SHORT @ 1.08724 SL=1.08861 R=0.00138
+  [2024-06-07 12:00:00+00:00] OPEN LONG @ 1.08362 SL=1.08269 R=0.00093
+  [2024-06-12 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-12 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-12 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-12 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-13 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-17 18:00:00+00:00] REJECTED: slippage_too_high
+  Bar 7000/12077 | Open: 0 | Closed: 85 | Equity: 99,483
+  [2024-06-18 13:00:00+00:00] OPEN SHORT @ 1.07485 SL=1.07538 R=0.00053
+  [2024-06-20 08:00:00+00:00] REJECTED: spread_too_wide
+  [2024-06-20 11:00:00+00:00] OPEN LONG @ 1.07188 SL=1.07151 R=0.00037
+  [2024-06-21 07:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-21 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-24 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-24 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-24 11:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-24 12:00:00+00:00] OPEN SHORT @ 1.07381 SL=1.07397 R=0.00016
+  [2024-06-25 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-25 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-25 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-26 07:00:00+00:00] REJECTED: bb_squeeze
+  [2024-06-26 09:00:00+00:00] OPEN LONG @ 1.06924 SL=1.06877 R=0.00047
+  [2024-06-27 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-27 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-30 23:00:00+00:00] OPEN SHORT @ 1.07368 SL=1.07439 R=0.00071
+  [2024-07-03 12:00:00+00:00] OPEN SHORT @ 1.07763 SL=1.07814 R=0.00051
+  [2024-07-04 14:00:00+00:00] REJECTED: bb_squeeze
+  [2024-07-04 15:00:00+00:00] REJECTED: bb_squeeze
+  [2024-07-04 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-05 19:00:00+00:00] REJECTED: bb_squeeze
+  Bar 7500/12077 | Open: 0 | Closed: 91 | Equity: 98,165
+  [2024-07-18 17:00:00+00:00] OPEN LONG @ 1.09106 SL=1.09065 R=0.00041
+  [2024-07-23 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-23 11:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-29 11:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-29 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-29 13:00:00+00:00] OPEN SHORT @ 1.08136 SL=1.08276 R=0.00140
+  [2024-07-31 13:00:00+00:00] OPEN SHORT @ 1.08464 SL=1.08542 R=0.00078
+  [2024-08-01 07:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-01 08:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-01 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-02 10:00:00+00:00] OPEN SHORT @ 1.08265 SL=1.08294 R=0.00029
+  [2024-08-08 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-08 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-13 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-13 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-13 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-13 17:00:00+00:00] OPEN SHORT @ 1.09786 SL=1.09819 R=0.00033
+  Bar 8000/12077 | Open: 0 | Closed: 96 | Equity: 98,101
+  [2024-08-15 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-15 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-20 13:00:00+00:00] REJECTED: bb_squeeze
+  [2024-08-20 14:00:00+00:00] OPEN LONG @ 1.11155 SL=1.11014 R=0.00141
+  [2024-08-21 15:00:00+00:00] REJECTED: bb_squeeze
+  [2024-08-21 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-21 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-21 18:00:00+00:00] OPEN LONG @ 1.11653 SL=1.11450 R=0.00203
+  [2024-08-22 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-22 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-23 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-23 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-23 17:00:00+00:00] OPEN LONG @ 1.11966 SL=1.11732 R=0.00234
+  [2024-08-28 05:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-28 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-28 11:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-28 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-30 15:00:00+00:00] REJECTED: bb_squeeze
+  [2024-08-30 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-30 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-03 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-03 11:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-04 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-04 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-05 08:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-09 08:00:00+00:00] OPEN LONG @ 1.10516 SL=1.10478 R=0.00038
+  [2024-09-12 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-12 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-12 18:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-12 19:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-12 20:00:00+00:00] REJECTED: slippage_too_high
+  Bar 8500/12077 | Open: 0 | Closed: 100 | Equity: 98,332
+  [2024-09-16 06:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-17 08:00:00+00:00] REJECTED: bb_squeeze
+  [2024-09-23 07:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-23 08:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-25 15:00:00+00:00] OPEN LONG @ 1.11478 SL=1.11441 R=0.00037
+  [2024-09-26 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-27 07:00:00+00:00] OPEN LONG @ 1.11366 SL=1.11272 R=0.00094
+  [2024-09-27 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-30 08:00:00+00:00] OPEN SHORT @ 1.12075 SL=1.12132 R=0.00057
+  [2024-10-01 08:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-01 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-01 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-01 11:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-01 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-02 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-03 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-04 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-04 15:00:00+00:00] OPEN SHORT @ 1.09617 SL=1.09823 R=0.00206
+  [2024-10-10 14:00:00+00:00] REJECTED: bb_squeeze
+  [2024-10-10 15:00:00+00:00] REJECTED: bb_squeeze
+  [2024-10-10 16:00:00+00:00] OPEN SHORT @ 1.09091 SL=1.09271 R=0.00181
+  Bar 9000/12077 | Open: 0 | Closed: 105 | Equity: 98,275
+  [2024-10-16 18:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-17 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-17 16:00:00+00:00] OPEN SHORT @ 1.08275 SL=1.08463 R=0.00188
+  [2024-10-18 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-21 16:00:00+00:00] OPEN SHORT @ 1.08206 SL=1.08339 R=0.00132
+  [2024-10-23 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-23 11:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-24 17:00:00+00:00] OPEN SHORT @ 1.08217 SL=1.08286 R=0.00069
+  [2024-10-29 12:00:00+00:00] OPEN LONG @ 1.07801 SL=1.07736 R=0.00065
+  [2024-10-30 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-30 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-30 16:00:00+00:00] OPEN SHORT @ 1.08628 SL=1.08715 R=0.00087
+  [2024-10-31 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-05 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-05 16:00:00+00:00] OPEN LONG @ 1.09237 SL=1.09107 R=0.00130
+  [2024-11-06 00:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-06 01:00:00+00:00] OPEN LONG @ 1.08412 SL=1.08231 R=0.00180
+  [2024-11-07 15:00:00+00:00] OPEN SHORT @ 1.08122 SL=1.08308 R=0.00186
+  [2024-11-08 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-08 17:00:00+00:00] OPEN LONG @ 1.07145 SL=1.06894 R=0.00250
+  [2024-11-12 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-12 10:00:00+00:00] OPEN SHORT @ 1.06195 SL=1.06340 R=0.00146
+  Bar 9500/12077 | Open: 1 | Closed: 114 | Equity: 96,231
+  [2024-11-12 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-13 17:00:00+00:00] OPEN SHORT @ 1.05697 SL=1.06010 R=0.00312
+  [2024-11-18 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-18 18:00:00+00:00] OPEN SHORT @ 1.05991 SL=1.06031 R=0.00040
+  [2024-11-20 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-20 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-21 17:00:00+00:00] OPEN SHORT @ 1.04878 SL=1.05152 R=0.00274
+  [2024-11-27 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-29 06:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-02 02:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-05 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-05 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-05 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-06 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-10 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-10 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-10 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-11 07:00:00+00:00] REJECTED: slippage_too_high
+  Bar 10000/12077 | Open: 0 | Closed: 118 | Equity: 96,379
+  [2024-12-18 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-18 19:00:00+00:00] OPEN LONG @ 1.03810 SL=1.03748 R=0.00062
+  [2024-12-20 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-20 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-20 18:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-27 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-30 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-30 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-30 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-31 14:00:00+00:00] OPEN LONG @ 1.03796 SL=1.03753 R=0.00044
+  [2025-01-02 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-02 12:00:00+00:00] OPEN LONG @ 1.03208 SL=1.03169 R=0.00039
+  [2025-01-06 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-06 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-06 09:00:00+00:00] OPEN SHORT @ 1.03576 SL=1.03727 R=0.00151
+  [2025-01-08 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-08 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-10 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-10 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-10 15:00:00+00:00] OPEN LONG @ 1.02553 SL=1.02203 R=0.00350
+  Bar 10500/12077 | Open: 1 | Closed: 122 | Equity: 95,241
+  [2025-01-14 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-14 16:00:00+00:00] OPEN SHORT @ 1.02913 SL=1.03061 R=0.00148
+  [2025-01-15 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-17 21:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-20 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-20 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-20 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-22 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-22 10:00:00+00:00] OPEN SHORT @ 1.04506 SL=1.04612 R=0.00106
+  [2025-01-24 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-24 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-27 23:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-29 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-29 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-29 11:00:00+00:00] OPEN LONG @ 1.04055 SL=1.03971 R=0.00084
+  [2025-01-30 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-03 00:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-03 01:00:00+00:00] OPEN LONG @ 1.02420 SL=1.02151 R=0.00269
+  [2025-02-04 15:00:00+00:00] OPEN SHORT @ 1.03811 SL=1.03898 R=0.00087
+  [2025-02-05 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-05 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-06 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-06 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-07 16:00:00+00:00] OPEN LONG @ 1.03326 SL=1.03251 R=0.00076
+  Bar 11000/12077 | Open: 0 | Closed: 129 | Equity: 94,886
+  [2025-02-11 02:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-11 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-11 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-11 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-12 17:00:00+00:00] OPEN SHORT @ 1.04275 SL=1.04315 R=0.00039
+  [2025-02-13 04:00:00+00:00] OPEN SHORT @ 1.04352 SL=1.04401 R=0.00049
+  [2025-02-13 20:00:00+00:00] OPEN SHORT @ 1.04623 SL=1.04704 R=0.00080
+  [2025-02-14 14:00:00+00:00] OPEN SHORT @ 1.05100 SL=1.05192 R=0.00093
+  [2025-02-18 04:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-18 05:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-19 10:00:00+00:00] OPEN LONG @ 1.04272 SL=1.04202 R=0.00070
+  [2025-02-19 16:00:00+00:00] OPEN LONG @ 1.04088 SL=1.04067 R=0.00021
+  [2025-02-20 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-20 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-20 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-20 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-20 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-24 01:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-24 02:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-25 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-27 13:00:00+00:00] OPEN LONG @ 1.04262 SL=1.04214 R=0.00048
+  [2025-02-28 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-28 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-03 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-04 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-04 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-04 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-04 12:00:00+00:00] OPEN SHORT @ 1.05543 SL=1.05596 R=0.00053
+  [2025-03-06 14:00:00+00:00] REJECTED: slippage_too_high
+  Bar 11500/12077 | Open: 0 | Closed: 137 | Equity: 92,749
+  [2025-03-13 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-13 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-14 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-14 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-14 12:00:00+00:00] OPEN LONG @ 1.08977 SL=1.08748 R=0.00229
+  [2025-03-17 10:00:00+00:00] REJECTED: bb_squeeze
+  [2025-03-17 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-17 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-17 15:00:00+00:00] OPEN LONG @ 1.09250 SL=1.09066 R=0.00184
+  [2025-03-18 08:00:00+00:00] REJECTED: duplicate_instrument
+  [2025-03-18 09:00:00+00:00] REJECTED: duplicate_instrument
+  [2025-03-19 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-20 08:00:00+00:00] OPEN LONG @ 1.08680 SL=1.08644 R=0.00036
+  [2025-03-26 18:00:00+00:00] OPEN SHORT @ 1.07564 SL=1.07782 R=0.00218
+  [2025-03-28 14:00:00+00:00] OPEN SHORT @ 1.08264 SL=1.08371 R=0.00108
+  [2025-04-01 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-02 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-02 14:00:00+00:00] OPEN SHORT @ 1.08593 SL=1.08643 R=0.00050
+  [2025-04-02 23:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-03 01:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-03 06:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-09 04:00:00+00:00] REJECTED: slippage_too_high
+  Bar 12000/12077 | Open: 0 | Closed: 143 | Equity: 92,260
+============================================================
+  ARABESQUE BACKTEST — EURUSD (in_sample)
+============================================================
+  Period     : 2023-05-23 → 2025-04-02
+  Bars       : 12077
+  Signals    : 720 generated, 577 rejected
+
+  TRADES     : 143  (min 30 = OK)
+  Win rate   : 37.1%
+  Avg win    : +1.35R
+  Avg loss   : -0.99R
+
+  EXPECTANCY : -0.122R  (-61 cash)
+  Total R    : -17.4R  (-8,719 cash)
+  Median R   : -1.00R
+  Best/Worst : +7.79R / -1.00R
+
+  PROFIT FACTOR : 0.80
+
+  MAX DD     : 17.4%  (17,357 cash)
+  DD duration: 102 trades
+
+  PROP FIRM  :
+    Jours disqualifiants : 2
+    Pire DD daily        : 1.0%
+      2025-03-28: daily=0.5% total=8.2%
+      2025-04-02: daily=0.5% total=8.7%
+
+  TIMING     :
+    Avg bars   : 3  (wins: 4, losses: 3)
+
+  EXITS      :
+    exit_sl                   : 136 trades  avg -0.25R
+    exit_tp                   :   6 trades  avg +2.69R
+    exit_deadfish             :   1 trades  avg -0.13R
+
+  REJECTIONS :
+    slippage_too_high         : 372
+    cooldown                  : 181
+    bb_squeeze                :  21
+    duplicate_instrument      :   2
+    spread_too_wide           :   1
+
+  SLIPPAGE SENSITIVITY :
+    1.0x  slippage : expectancy = -0.1519R
+    1.5x  slippage : expectancy = -0.1669R
+    2.0x  slippage : expectancy = -0.1819R
+    3.0x  slippage : expectancy = -0.2119R
+============================================================
+
+--- OUT-OF-SAMPLE ---
+  [2025-04-28 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-28 18:00:00+00:00] OPEN SHORT @ 1.14157 SL=1.14255 R=0.00098
+  [2025-04-30 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-30 20:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-01 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-01 15:00:00+00:00] OPEN LONG @ 1.12851 SL=1.12672 R=0.00179
+  [2025-05-02 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-07 19:00:00+00:00] OPEN LONG @ 1.13119 SL=1.13069 R=0.00050
+  [2025-05-08 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-08 16:00:00+00:00] OPEN LONG @ 1.12295 SL=1.12210 R=0.00085
+  [2025-05-12 07:00:00+00:00] OPEN LONG @ 1.11109 SL=1.11008 R=0.00101
+  [2025-05-13 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-13 15:00:00+00:00] OPEN SHORT @ 1.11773 SL=1.11829 R=0.00056
+  Bar 500/5176 | Open: 0 | Closed: 6 | Equity: 97,642
+  [2025-05-14 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-14 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-16 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-16 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-16 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-19 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-19 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-19 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-19 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-20 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-21 02:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-21 03:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-22 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-27 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-28 02:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-28 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-28 23:00:00+00:00] OPEN LONG @ 1.12318 SL=1.12172 R=0.00146
+  [2025-05-29 12:00:00+00:00] OPEN SHORT @ 1.13547 SL=1.13598 R=0.00051
+  [2025-06-02 06:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-02 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-02 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-03 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-04 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-04 15:00:00+00:00] OPEN LONG @ 1.14282 SL=1.14022 R=0.00260
+  [2025-06-05 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-06 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-06 13:00:00+00:00] OPEN LONG @ 1.13968 SL=1.13721 R=0.00247
+  [2025-06-11 12:00:00+00:00] OPEN SHORT @ 1.14644 SL=1.14925 R=0.00281
+  Bar 1000/5176 | Open: 0 | Closed: 11 | Equity: 97,611
+  [2025-06-12 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-12 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-12 10:00:00+00:00] OPEN SHORT @ 1.15973 SL=1.16063 R=0.00090
+  [2025-06-17 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-17 17:00:00+00:00] OPEN LONG @ 1.14900 SL=1.14768 R=0.00131
+  [2025-06-19 01:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-20 00:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-23 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-23 17:00:00+00:00] OPEN SHORT @ 1.15730 SL=1.15803 R=0.00073
+  [2025-06-25 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-25 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-25 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-25 23:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-30 16:00:00+00:00] OPEN LONG @ 1.17684 SL=1.17414 R=0.00270
+  [2025-07-02 11:00:00+00:00] OPEN LONG @ 1.17516 SL=1.17493 R=0.00023
+  [2025-07-03 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-07 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-07 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-07 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-07 16:00:00+00:00] REJECTED: slippage_too_high
+  Bar 1500/5176 | Open: 0 | Closed: 16 | Equity: 104,783
+  [2025-07-14 06:00:00+00:00] REJECTED: bb_squeeze
+  [2025-07-15 15:00:00+00:00] OPEN SHORT @ 1.16203 SL=1.16428 R=0.00225
+  [2025-07-18 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-21 11:00:00+00:00] OPEN SHORT @ 1.16706 SL=1.16742 R=0.00036
+  [2025-07-22 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-22 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-23 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-23 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-25 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-25 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-28 07:00:00+00:00] OPEN LONG @ 1.16803 SL=1.16775 R=0.00028
+  [2025-07-30 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-30 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-01 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-01 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-01 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-06 11:00:00+00:00] OPEN SHORT @ 1.16070 SL=1.16185 R=0.00115
+  Bar 2000/5176 | Open: 0 | Closed: 20 | Equity: 104,373
+  [2025-08-11 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-12 15:00:00+00:00] OPEN SHORT @ 1.16745 SL=1.17013 R=0.00268
+  [2025-08-13 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-13 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-13 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-14 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-14 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-14 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-14 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-15 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-18 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-21 15:00:00+00:00] OPEN LONG @ 1.16099 SL=1.16028 R=0.00070
+  [2025-08-22 14:00:00+00:00] OPEN SHORT @ 1.17197 SL=1.17247 R=0.00050
+  [2025-08-25 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-25 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-27 04:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-27 07:00:00+00:00] OPEN LONG @ 1.16083 SL=1.15997 R=0.00087
+  [2025-08-28 10:00:00+00:00] OPEN SHORT @ 1.16734 SL=1.16795 R=0.00061
+  [2025-08-28 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-29 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-29 16:00:00+00:00] OPEN LONG @ 1.17049 SL=1.16862 R=0.00187
+  [2025-09-02 07:00:00+00:00] OPEN LONG @ 1.16503 SL=1.16468 R=0.00035
+  [2025-09-02 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-05 12:00:00+00:00] OPEN SHORT @ 1.17363 SL=1.17472 R=0.00108
+  Bar 2500/5176 | Open: 0 | Closed: 28 | Equity: 102,969
+  [2025-09-09 17:00:00+00:00] OPEN LONG @ 1.17132 SL=1.17100 R=0.00032
+  [2025-09-11 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-11 15:00:00+00:00] OPEN LONG @ 1.17365 SL=1.17161 R=0.00204
+  [2025-09-15 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-16 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-16 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-16 09:00:00+00:00] OPEN LONG @ 1.18182 SL=1.18038 R=0.00144
+  [2025-09-16 14:00:00+00:00] OPEN LONG @ 1.18562 SL=1.18339 R=0.00223
+  [2025-09-18 04:00:00+00:00] OPEN LONG @ 1.18018 SL=1.17963 R=0.00055
+  [2025-09-18 13:00:00+00:00] OPEN LONG @ 1.17712 SL=1.17521 R=0.00191
+  [2025-09-22 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-22 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-24 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-24 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-24 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-24 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-24 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-25 12:00:00+00:00] OPEN LONG @ 1.17035 SL=1.16914 R=0.00121
+  [2025-09-25 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-29 00:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-29 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-30 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-01 06:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-02 14:00:00+00:00] OPEN LONG @ 1.17172 SL=1.17081 R=0.00091
+  [2025-10-06 06:00:00+00:00] OPEN LONG @ 1.16980 SL=1.16931 R=0.00049
+  [2025-10-07 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-07 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-07 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-08 01:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-08 02:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-08 03:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-08 04:00:00+00:00] REJECTED: slippage_too_high
+  Bar 3000/5176 | Open: 0 | Closed: 37 | Equity: 100,654
+  [2025-10-10 20:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-14 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-15 20:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-16 00:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-16 01:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-16 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-16 18:00:00+00:00] OPEN LONG @ 1.16939 SL=1.16757 R=0.00182
+  [2025-10-21 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-22 10:00:00+00:00] REJECTED: bb_squeeze
+  [2025-10-22 11:00:00+00:00] REJECTED: bb_squeeze
+  [2025-10-22 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-29 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-29 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-30 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-31 13:00:00+00:00] REJECTED: bb_squeeze
+  [2025-10-31 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-31 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-31 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-31 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-04 14:00:00+00:00] REJECTED: slippage_too_high
+  Bar 3500/5176 | Open: 0 | Closed: 38 | Equity: 100,985
+  [2025-11-06 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-06 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-06 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-19 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-19 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-19 17:00:00+00:00] OPEN LONG @ 1.15375 SL=1.15282 R=0.00093
+  [2025-11-21 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-24 12:00:00+00:00] OPEN SHORT @ 1.15493 SL=1.15539 R=0.00045
+  [2025-11-25 13:00:00+00:00] OPEN SHORT @ 1.15613 SL=1.15647 R=0.00034
+  [2025-11-28 09:00:00+00:00] OPEN LONG @ 1.15720 SL=1.15691 R=0.00029
+  [2025-12-01 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-01 10:00:00+00:00] OPEN SHORT @ 1.16286 SL=1.16331 R=0.00045
+  Bar 4000/5176 | Open: 0 | Closed: 43 | Equity: 99,540
+  [2025-12-08 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-10 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-10 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-10 20:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-10 21:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-16 13:00:00+00:00] REJECTED: bb_squeeze
+  [2025-12-16 14:00:00+00:00] OPEN LONG @ 1.18043 SL=1.17865 R=0.00178
+  [2025-12-17 06:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-18 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-22 14:00:00+00:00] OPEN LONG @ 1.17654 SL=1.17521 R=0.00133
+  [2025-12-26 02:00:00+00:00] REJECTED: bb_squeeze
+  [2025-12-30 20:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-31 08:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-02 09:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-02 10:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-05 02:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-05 03:00:00+00:00] OPEN LONG @ 1.16803 SL=1.16737 R=0.00065
+  Bar 4500/5176 | Open: 0 | Closed: 46 | Equity: 99,492
+  [2026-01-08 14:00:00+00:00] REJECTED: bb_squeeze
+  [2026-01-08 16:00:00+00:00] REJECTED: bb_squeeze
+  [2026-01-08 17:00:00+00:00] REJECTED: bb_squeeze
+  [2026-01-08 18:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-09 14:00:00+00:00] REJECTED: bb_squeeze
+  [2026-01-09 17:00:00+00:00] REJECTED: bb_squeeze
+  [2026-01-12 05:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-12 07:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-12 08:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-19 00:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-20 03:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-20 04:00:00+00:00] OPEN SHORT @ 1.16680 SL=1.16709 R=0.00029
+  [2026-01-22 15:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-22 16:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-22 17:00:00+00:00] OPEN LONG @ 1.17502 SL=1.17339 R=0.00163
+  [2026-01-23 18:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-23 19:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-23 20:00:00+00:00] OPEN LONG @ 1.18267 SL=1.18049 R=0.00218
+  [2026-01-27 12:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-27 13:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-27 14:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-27 15:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-27 16:00:00+00:00] OPEN LONG @ 1.19842 SL=1.19535 R=0.00307
+  [2026-01-30 17:00:00+00:00] OPEN LONG @ 1.18775 SL=1.18687 R=0.00088
+  Bar 5000/5176 | Open: 0 | Closed: 51 | Equity: 100,625
+  [2026-02-06 14:00:00+00:00] OPEN SHORT @ 1.18211 SL=1.18298 R=0.00087
+  [2026-02-09 06:00:00+00:00] REJECTED: slippage_too_high
+  [2026-02-09 07:00:00+00:00] REJECTED: slippage_too_high
+  [2026-02-09 08:00:00+00:00] OPEN SHORT @ 1.18660 SL=1.18693 R=0.00033
+  [2026-02-09 13:00:00+00:00] REJECTED: slippage_too_high
+  [2026-02-09 14:00:00+00:00] OPEN SHORT @ 1.19210 SL=1.19236 R=0.00025
+  [2026-02-11 13:00:00+00:00] REJECTED: slippage_too_high
+  [2026-02-11 14:00:00+00:00] REJECTED: slippage_too_high
+  [2026-02-11 15:00:00+00:00] REJECTED: slippage_too_high
+============================================================
+  ARABESQUE BACKTEST — EURUSD (out_of_sample)
+============================================================
+  Period     : 2025-04-28 → 2026-02-09
+  Bars       : 5176
+  Signals    : 290 generated, 236 rejected
+
+  TRADES     : 54  (min 30 = OK)
+  Win rate   : 42.6%
+  Avg win    : +1.35R
+  Avg loss   : -1.00R
+
+  EXPECTANCY : +0.002R  (+1 cash)
+  Total R    : +0.1R  (+62 cash)
+  Median R   : -1.00R
+  Best/Worst : +15.32R / -1.00R
+
+  PROFIT FACTOR : 1.00
+
+  MAX DD     : 6.4%  (6,381 cash)
+  DD duration: 29 trades
+
+  PROP FIRM  :
+    Jours disqualifiants : 0
+    Pire DD daily        : 1.0%
+
+  TIMING     :
+    Avg bars   : 3  (wins: 5, losses: 2)
+
+  EXITS      :
+    exit_sl                   :  52 trades  avg -0.07R
+    exit_tp                   :   2 trades  avg +1.97R
+
+  REJECTIONS :
+    slippage_too_high         : 151
+    cooldown                  :  74
+    bb_squeeze                :  11
+
+  SLIPPAGE SENSITIVITY :
+    1.0x  slippage : expectancy = -0.0277R
+    1.5x  slippage : expectancy = -0.0427R
+    2.0x  slippage : expectancy = -0.0577R
+    3.0x  slippage : expectancy = -0.0877R
+============================================================
+
+============================================================
+  COMPARISON IN vs OUT
+============================================================
+  Metric                       In-Sample   Out-Sample        Delta
+  -------------------------------------------------------------
+  Trades                             143           54             
+  Win Rate                         37.1%        42.6%        +5.5%
+  Expectancy (R)                  -0.122       +0.002       +0.124
+  Profit Factor                     0.80         1.00        +0.20
+  Max DD %                         17.4%         6.4%       -11.0%
+  Disqual Days                         2            0             
+============================================================
+
+============================================================
+  ARABESQUE BACKTEST — GBPUSD (GBPUSD=X)
+  Strategy: COMBINED
+============================================================
+  Downloading data...
+  Loaded 17254 bars from 2023-05-01 23:00:00+00:00 to 2026-02-13 22:00:00+00:00
+  Indicators computed
+  In-sample:  12077 bars (2023-05-01 → 2025-04-15)
+  Out-sample: 5177 bars (2025-04-15 → 2026-02-13)
+
+--- IN-SAMPLE ---
+  [2023-05-12 15:00:00+00:00] OPEN SHORT @ 1.24598 SL=1.24900 R=0.00302
+  [2023-05-17 06:00:00+00:00] REJECTED: slippage_too_high
+  [2023-05-17 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-05-17 08:00:00+00:00] OPEN LONG @ 1.24285 SL=1.24214 R=0.00071
+  [2023-05-18 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-05-18 14:00:00+00:00] OPEN SHORT @ 1.24061 SL=1.24335 R=0.00274
+  [2023-05-23 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-05-23 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-05-23 10:00:00+00:00] REJECTED: slippage_too_high
+  [2023-05-25 16:00:00+00:00] OPEN LONG @ 1.23124 SL=1.23083 R=0.00041
+  [2023-05-26 10:00:00+00:00] OPEN SHORT @ 1.23774 SL=1.23817 R=0.00043
+  [2023-05-30 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-05-30 10:00:00+00:00] OPEN SHORT @ 1.24258 SL=1.24309 R=0.00051
+  Bar 500/12077 | Open: 0 | Closed: 6 | Equity: 102,889
+  [2023-05-31 19:00:00+00:00] OPEN SHORT @ 1.24392 SL=1.24460 R=0.00068
+  [2023-06-01 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-01 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-01 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-01 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-01 15:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-02 15:00:00+00:00] OPEN LONG @ 1.24666 SL=1.24547 R=0.00119
+  [2023-06-06 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-07 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-07 13:00:00+00:00] OPEN SHORT @ 1.24979 SL=1.25017 R=0.00037
+  [2023-06-08 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-08 13:00:00+00:00] OPEN SHORT @ 1.25148 SL=1.25267 R=0.00118
+  [2023-06-09 12:00:00+00:00] REJECTED: bb_squeeze
+  [2023-06-09 13:00:00+00:00] REJECTED: bb_squeeze
+  [2023-06-09 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-12 09:00:00+00:00] REJECTED: bb_squeeze
+  [2023-06-12 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-12 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-12 15:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-12 16:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-13 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-13 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-13 12:00:00+00:00] OPEN SHORT @ 1.25933 SL=1.26061 R=0.00128
+  [2023-06-14 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-14 10:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-14 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-14 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-14 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-14 14:00:00+00:00] OPEN LONG @ 1.26964 SL=1.26760 R=0.00203
+  [2023-06-16 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-16 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-19 16:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-20 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-20 13:00:00+00:00] OPEN LONG @ 1.27268 SL=1.27201 R=0.00066
+  [2023-06-21 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-21 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-21 10:00:00+00:00] OPEN LONG @ 1.27032 SL=1.26904 R=0.00129
+  [2023-06-27 06:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-28 09:00:00+00:00] OPEN LONG @ 1.26981 SL=1.26951 R=0.00030
+  [2023-06-28 14:00:00+00:00] OPEN LONG @ 1.26138 SL=1.26061 R=0.00077
+  Bar 1000/12077 | Open: 0 | Closed: 16 | Equity: 109,660
+  [2023-06-29 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-29 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-06-30 12:00:00+00:00] OPEN SHORT @ 1.26841 SL=1.26922 R=0.00082
+  [2023-07-04 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-04 13:00:00+00:00] OPEN SHORT @ 1.27265 SL=1.27385 R=0.00119
+  [2023-07-06 10:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-06 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-07 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-07 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-07 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-07 15:00:00+00:00] OPEN SHORT @ 1.28372 SL=1.28422 R=0.00050
+  [2023-07-10 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-12 14:00:00+00:00] OPEN LONG @ 1.29999 SL=1.29697 R=0.00302
+  [2023-07-13 10:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-13 12:00:00+00:00] OPEN LONG @ 1.30833 SL=1.30540 R=0.00293
+  [2023-07-18 16:00:00+00:00] OPEN LONG @ 1.30372 SL=1.30276 R=0.00096
+  [2023-07-19 06:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-19 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-25 18:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-25 19:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-26 10:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-26 18:00:00+00:00] OPEN SHORT @ 1.29542 SL=1.29581 R=0.00039
+  [2023-07-27 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-27 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-07-27 18:00:00+00:00] OPEN LONG @ 1.28043 SL=1.27980 R=0.00064
+  Bar 1500/12077 | Open: 0 | Closed: 24 | Equity: 111,469
+  [2023-08-01 01:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-01 10:00:00+00:00] OPEN LONG @ 1.28001 SL=1.27962 R=0.00040
+  [2023-08-01 15:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-02 12:00:00+00:00] OPEN LONG @ 1.27250 SL=1.27211 R=0.00038
+  [2023-08-04 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-04 15:00:00+00:00] OPEN SHORT @ 1.27722 SL=1.27841 R=0.00119
+  [2023-08-08 10:00:00+00:00] OPEN LONG @ 1.27227 SL=1.27179 R=0.00048
+  [2023-08-10 08:00:00+00:00] OPEN SHORT @ 1.27571 SL=1.27704 R=0.00132
+  [2023-08-10 17:00:00+00:00] OPEN LONG @ 1.26782 SL=1.26706 R=0.00075
+  [2023-08-14 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-15 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-16 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-17 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-22 07:00:00+00:00] OPEN SHORT @ 1.27945 SL=1.28011 R=0.00066
+  [2023-08-23 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-23 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-23 10:00:00+00:00] OPEN LONG @ 1.26311 SL=1.26227 R=0.00084
+  [2023-08-24 09:00:00+00:00] OPEN LONG @ 1.26722 SL=1.26668 R=0.00054
+  Bar 2000/12077 | Open: 0 | Closed: 33 | Equity: 111,190
+  [2023-08-29 01:00:00+00:00] REJECTED: slippage_too_high
+  [2023-08-30 10:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-01 14:00:00+00:00] OPEN LONG @ 1.26215 SL=1.26114 R=0.00100
+  [2023-09-05 06:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-05 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-05 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-05 09:00:00+00:00] OPEN LONG @ 1.25539 SL=1.25279 R=0.00260
+  [2023-09-11 04:00:00+00:00] OPEN SHORT @ 1.25184 SL=1.25222 R=0.00038
+  [2023-09-12 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-12 09:00:00+00:00] OPEN LONG @ 1.24723 SL=1.24633 R=0.00089
+  [2023-09-13 06:00:00+00:00] OPEN LONG @ 1.24484 SL=1.24451 R=0.00033
+  [2023-09-14 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-14 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-14 14:00:00+00:00] OPEN LONG @ 1.24191 SL=1.24005 R=0.00185
+  [2023-09-20 06:00:00+00:00] OPEN LONG @ 1.23557 SL=1.23416 R=0.00141
+  Bar 2500/12077 | Open: 0 | Closed: 40 | Equity: 109,137
+  [2023-09-26 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-28 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-28 10:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-28 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-09-29 06:00:00+00:00] OPEN SHORT @ 1.22432 SL=1.22489 R=0.00058
+  [2023-10-04 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-05 18:00:00+00:00] OPEN SHORT @ 1.21934 SL=1.21975 R=0.00041
+  [2023-10-06 10:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-06 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-10 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-10 15:00:00+00:00] OPEN SHORT @ 1.22859 SL=1.22910 R=0.00050
+  [2023-10-11 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-12 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-12 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-12 15:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-12 16:00:00+00:00] OPEN LONG @ 1.22034 SL=1.21987 R=0.00047
+  [2023-10-13 14:00:00+00:00] OPEN LONG @ 1.21423 SL=1.21328 R=0.00095
+  [2023-10-17 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-19 08:00:00+00:00] OPEN LONG @ 1.21075 SL=1.21006 R=0.00068
+  [2023-10-23 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-23 15:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-23 16:00:00+00:00] OPEN SHORT @ 1.22324 SL=1.22395 R=0.00071
+  [2023-10-24 14:00:00+00:00] OPEN LONG @ 1.21797 SL=1.21650 R=0.00147
+  Bar 3000/12077 | Open: 0 | Closed: 48 | Equity: 105,863
+  [2023-10-25 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-25 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-25 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-25 10:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-25 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-26 02:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-30 19:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-31 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-31 10:00:00+00:00] OPEN SHORT @ 1.21967 SL=1.21989 R=0.00022
+  [2023-11-01 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-02 00:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-03 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-03 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-03 14:00:00+00:00] OPEN SHORT @ 1.23400 SL=1.23449 R=0.00049
+  [2023-11-07 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-08 08:00:00+00:00] OPEN LONG @ 1.22611 SL=1.22591 R=0.00019
+  [2023-11-09 19:00:00+00:00] OPEN LONG @ 1.22234 SL=1.22130 R=0.00104
+  [2023-11-13 16:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-13 17:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-13 18:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-13 19:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-14 09:00:00+00:00] OPEN SHORT @ 1.23028 SL=1.23050 R=0.00022
+  [2023-11-14 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-14 15:00:00+00:00] OPEN SHORT @ 1.24550 SL=1.24781 R=0.00230
+  [2023-11-21 02:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-22 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-22 15:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-22 16:00:00+00:00] REJECTED: slippage_too_high
+  Bar 3500/12077 | Open: 0 | Closed: 54 | Equity: 103,491
+  [2023-11-24 10:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-24 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-24 12:00:00+00:00] OPEN LONG @ 1.25742 SL=1.25554 R=0.00189
+  [2023-11-27 12:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-28 16:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-30 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-30 10:00:00+00:00] OPEN LONG @ 1.26441 SL=1.26314 R=0.00127
+  [2023-12-04 15:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-06 19:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-06 20:00:00+00:00] OPEN LONG @ 1.25581 SL=1.25518 R=0.00063
+  [2023-12-08 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-11 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-13 19:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-13 20:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-14 13:00:00+00:00] OPEN SHORT @ 1.27267 SL=1.27325 R=0.00058
+  [2023-12-18 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-18 15:00:00+00:00] OPEN LONG @ 1.26439 SL=1.26342 R=0.00097
+  [2023-12-19 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-19 10:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-19 11:00:00+00:00] OPEN SHORT @ 1.27021 SL=1.27143 R=0.00122
+  [2023-12-20 07:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-20 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-20 10:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-20 12:00:00+00:00] REJECTED: slippage_too_high
+  Bar 4000/12077 | Open: 0 | Closed: 60 | Equity: 103,667
+  [2023-12-22 10:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-22 11:00:00+00:00] OPEN SHORT @ 1.27338 SL=1.27449 R=0.00111
+  [2023-12-26 20:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-27 15:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-27 16:00:00+00:00] OPEN LONG @ 1.27972 SL=1.27729 R=0.00242
+  [2023-12-28 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-28 18:00:00+00:00] REJECTED: slippage_too_high
+  [2023-12-29 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-02 11:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-02 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-02 13:00:00+00:00] OPEN LONG @ 1.26326 SL=1.26218 R=0.00108
+  [2024-01-04 08:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-04 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-05 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-05 16:00:00+00:00] OPEN SHORT @ 1.27350 SL=1.27718 R=0.00368
+  [2024-01-08 15:00:00+00:00] OPEN SHORT @ 1.27485 SL=1.27593 R=0.00109
+  [2024-01-11 01:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-16 00:00:00+00:00] OPEN LONG @ 1.26936 SL=1.26906 R=0.00030
+  [2024-01-23 06:00:00+00:00] REJECTED: slippage_too_high
+  Bar 4500/12077 | Open: 0 | Closed: 66 | Equity: 103,896
+  [2024-01-23 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-23 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-23 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-23 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-24 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-01-24 10:00:00+00:00] OPEN SHORT @ 1.27521 SL=1.27742 R=0.00220
+  [2024-01-31 14:00:00+00:00] OPEN SHORT @ 1.27383 SL=1.27463 R=0.00080
+  [2024-02-01 17:00:00+00:00] OPEN SHORT @ 1.27344 SL=1.27408 R=0.00065
+  [2024-02-02 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-02 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-02 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-02 16:00:00+00:00] OPEN LONG @ 1.26284 SL=1.26208 R=0.00075
+  [2024-02-05 11:00:00+00:00] OPEN LONG @ 1.25762 SL=1.25713 R=0.00049
+  [2024-02-06 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-06 18:00:00+00:00] OPEN SHORT @ 1.25985 SL=1.26019 R=0.00034
+  [2024-02-07 07:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-07 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-08 11:00:00+00:00] REJECTED: bb_squeeze
+  [2024-02-08 12:00:00+00:00] REJECTED: bb_squeeze
+  [2024-02-08 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-13 07:00:00+00:00] OPEN SHORT @ 1.26517 SL=1.26559 R=0.00041
+  [2024-02-13 12:00:00+00:00] OPEN SHORT @ 1.26749 SL=1.26788 R=0.00039
+  [2024-02-14 08:00:00+00:00] OPEN LONG @ 1.25589 SL=1.25422 R=0.00168
+  [2024-02-20 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-20 14:00:00+00:00] OPEN SHORT @ 1.26492 SL=1.26647 R=0.00156
+  Bar 5000/12077 | Open: 0 | Closed: 76 | Equity: 102,486
+  [2024-02-22 07:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-22 08:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-23 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-28 06:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-28 08:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-28 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-29 17:00:00+00:00] OPEN LONG @ 1.26194 SL=1.26145 R=0.00049
+  [2024-03-04 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-04 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-04 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-05 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-06 08:00:00+00:00] OPEN SHORT @ 1.27247 SL=1.27261 R=0.00014
+  [2024-03-06 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-06 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-07 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-07 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-07 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-07 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-07 18:00:00+00:00] OPEN LONG @ 1.28061 SL=1.27867 R=0.00194
+  [2024-03-12 08:00:00+00:00] OPEN LONG @ 1.27881 SL=1.27773 R=0.00108
+  [2024-03-12 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-14 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-14 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-19 07:00:00+00:00] REJECTED: bb_squeeze
+  [2024-03-20 18:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-20 19:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-20 20:00:00+00:00] OPEN SHORT @ 1.27863 SL=1.27901 R=0.00038
+  Bar 5500/12077 | Open: 0 | Closed: 81 | Equity: 103,112
+  [2024-03-28 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-01 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-01 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-01 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-03 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-03 15:00:00+00:00] OPEN SHORT @ 1.26308 SL=1.26364 R=0.00056
+  [2024-04-04 13:00:00+00:00] REJECTED: bb_squeeze
+  [2024-04-05 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-05 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-09 10:00:00+00:00] REJECTED: bb_squeeze
+  [2024-04-09 11:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-09 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-09 13:00:00+00:00] OPEN SHORT @ 1.26965 SL=1.27109 R=0.00144
+  [2024-04-10 12:00:00+00:00] OPEN LONG @ 1.26127 SL=1.25946 R=0.00181
+  [2024-04-11 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-17 06:00:00+00:00] REJECTED: slippage_too_high
+  Bar 6000/12077 | Open: 0 | Closed: 84 | Equity: 102,688
+  [2024-04-23 13:00:00+00:00] OPEN SHORT @ 1.24428 SL=1.24504 R=0.00076
+  [2024-04-25 06:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-25 07:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-25 08:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-26 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-29 04:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-29 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-30 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-01 18:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-01 20:00:00+00:00] OPEN LONG @ 1.25271 SL=1.24961 R=0.00310
+  [2024-05-03 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-06 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-07 17:00:00+00:00] OPEN LONG @ 1.25119 SL=1.25085 R=0.00034
+  [2024-05-13 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-13 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-14 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-14 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-15 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-15 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-15 14:00:00+00:00] OPEN SHORT @ 1.26459 SL=1.26663 R=0.00204
+  [2024-05-17 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-17 15:00:00+00:00] OPEN SHORT @ 1.26999 SL=1.27097 R=0.00098
+  Bar 6500/12077 | Open: 0 | Closed: 89 | Equity: 100,805
+  [2024-05-22 06:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-22 07:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-23 18:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-24 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-24 15:00:00+00:00] OPEN SHORT @ 1.27420 SL=1.27512 R=0.00092
+  [2024-05-29 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-29 15:00:00+00:00] OPEN LONG @ 1.27131 SL=1.27039 R=0.00092
+  [2024-05-30 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-31 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-03 14:00:00+00:00] OPEN SHORT @ 1.27713 SL=1.27856 R=0.00142
+  [2024-06-06 01:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-07 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-07 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-07 14:00:00+00:00] OPEN LONG @ 1.27239 SL=1.27152 R=0.00087
+  [2024-06-10 10:00:00+00:00] REJECTED: bb_squeeze
+  [2024-06-12 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-12 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-12 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-14 06:00:00+00:00] OPEN LONG @ 1.27366 SL=1.27290 R=0.00076
+  [2024-06-14 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-14 13:00:00+00:00] REJECTED: slippage_too_high
+  Bar 7000/12077 | Open: 0 | Closed: 94 | Equity: 100,438
+  [2024-06-19 08:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-19 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-20 11:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-20 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-20 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-20 15:00:00+00:00] OPEN LONG @ 1.26693 SL=1.26667 R=0.00026
+  [2024-06-21 13:00:00+00:00] OPEN SHORT @ 1.26323 SL=1.26498 R=0.00175
+  [2024-06-24 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-24 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-26 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-26 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-26 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-26 15:00:00+00:00] OPEN LONG @ 1.26237 SL=1.26185 R=0.00052
+  [2024-07-01 06:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-02 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-02 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-03 11:00:00+00:00] REJECTED: bb_squeeze
+  [2024-07-03 12:00:00+00:00] REJECTED: bb_squeeze
+  [2024-07-03 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-03 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-03 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-05 07:00:00+00:00] REJECTED: bb_squeeze
+  [2024-07-05 08:00:00+00:00] REJECTED: bb_squeeze
+  [2024-07-05 09:00:00+00:00] REJECTED: bb_squeeze
+  [2024-07-05 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-05 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-08 12:00:00+00:00] REJECTED: bb_squeeze
+  [2024-07-08 13:00:00+00:00] REJECTED: slippage_too_high
+  Bar 7500/12077 | Open: 0 | Closed: 97 | Equity: 100,016
+  [2024-07-18 17:00:00+00:00] OPEN LONG @ 1.29629 SL=1.29600 R=0.00029
+  [2024-07-24 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-30 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-30 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-02 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-02 13:00:00+00:00] OPEN SHORT @ 1.28293 SL=1.28327 R=0.00034
+  [2024-08-06 09:00:00+00:00] OPEN LONG @ 1.27119 SL=1.26972 R=0.00147
+  [2024-08-13 06:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-13 07:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-13 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-13 14:00:00+00:00] OPEN SHORT @ 1.28231 SL=1.28375 R=0.00144
+  Bar 8000/12077 | Open: 0 | Closed: 101 | Equity: 98,016
+  [2024-08-16 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-16 10:00:00+00:00] OPEN SHORT @ 1.29085 SL=1.29114 R=0.00029
+  [2024-08-19 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-20 11:00:00+00:00] REJECTED: bb_squeeze
+  [2024-08-20 12:00:00+00:00] OPEN LONG @ 1.30277 SL=1.30109 R=0.00169
+  [2024-08-21 12:00:00+00:00] REJECTED: bb_squeeze
+  [2024-08-21 13:00:00+00:00] REJECTED: bb_squeeze
+  [2024-08-21 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-21 15:00:00+00:00] OPEN LONG @ 1.30794 SL=1.30602 R=0.00192
+  [2024-08-23 08:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-23 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-27 08:00:00+00:00] REJECTED: bb_squeeze
+  [2024-08-27 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-28 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-28 17:00:00+00:00] OPEN LONG @ 1.31715 SL=1.31677 R=0.00038
+  [2024-08-29 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-29 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-29 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-30 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-30 15:00:00+00:00] OPEN LONG @ 1.31335 SL=1.31232 R=0.00103
+  [2024-09-03 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-04 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-06 16:00:00+00:00] OPEN LONG @ 1.31228 SL=1.31093 R=0.00135
+  [2024-09-11 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-11 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-11 15:00:00+00:00] OPEN LONG @ 1.30242 SL=1.30003 R=0.00239
+  [2024-09-12 16:00:00+00:00] OPEN SHORT @ 1.30913 SL=1.30955 R=0.00042
+  Bar 8500/12077 | Open: 0 | Closed: 109 | Equity: 103,834
+  [2024-09-16 03:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-16 06:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-16 08:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-16 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-17 08:00:00+00:00] REJECTED: bb_squeeze
+  [2024-09-17 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-17 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-17 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-24 14:00:00+00:00] OPEN LONG @ 1.33915 SL=1.33671 R=0.00244
+  [2024-09-25 15:00:00+00:00] OPEN LONG @ 1.33394 SL=1.33346 R=0.00049
+  [2024-09-26 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-26 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-01 07:00:00+00:00] OPEN LONG @ 1.33381 SL=1.33336 R=0.00045
+  [2024-10-01 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-01 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-01 16:00:00+00:00] OPEN LONG @ 1.32577 SL=1.32429 R=0.00147
+  [2024-10-03 06:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-03 07:00:00+00:00] OPEN SHORT @ 1.31525 SL=1.31765 R=0.00240
+  [2024-10-04 12:00:00+00:00] OPEN SHORT @ 1.30772 SL=1.31054 R=0.00282
+  [2024-10-10 16:00:00+00:00] OPEN SHORT @ 1.30346 SL=1.30619 R=0.00273
+  Bar 9000/12077 | Open: 0 | Closed: 116 | Equity: 102,229
+  [2024-10-15 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-18 06:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-18 07:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-22 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-23 13:00:00+00:00] OPEN SHORT @ 1.29507 SL=1.29698 R=0.00191
+  [2024-10-29 15:00:00+00:00] OPEN SHORT @ 1.30026 SL=1.30080 R=0.00055
+  [2024-10-30 11:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-30 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-31 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-31 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-31 16:00:00+00:00] OPEN LONG @ 1.28676 SL=1.28447 R=0.00229
+  [2024-11-01 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-01 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-01 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-05 11:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-05 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-05 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-05 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-06 02:00:00+00:00] OPEN LONG @ 1.29081 SL=1.29029 R=0.00053
+  [2024-11-07 13:00:00+00:00] OPEN SHORT @ 1.29704 SL=1.29757 R=0.00054
+  [2024-11-08 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-08 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-11 10:00:00+00:00] OPEN LONG @ 1.28853 SL=1.28820 R=0.00032
+  [2024-11-12 03:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-12 05:00:00+00:00] OPEN LONG @ 1.28336 SL=1.28304 R=0.00032
+  Bar 9500/12077 | Open: 0 | Closed: 123 | Equity: 100,414
+  [2024-11-12 15:00:00+00:00] OPEN SHORT @ 1.27619 SL=1.27897 R=0.00278
+  [2024-11-13 14:00:00+00:00] OPEN SHORT @ 1.27097 SL=1.27355 R=0.00258
+  [2024-11-15 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-18 18:00:00+00:00] OPEN SHORT @ 1.26792 SL=1.26826 R=0.00035
+  [2024-11-27 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-27 12:00:00+00:00] OPEN SHORT @ 1.26275 SL=1.26345 R=0.00070
+  [2024-11-29 20:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-02 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-02 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-05 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-05 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-06 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-11 07:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-11 10:00:00+00:00] REJECTED: slippage_too_high
+  Bar 10000/12077 | Open: 0 | Closed: 127 | Equity: 100,153
+  [2024-12-12 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-12 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-12 18:00:00+00:00] OPEN LONG @ 1.26871 SL=1.26708 R=0.00163
+  [2024-12-13 07:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-16 15:00:00+00:00] OPEN SHORT @ 1.26890 SL=1.26950 R=0.00060
+  [2024-12-17 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-18 19:00:00+00:00] OPEN LONG @ 1.25955 SL=1.25905 R=0.00050
+  [2024-12-19 16:00:00+00:00] OPEN LONG @ 1.25311 SL=1.25266 R=0.00045
+  [2024-12-20 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-20 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-26 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-27 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-27 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-27 15:00:00+00:00] OPEN SHORT @ 1.25780 SL=1.25963 R=0.00184
+  [2024-12-30 15:00:00+00:00] OPEN LONG @ 1.25137 SL=1.25059 R=0.00077
+  [2024-12-31 18:00:00+00:00] OPEN LONG @ 1.25126 SL=1.25039 R=0.00087
+  [2025-01-02 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-02 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-02 10:00:00+00:00] OPEN LONG @ 1.24488 SL=1.24459 R=0.00028
+  [2025-01-02 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-06 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-06 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-06 11:00:00+00:00] OPEN SHORT @ 1.25437 SL=1.25485 R=0.00048
+  [2025-01-08 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-08 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-08 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-08 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-08 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-08 14:00:00+00:00] OPEN LONG @ 1.23316 SL=1.23190 R=0.00125
+  [2025-01-10 06:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-10 13:00:00+00:00] OPEN SHORT @ 1.22289 SL=1.22624 R=0.00336
+  Bar 10500/12077 | Open: 0 | Closed: 138 | Equity: 99,181
+  [2025-01-15 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-17 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-20 13:00:00+00:00] OPEN SHORT @ 1.22935 SL=1.23015 R=0.00079
+  [2025-01-23 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-24 02:00:00+00:00] OPEN SHORT @ 1.23969 SL=1.24007 R=0.00038
+  [2025-01-24 09:00:00+00:00] OPEN SHORT @ 1.24265 SL=1.24472 R=0.00208
+  [2025-01-29 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-29 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-29 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-03 00:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-03 01:00:00+00:00] OPEN LONG @ 1.22904 SL=1.22629 R=0.00275
+  [2025-02-04 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-04 16:00:00+00:00] OPEN SHORT @ 1.24827 SL=1.24954 R=0.00127
+  [2025-02-05 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-05 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-05 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-05 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-06 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-06 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-06 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-06 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-06 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-10 18:00:00+00:00] REJECTED: slippage_too_high
+  Bar 11000/12077 | Open: 0 | Closed: 143 | Equity: 98,114
+  [2025-02-11 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-11 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-13 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-13 20:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-13 21:00:00+00:00] OPEN SHORT @ 1.25636 SL=1.25697 R=0.00061
+  [2025-02-14 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-14 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-14 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-17 17:00:00+00:00] REJECTED: bb_squeeze
+  [2025-02-17 18:00:00+00:00] OPEN LONG @ 1.26287 SL=1.26096 R=0.00191
+  [2025-02-19 16:00:00+00:00] OPEN LONG @ 1.25730 SL=1.25689 R=0.00042
+  [2025-02-20 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-20 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-20 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-20 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-20 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-24 01:00:00+00:00] OPEN SHORT @ 1.26777 SL=1.26811 R=0.00034
+  [2025-02-26 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-26 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-27 13:00:00+00:00] OPEN LONG @ 1.26329 SL=1.26273 R=0.00056
+  [2025-02-28 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-03 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-03 11:00:00+00:00] OPEN SHORT @ 1.26613 SL=1.26656 R=0.00043
+  [2025-03-04 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-04 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-04 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-04 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-04 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-07 08:00:00+00:00] OPEN LONG @ 1.29226 SL=1.29035 R=0.00191
+  Bar 11500/12077 | Open: 0 | Closed: 150 | Equity: 97,181
+  [2025-03-17 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-17 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-17 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-17 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-21 05:00:00+00:00] OPEN LONG @ 1.29301 SL=1.29244 R=0.00057
+  [2025-03-21 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-26 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-26 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-26 13:00:00+00:00] OPEN LONG @ 1.28862 SL=1.28753 R=0.00109
+  [2025-03-31 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-02 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-02 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-02 20:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-02 23:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-03 06:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-03 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-04 07:00:00+00:00] OPEN LONG @ 1.30092 SL=1.30048 R=0.00044
+  [2025-04-04 14:00:00+00:00] OPEN LONG @ 1.29419 SL=1.29158 R=0.00262
+  [2025-04-09 04:00:00+00:00] REJECTED: slippage_too_high
+  Bar 12000/12077 | Open: 0 | Closed: 154 | Equity: 96,911
+  [2025-04-10 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-10 14:00:00+00:00] OPEN SHORT @ 1.29580 SL=1.29633 R=0.00053
+  [2025-04-14 06:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-14 07:00:00+00:00] OPEN LONG @ 1.31671 SL=1.31343 R=0.00329
+============================================================
+  ARABESQUE BACKTEST — GBPUSD (in_sample)
+============================================================
+  Period     : 2023-05-12 → 2025-04-14
+  Bars       : 12077
+  Signals    : 725 generated, 569 rejected
+
+  TRADES     : 156  (min 30 = OK)
+  Win rate   : 42.9%
+  Avg win    : +1.23R
+  Avg loss   : -1.00R
+
+  EXPECTANCY : -0.044R  (-22 cash)
+  Total R    : -6.9R  (-3,433 cash)
+  Median R   : -1.00R
+  Best/Worst : +12.19R / -1.00R
+
+  PROFIT FACTOR : 0.92
+
+  MAX DD     : 15.6%  (15,558 cash)
+  DD duration: 132 trades
+
+  PROP FIRM  :
+    Jours disqualifiants : 0
+    Pire DD daily        : 1.0%
+
+  TIMING     :
+    Avg bars   : 2  (wins: 4, losses: 1)
+
+  EXITS      :
+    exit_sl                   : 154 trades  avg -0.07R
+    exit_tp                   :   2 trades  avg +1.99R
+
+  REJECTIONS :
+    slippage_too_high         : 370
+    cooldown                  : 178
+    bb_squeeze                :  21
+
+  SLIPPAGE SENSITIVITY :
+    1.0x  slippage : expectancy = -0.0740R
+    1.5x  slippage : expectancy = -0.0890R
+    2.0x  slippage : expectancy = -0.1040R
+    3.0x  slippage : expectancy = -0.1340R
+============================================================
+
+--- OUT-OF-SAMPLE ---
+  [2025-04-28 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-28 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-28 15:00:00+00:00] OPEN SHORT @ 1.33922 SL=1.34191 R=0.00269
+  [2025-04-30 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-30 10:00:00+00:00] OPEN LONG @ 1.33585 SL=1.33549 R=0.00037
+  [2025-05-01 15:00:00+00:00] OPEN LONG @ 1.32730 SL=1.32612 R=0.00118
+  [2025-05-05 12:00:00+00:00] OPEN SHORT @ 1.33303 SL=1.33372 R=0.00069
+  [2025-05-06 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-06 11:00:00+00:00] OPEN SHORT @ 1.33675 SL=1.33761 R=0.00086
+  [2025-05-07 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-07 20:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-09 15:00:00+00:00] OPEN SHORT @ 1.33140 SL=1.33205 R=0.00066
+  [2025-05-12 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-12 08:00:00+00:00] OPEN LONG @ 1.31966 SL=1.31603 R=0.00364
+  [2025-05-13 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-13 15:00:00+00:00] OPEN SHORT @ 1.32756 SL=1.32817 R=0.00061
+  Bar 500/5177 | Open: 0 | Closed: 8 | Equity: 101,469
+  [2025-05-14 09:00:00+00:00] OPEN SHORT @ 1.33501 SL=1.33620 R=0.00119
+  [2025-05-14 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-16 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-19 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-19 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-19 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-19 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-21 03:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-23 04:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-23 05:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-23 08:00:00+00:00] OPEN LONG @ 1.34902 SL=1.34716 R=0.00186
+  [2025-05-27 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-27 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-02 06:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-02 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-02 08:00:00+00:00] OPEN SHORT @ 1.35416 SL=1.35588 R=0.00172
+  [2025-06-04 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-05 12:00:00+00:00] REJECTED: bb_squeeze
+  [2025-06-05 13:00:00+00:00] OPEN SHORT @ 1.36007 SL=1.36173 R=0.00166
+  [2025-06-06 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-06 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-10 06:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-10 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-11 06:00:00+00:00] OPEN LONG @ 1.34689 SL=1.34655 R=0.00035
+  [2025-06-11 15:00:00+00:00] OPEN SHORT @ 1.35540 SL=1.35596 R=0.00057
+  Bar 1000/5177 | Open: 0 | Closed: 14 | Equity: 102,224
+  [2025-06-12 12:00:00+00:00] OPEN SHORT @ 1.36120 SL=1.36227 R=0.00107
+  [2025-06-16 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-17 14:00:00+00:00] OPEN LONG @ 1.35155 SL=1.34955 R=0.00200
+  [2025-06-17 19:00:00+00:00] OPEN LONG @ 1.34290 SL=1.34208 R=0.00082
+  [2025-06-18 18:00:00+00:00] OPEN LONG @ 1.34181 SL=1.34107 R=0.00075
+  [2025-06-19 01:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-23 00:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-23 09:00:00+00:00] OPEN LONG @ 1.33860 SL=1.33686 R=0.00175
+  [2025-06-23 17:00:00+00:00] OPEN SHORT @ 1.35202 SL=1.35267 R=0.00065
+  [2025-06-25 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-25 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-25 23:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-02 07:00:00+00:00] OPEN LONG @ 1.37066 SL=1.37045 R=0.00021
+  [2025-07-02 12:00:00+00:00] OPEN LONG @ 1.36072 SL=1.35852 R=0.00220
+  [2025-07-07 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-07 08:00:00+00:00] OPEN SHORT @ 1.35784 SL=1.35977 R=0.00192
+  [2025-07-10 14:00:00+00:00] OPEN SHORT @ 1.35538 SL=1.35739 R=0.00202
+  Bar 1500/5177 | Open: 0 | Closed: 24 | Equity: 98,785
+  [2025-07-15 14:00:00+00:00] OPEN SHORT @ 1.33944 SL=1.34181 R=0.00237
+  [2025-07-18 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-18 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-18 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-21 11:00:00+00:00] OPEN SHORT @ 1.34778 SL=1.34816 R=0.00039
+  [2025-07-22 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-22 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-23 14:00:00+00:00] OPEN LONG @ 1.35616 SL=1.35417 R=0.00199
+  [2025-07-24 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-25 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-25 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-25 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-28 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-28 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-28 17:00:00+00:00] OPEN SHORT @ 1.33577 SL=1.33841 R=0.00264
+  [2025-07-30 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-30 15:00:00+00:00] OPEN SHORT @ 1.32716 SL=1.33007 R=0.00291
+  [2025-08-06 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-06 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-06 17:00:00+00:00] OPEN SHORT @ 1.33535 SL=1.33639 R=0.00104
+  [2025-08-07 11:00:00+00:00] REJECTED: slippage_too_high
+  Bar 2000/5177 | Open: 0 | Closed: 30 | Equity: 97,770
+  [2025-08-11 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-12 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-18 14:00:00+00:00] OPEN LONG @ 1.35192 SL=1.35140 R=0.00052
+  [2025-08-20 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-21 13:00:00+00:00] OPEN LONG @ 1.34266 SL=1.34213 R=0.00052
+  [2025-08-22 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-22 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-22 16:00:00+00:00] OPEN SHORT @ 1.35234 SL=1.35447 R=0.00213
+  [2025-08-27 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-27 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-29 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-29 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-29 10:00:00+00:00] OPEN LONG @ 1.34633 SL=1.34541 R=0.00092
+  [2025-09-01 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-02 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-02 08:00:00+00:00] OPEN LONG @ 1.34161 SL=1.33745 R=0.00416
+  [2025-09-05 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-05 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-05 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-05 15:00:00+00:00] REJECTED: slippage_too_high
+  Bar 2500/5177 | Open: 0 | Closed: 35 | Equity: 97,423
+  [2025-09-11 09:00:00+00:00] OPEN LONG @ 1.35039 SL=1.34967 R=0.00072
+  [2025-09-15 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-15 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-15 11:00:00+00:00] OPEN SHORT @ 1.36153 SL=1.36188 R=0.00035
+  [2025-09-16 06:00:00+00:00] REJECTED: bb_squeeze
+  [2025-09-16 09:00:00+00:00] OPEN LONG @ 1.36440 SL=1.36295 R=0.00145
+  [2025-09-17 16:00:00+00:00] REJECTED: bb_squeeze
+  [2025-09-18 05:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-18 13:00:00+00:00] OPEN LONG @ 1.35529 SL=1.35320 R=0.00209
+  [2025-09-24 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-24 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-24 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-24 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-24 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-24 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-24 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-25 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-25 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-25 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-25 15:00:00+00:00] OPEN SHORT @ 1.33473 SL=1.33752 R=0.00279
+  [2025-10-01 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-01 12:00:00+00:00] OPEN SHORT @ 1.35117 SL=1.35244 R=0.00127
+  [2025-10-02 13:00:00+00:00] OPEN LONG @ 1.34330 SL=1.34286 R=0.00044
+  [2025-10-07 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-07 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-07 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-07 11:00:00+00:00] OPEN LONG @ 1.34043 SL=1.33921 R=0.00122
+  [2025-10-08 01:00:00+00:00] REJECTED: slippage_too_high
+  Bar 3000/5177 | Open: 0 | Closed: 43 | Equity: 96,877
+  [2025-10-09 06:00:00+00:00] OPEN LONG @ 1.33667 SL=1.33597 R=0.00070
+  [2025-10-10 11:00:00+00:00] OPEN SHORT @ 1.32741 SL=1.32943 R=0.00202
+  [2025-10-14 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-15 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-15 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-16 01:00:00+00:00] OPEN SHORT @ 1.34338 SL=1.34441 R=0.00102
+  [2025-10-17 05:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-17 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-21 05:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-22 06:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-22 07:00:00+00:00] OPEN LONG @ 1.33225 SL=1.33181 R=0.00045
+  [2025-10-23 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-24 11:00:00+00:00] REJECTED: bb_squeeze
+  [2025-10-28 08:00:00+00:00] OPEN LONG @ 1.33085 SL=1.33007 R=0.00078
+  [2025-10-28 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-29 05:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-29 06:00:00+00:00] OPEN LONG @ 1.32265 SL=1.32240 R=0.00025
+  [2025-10-31 10:00:00+00:00] REJECTED: bb_squeeze
+  [2025-10-31 11:00:00+00:00] REJECTED: bb_squeeze
+  [2025-10-31 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-31 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-04 11:00:00+00:00] OPEN SHORT @ 1.30579 SL=1.30789 R=0.00210
+  Bar 3500/5177 | Open: 0 | Closed: 50 | Equity: 96,337
+  [2025-11-06 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-06 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-06 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-06 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-06 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-06 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-11 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-11 08:00:00+00:00] OPEN LONG @ 1.31241 SL=1.31191 R=0.00049
+  [2025-11-12 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-13 12:00:00+00:00] OPEN SHORT @ 1.31821 SL=1.31854 R=0.00033
+  [2025-11-19 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-19 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-19 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-19 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-19 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-25 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-25 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-25 15:00:00+00:00] OPEN SHORT @ 1.31741 SL=1.31953 R=0.00211
+  [2025-11-26 15:00:00+00:00] OPEN SHORT @ 1.32261 SL=1.32368 R=0.00107
+  [2025-11-28 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-01 12:00:00+00:00] OPEN SHORT @ 1.32656 SL=1.32712 R=0.00056
+  [2025-12-03 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-03 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-03 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-03 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-03 15:00:00+00:00] OPEN SHORT @ 1.33290 SL=1.33335 R=0.00046
+  [2025-12-04 14:00:00+00:00] REJECTED: bb_squeeze
+  [2025-12-04 15:00:00+00:00] REJECTED: slippage_too_high
+  Bar 4000/5177 | Open: 0 | Closed: 56 | Equity: 96,513
+  [2025-12-09 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-12 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-12 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-16 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-16 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-16 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-16 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-17 06:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-17 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-17 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-17 09:00:00+00:00] OPEN LONG @ 1.33283 SL=1.33111 R=0.00172
+  [2025-12-18 13:00:00+00:00] OPEN SHORT @ 1.34295 SL=1.34446 R=0.00151
+  [2025-12-22 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-22 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-22 09:00:00+00:00] OPEN SHORT @ 1.34239 SL=1.34272 R=0.00033
+  [2025-12-26 07:00:00+00:00] OPEN LONG @ 1.34845 SL=1.34797 R=0.00048
+  [2025-12-30 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-31 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-31 09:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-02 11:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-05 03:00:00+00:00] OPEN LONG @ 1.34179 SL=1.34134 R=0.00045
+  [2026-01-05 15:00:00+00:00] OPEN SHORT @ 1.35025 SL=1.35072 R=0.00047
+  Bar 4500/5177 | Open: 0 | Closed: 62 | Equity: 95,444
+  [2026-01-07 16:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-08 13:00:00+00:00] OPEN LONG @ 1.34248 SL=1.34152 R=0.00096
+  [2026-01-09 09:00:00+00:00] REJECTED: bb_squeeze
+  [2026-01-09 10:00:00+00:00] REJECTED: bb_squeeze
+  [2026-01-12 08:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-12 10:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-13 16:00:00+00:00] OPEN SHORT @ 1.34326 SL=1.34540 R=0.00213
+  [2026-01-15 13:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-15 14:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-20 07:00:00+00:00] OPEN SHORT @ 1.34765 SL=1.34862 R=0.00097
+  [2026-01-21 10:00:00+00:00] OPEN LONG @ 1.34084 SL=1.34023 R=0.00061
+  [2026-01-22 15:00:00+00:00] OPEN SHORT @ 1.34757 SL=1.34852 R=0.00095
+  [2026-01-23 09:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-23 10:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-23 14:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-23 15:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-23 16:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-23 17:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-23 18:00:00+00:00] OPEN SHORT @ 1.36041 SL=1.36240 R=0.00199
+  [2026-01-27 13:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-27 14:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-27 16:00:00+00:00] OPEN LONG @ 1.37825 SL=1.37494 R=0.00331
+  [2026-01-30 19:00:00+00:00] OPEN LONG @ 1.37000 SL=1.36798 R=0.00202
+  [2026-02-04 08:00:00+00:00] REJECTED: slippage_too_high
+  Bar 5000/5177 | Open: 0 | Closed: 70 | Equity: 95,495
+  [2026-02-04 17:00:00+00:00] OPEN LONG @ 1.36478 SL=1.36414 R=0.00064
+  [2026-02-05 09:00:00+00:00] OPEN LONG @ 1.35684 SL=1.35550 R=0.00135
+  [2026-02-09 12:00:00+00:00] OPEN SHORT @ 1.36592 SL=1.36634 R=0.00042
+  [2026-02-11 09:00:00+00:00] REJECTED: slippage_too_high
+  [2026-02-11 10:00:00+00:00] REJECTED: slippage_too_high
+============================================================
+  ARABESQUE BACKTEST — GBPUSD (out_of_sample)
+============================================================
+  Period     : 2025-04-28 → 2026-02-09
+  Bars       : 5177
+  Signals    : 302 generated, 229 rejected
+
+  TRADES     : 73  (min 30 = OK)
+  Win rate   : 42.5%
+  Avg win    : +1.11R
+  Avg loss   : -1.00R
+
+  EXPECTANCY : -0.102R  (-51 cash)
+  Total R    : -7.4R  (-3,724 cash)
+  Median R   : -1.00R
+  Best/Worst : +6.15R / -1.00R
+
+  PROFIT FACTOR : 0.82
+
+  MAX DD     : 8.4%  (8,448 cash)
+  DD duration: 64 trades
+
+  PROP FIRM  :
+    Jours disqualifiants : 0
+    Pire DD daily        : 1.0%
+
+  TIMING     :
+    Avg bars   : 2  (wins: 3, losses: 1)
+
+  EXITS      :
+    exit_sl                   :  71 trades  avg -0.22R
+    exit_tp                   :   2 trades  avg +4.05R
+
+  REJECTIONS :
+    slippage_too_high         : 146
+    cooldown                  :  74
+    bb_squeeze                :   9
+
+  SLIPPAGE SENSITIVITY :
+    1.0x  slippage : expectancy = -0.1320R
+    1.5x  slippage : expectancy = -0.1470R
+    2.0x  slippage : expectancy = -0.1620R
+    3.0x  slippage : expectancy = -0.1920R
+============================================================
+
+============================================================
+  COMPARISON IN vs OUT
+============================================================
+  Metric                       In-Sample   Out-Sample        Delta
+  -------------------------------------------------------------
+  Trades                             156           73             
+  Win Rate                         42.9%        42.5%        -0.5%
+  Expectancy (R)                  -0.044       -0.102       -0.058
+  Profit Factor                     0.92         0.82        -0.10
+  Max DD %                         15.6%         8.4%        -7.1%
+  Disqual Days                         0            0             
+============================================================
+
+============================================================
+  ARABESQUE BACKTEST — XAUUSD (GC=F)
+  Strategy: COMBINED
+============================================================
+  Downloading data...
+  Loaded 13742 bars from 2023-09-24 22:00:00+00:00 to 2026-02-13 21:00:00+00:00
+  Indicators computed
+  In-sample:  9619 bars (2023-09-24 → 2025-05-27)
+  Out-sample: 4123 bars (2025-05-27 → 2026-02-13)
+
+--- IN-SAMPLE ---
+  [2023-10-11 08:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-11 09:00:00+00:00] REJECTED: slippage_too_high
+  [2023-10-11 10:00:00+00:00] REJECTED: slippage_too_high
+  Bar 500/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2023-10-31 17:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-07 02:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-08 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-10 11:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-10 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-14 13:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-14 14:00:00+00:00] REJECTED: slippage_too_high
+  [2023-11-16 13:00:00+00:00] REJECTED: slippage_too_high
+  Bar 1000/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2023-11-24 14:30:00+00:00] REJECTED: slippage_too_high
+  Bar 1500/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-01-29 07:00:00+00:00] REJECTED: slippage_too_high
+  Bar 2000/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-01-31 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-09 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-15 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-15 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-23 09:00:00+00:00] REJECTED: slippage_too_high
+  Bar 2500/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-03-14 12:00:00+00:00] REJECTED: slippage_too_high
+  Bar 3000/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-04-02 20:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-11 20:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-17 20:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-26 07:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-30 14:00:00+00:00] REJECTED: slippage_too_high
+  Bar 3500/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-05-13 08:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-22 14:00:00+00:00] REJECTED: slippage_too_high
+  Bar 4000/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-06-04 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-18 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-27 13:00:00+00:00] REJECTED: slippage_too_high
+  Bar 4500/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-07-10 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-24 04:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-24 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-24 20:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-30 07:00:00+00:00] REJECTED: slippage_too_high
+  Bar 5000/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-09-05 09:00:00+00:00] REJECTED: slippage_too_high
+  Bar 5500/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-10-01 13:00:00+00:00] REJECTED: slippage_too_high
+  Bar 6000/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-10-16 06:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-31 15:00:00+00:00] REJECTED: slippage_too_high
+  Bar 6500/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-11-18 04:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-22 04:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-27 09:00:00+00:00] REJECTED: slippage_too_high
+  Bar 7000/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-01-07 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-08 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-08 15:00:00+00:00] REJECTED: slippage_too_high
+  Bar 7500/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-01-24 03:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-30 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-30 15:00:00+00:00] REJECTED: slippage_too_high
+  Bar 8000/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  Bar 8500/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-04-03 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-16 03:00:00+00:00] REJECTED: slippage_too_high
+  Bar 9000/9619 | Open: 0 | Closed: 0 | Equity: 100,000
+============================================================
+  ARABESQUE BACKTEST — XAUUSD (in_sample)
+============================================================
+  Period     :  → 
+  Bars       : 9619
+  Signals    : 566 generated, 566 rejected
+
+  TRADES     : 0  (min 30 = INSUFFISANT)
+  Win rate   : 0.0%
+  Avg win    : +0.00R
+  Avg loss   : +0.00R
+
+  EXPECTANCY : +0.000R  (+0 cash)
+  Total R    : +0.0R  (+0 cash)
+  Median R   : +0.00R
+  Best/Worst : +0.00R / +0.00R
+
+  PROFIT FACTOR : 0.00
+
+  MAX DD     : 0.0%  (0 cash)
+  DD duration: 0 trades
+
+  PROP FIRM  :
+    Jours disqualifiants : 0
+    Pire DD daily        : 0.0%
+
+  TIMING     :
+    Avg bars   : 0  (wins: 0, losses: 0)
+
+  EXITS      :
+
+  REJECTIONS :
+    volume_zero               : 517
+    slippage_too_high         :  49
+============================================================
+
+--- OUT-OF-SAMPLE ---
+  [2025-06-24 06:00:00+00:00] REJECTED: slippage_too_high
+  Bar 500/4123 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-07-07 01:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-21 11:00:00+00:00] REJECTED: slippage_too_high
+  Bar 1000/4123 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-07-30 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-07 20:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-17 23:00:00+00:00] REJECTED: slippage_too_high
+  Bar 1500/4123 | Open: 0 | Closed: 0 | Equity: 100,000
+  Bar 2000/4123 | Open: 0 | Closed: 0 | Equity: 100,000
+  Bar 2500/4123 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-11-28 17:30:00+00:00] REJECTED: slippage_too_high
+  Bar 3000/4123 | Open: 0 | Closed: 0 | Equity: 100,000
+  Bar 3500/4123 | Open: 0 | Closed: 0 | Equity: 100,000
+  Bar 4000/4123 | Open: 0 | Closed: 0 | Equity: 100,000
+============================================================
+  ARABESQUE BACKTEST — XAUUSD (out_of_sample)
+============================================================
+  Period     :  → 
+  Bars       : 4123
+  Signals    : 223 generated, 223 rejected
+
+  TRADES     : 0  (min 30 = INSUFFISANT)
+  Win rate   : 0.0%
+  Avg win    : +0.00R
+  Avg loss   : +0.00R
+
+  EXPECTANCY : +0.000R  (+0 cash)
+  Total R    : +0.0R  (+0 cash)
+  Median R   : +0.00R
+  Best/Worst : +0.00R / +0.00R
+
+  PROFIT FACTOR : 0.00
+
+  MAX DD     : 0.0%  (0 cash)
+  DD duration: 0 trades
+
+  PROP FIRM  :
+    Jours disqualifiants : 0
+    Pire DD daily        : 0.0%
+
+  TIMING     :
+    Avg bars   : 0  (wins: 0, losses: 0)
+
+  EXITS      :
+
+  REJECTIONS :
+    volume_zero               : 216
+    slippage_too_high         :   7
+============================================================
+
+============================================================
+  COMPARISON IN vs OUT
+============================================================
+  Metric                       In-Sample   Out-Sample        Delta
+  -------------------------------------------------------------
+  Trades                               0            0             
+  Win Rate                          0.0%         0.0%        +0.0%
+  Expectancy (R)                  +0.000       +0.000       +0.000
+  Profit Factor                     0.00         0.00        +0.00
+  Max DD %                          0.0%         0.0%        +0.0%
+  Disqual Days                         0            0             
+============================================================
+
+============================================================
+  ARABESQUE BACKTEST — BTC (BTC-USD)
+  Strategy: COMBINED
+============================================================
+  Downloading data...
+  Loaded 17354 bars from 2024-02-16 00:00:00+00:00 to 2026-02-14 13:00:00+00:00
+  Indicators computed
+  In-sample:  12147 bars (2024-02-16 → 2025-07-06)
+  Out-sample: 5207 bars (2025-07-06 → 2026-02-14)
+
+--- IN-SAMPLE ---
+  [2024-02-26 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-02-26 19:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-05 19:00:00+00:00] REJECTED: slippage_too_high
+  Bar 500/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-03-08 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-08 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-14 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-14 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-14 18:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-14 19:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-15 02:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-15 03:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-15 04:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-22 11:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-22 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-24 23:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-25 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-25 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-03-25 17:00:00+00:00] REJECTED: slippage_too_high
+  Bar 1000/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-04-01 05:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-04 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-04 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-06 23:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-08 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-08 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-09 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-09 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-10 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-12 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-12 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-12 18:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-12 19:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-16 15:00:00+00:00] REJECTED: slippage_too_high
+  Bar 1500/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-04-18 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-22 03:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-24 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-24 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-24 18:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-25 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-25 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-27 00:00:00+00:00] REJECTED: slippage_too_high
+  [2024-04-29 03:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-03 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-03 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-05 15:00:00+00:00] REJECTED: slippage_too_high
+  Bar 2000/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-05-10 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-10 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-12 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-13 07:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-15 09:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-15 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-23 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-23 14:00:00+00:00] REJECTED: slippage_too_high
+  Bar 2500/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-05-30 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-05-31 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-03 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-07 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-11 01:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-12 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-13 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-16 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-17 13:00:00+00:00] REJECTED: slippage_too_high
+  Bar 3000/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-06-20 10:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-23 20:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-23 21:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-23 22:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-23 23:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-28 19:00:00+00:00] REJECTED: slippage_too_high
+  [2024-06-30 23:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-02 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-02 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-03 01:00:00+00:00] REJECTED: slippage_too_high
+  Bar 3500/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-07-13 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-13 22:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-14 05:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-14 21:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-15 02:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-19 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-19 19:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-30 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-07-30 18:00:00+00:00] REJECTED: slippage_too_high
+  Bar 4000/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-08-04 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-04 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-11 21:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-15 19:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-15 20:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-20 00:00:00+00:00] REJECTED: slippage_too_high
+  Bar 4500/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-08-21 20:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-23 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-23 19:00:00+00:00] REJECTED: slippage_too_high
+  [2024-08-27 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-01 05:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-09 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-09 16:00:00+00:00] REJECTED: slippage_too_high
+  Bar 5000/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-09-13 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-15 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-15 22:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-15 23:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-16 01:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-16 02:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-17 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-18 23:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-26 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-09-30 03:00:00+00:00] REJECTED: slippage_too_high
+  Bar 5500/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-10-06 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-09 20:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-10 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-10 18:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-11 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-11 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-12 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-20 22:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-21 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-21 15:00:00+00:00] REJECTED: slippage_too_high
+  Bar 6000/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-10-27 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-27 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-28 12:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-31 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-10-31 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-04 21:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-05 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-06 01:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-07 18:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-08 18:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-08 19:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-10 04:00:00+00:00] REJECTED: slippage_too_high
+  Bar 6500/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-11-17 21:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-20 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-25 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-25 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-27 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-29 14:00:00+00:00] REJECTED: slippage_too_high
+  [2024-11-29 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-01 02:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-03 13:00:00+00:00] REJECTED: slippage_too_high
+  Bar 7000/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-12-05 22:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-06 18:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-08 23:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-10 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-15 23:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-18 20:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-18 21:00:00+00:00] REJECTED: slippage_too_high
+  Bar 7500/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-12-24 15:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-24 16:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-24 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-27 17:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-30 13:00:00+00:00] REJECTED: slippage_too_high
+  [2024-12-30 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-07 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-07 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-15 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-20 01:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-26 23:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-27 00:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-27 06:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-29 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-01-31 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-01 22:00:00+00:00] REJECTED: slippage_too_high
+  Bar 8500/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-02-07 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-07 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-09 21:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-11 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-14 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-16 23:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-17 00:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-17 02:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-18 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-20 02:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-21 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-21 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-21 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-23 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-23 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-02-24 15:00:00+00:00] REJECTED: slippage_too_high
+  Bar 9000/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-03-02 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-03 21:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-05 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-07 00:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-09 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-09 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-09 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-09 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-16 13:00:00+00:00] REJECTED: slippage_too_high
+  Bar 9500/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-03-18 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-19 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-23 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-23 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-23 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-23 23:00:00+00:00] REJECTED: slippage_too_high
+  [2025-03-24 03:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-01 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-02 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-02 22:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-04 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-06 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-06 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-06 22:00:00+00:00] REJECTED: slippage_too_high
+  Bar 10000/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-04-12 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-15 20:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-19 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-20 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-04-21 00:00:00+00:00] REJECTED: slippage_too_high
+  Bar 10500/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-05-06 22:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-15 06:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-15 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-18 16:00:00+00:00] REJECTED: slippage_too_high
+  Bar 11000/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-05-23 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-25 08:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-26 00:00:00+00:00] REJECTED: slippage_too_high
+  [2025-05-29 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-05 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-08 16:00:00+00:00] REJECTED: slippage_too_high
+  Bar 11500/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-06-09 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-09 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-12 21:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-20 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-20 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-20 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-21 21:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-23 23:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-25 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-25 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-06-29 11:00:00+00:00] REJECTED: slippage_too_high
+  Bar 12000/12147 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-07-02 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-03 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-04 13:00:00+00:00] REJECTED: slippage_too_high
+============================================================
+  ARABESQUE BACKTEST — BTC (in_sample)
+============================================================
+  Period     :  → 
+  Bars       : 12147
+  Signals    : 680 generated, 680 rejected
+
+  TRADES     : 0  (min 30 = INSUFFISANT)
+  Win rate   : 0.0%
+  Avg win    : +0.00R
+  Avg loss   : +0.00R
+
+  EXPECTANCY : +0.000R  (+0 cash)
+  Total R    : +0.0R  (+0 cash)
+  Median R   : +0.00R
+  Best/Worst : +0.00R / +0.00R
+
+  PROFIT FACTOR : 0.00
+
+  MAX DD     : 0.0%  (0 cash)
+  DD duration: 0 trades
+
+  PROP FIRM  :
+    Jours disqualifiants : 0
+    Pire DD daily        : 0.0%
+
+  TIMING     :
+    Avg bars   : 0  (wins: 0, losses: 0)
+
+  EXITS      :
+
+  REJECTIONS :
+    volume_zero               : 455
+    slippage_too_high         : 225
+============================================================
+
+--- OUT-OF-SAMPLE ---
+  [2025-07-20 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-20 23:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-21 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-25 02:00:00+00:00] REJECTED: slippage_too_high
+  Bar 500/5207 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-07-27 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-27 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-30 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-07-31 21:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-04 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-05 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-06 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-07 10:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-09 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-10 04:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-11 01:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-14 12:00:00+00:00] REJECTED: slippage_too_high
+  Bar 1000/5207 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-08-22 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-24 20:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-27 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-08-29 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-03 14:00:00+00:00] REJECTED: slippage_too_high
+  Bar 1500/5207 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-09-10 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-11 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-11 22:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-18 03:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-22 00:00:00+00:00] REJECTED: slippage_too_high
+  Bar 2000/5207 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-09-28 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-09-28 23:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-05 03:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-05 05:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-07 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-10 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-10 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-10 20:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-12 20:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-14 07:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-16 15:00:00+00:00] REJECTED: slippage_too_high
+  Bar 2500/5207 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-10-19 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-21 04:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-26 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-10-29 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-03 04:00:00+00:00] REJECTED: slippage_too_high
+  Bar 3000/5207 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-11-13 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-13 18:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-26 17:00:00+00:00] REJECTED: slippage_too_high
+  [2025-11-26 19:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-02 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-02 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-02 18:00:00+00:00] REJECTED: slippage_too_high
+  Bar 3500/5207 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-12-05 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-09 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-09 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-11 03:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-12 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-12 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-14 11:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-14 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-14 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-15 15:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-15 16:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-18 13:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-21 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-22 09:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-22 12:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-23 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-25 15:00:00+00:00] REJECTED: slippage_too_high
+  Bar 4000/5207 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-12-29 01:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-29 02:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-29 04:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-30 14:00:00+00:00] REJECTED: slippage_too_high
+  [2025-12-30 15:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-01 22:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-07 18:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-11 14:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-13 15:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-13 16:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-13 20:00:00+00:00] REJECTED: slippage_too_high
+  Bar 4500/5207 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2026-01-18 23:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-29 17:00:00+00:00] REJECTED: slippage_too_high
+  [2026-01-29 18:00:00+00:00] REJECTED: slippage_too_high
+  [2026-02-03 16:00:00+00:00] REJECTED: slippage_too_high
+  [2026-02-03 17:00:00+00:00] REJECTED: slippage_too_high
+  [2026-02-03 18:00:00+00:00] REJECTED: slippage_too_high
+  Bar 5000/5207 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2026-02-08 08:00:00+00:00] REJECTED: slippage_too_high
+  [2026-02-08 12:00:00+00:00] REJECTED: slippage_too_high
+  [2026-02-12 17:00:00+00:00] REJECTED: slippage_too_high
+============================================================
+  ARABESQUE BACKTEST — BTC (out_of_sample)
+============================================================
+  Period     :  → 
+  Bars       : 5207
+  Signals    : 278 generated, 278 rejected
+
+  TRADES     : 0  (min 30 = INSUFFISANT)
+  Win rate   : 0.0%
+  Avg win    : +0.00R
+  Avg loss   : +0.00R
+
+  EXPECTANCY : +0.000R  (+0 cash)
+  Total R    : +0.0R  (+0 cash)
+  Median R   : +0.00R
+  Best/Worst : +0.00R / +0.00R
+
+  PROFIT FACTOR : 0.00
+
+  MAX DD     : 0.0%  (0 cash)
+  DD duration: 0 trades
+
+  PROP FIRM  :
+    Jours disqualifiants : 0
+    Pire DD daily        : 0.0%
+
+  TIMING     :
+    Avg bars   : 0  (wins: 0, losses: 0)
+
+  EXITS      :
+
+  REJECTIONS :
+    volume_zero               : 192
+    slippage_too_high         :  86
+============================================================
+
+============================================================
+  COMPARISON IN vs OUT
+============================================================
+  Metric                       In-Sample   Out-Sample        Delta
+  -------------------------------------------------------------
+  Trades                               0            0             
+  Win Rate                          0.0%         0.0%        +0.0%
+  Expectancy (R)                  +0.000       +0.000       +0.000
+  Profit Factor                     0.00         0.00        +0.00
+  Max DD %                          0.0%         0.0%        +0.0%
+  Disqual Days                         0            0             
+============================================================
+
+============================================================
+  ARABESQUE BACKTEST — SP500 (^GSPC)
+  Strategy: COMBINED
+============================================================
+  Downloading data...
+  Loaded 5078 bars from 2023-03-20 13:30:00+00:00 to 2026-02-13 20:30:00+00:00
+  Indicators computed
+  In-sample:  3554 bars (2023-03-20 → 2025-04-01)
+  Out-sample: 1524 bars (2025-04-01 → 2026-02-13)
+
+--- IN-SAMPLE ---
+  [2023-09-20 19:30:00+00:00] REJECTED: slippage_too_high
+  Bar 1000/3554 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2023-12-20 20:30:00+00:00] REJECTED: slippage_too_high
+  [2024-01-08 20:30:00+00:00] REJECTED: slippage_too_high
+  Bar 1500/3554 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-01-29 20:30:00+00:00] REJECTED: slippage_too_high
+  [2024-01-31 20:30:00+00:00] REJECTED: slippage_too_high
+  [2024-02-12 15:30:00+00:00] REJECTED: slippage_too_high
+  [2024-03-20 19:30:00+00:00] REJECTED: slippage_too_high
+  [2024-04-04 19:30:00+00:00] REJECTED: slippage_too_high
+  Bar 2000/3554 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-05-14 19:30:00+00:00] REJECTED: slippage_too_high
+  [2024-05-30 14:30:00+00:00] REJECTED: slippage_too_high
+  [2024-05-31 14:30:00+00:00] REJECTED: slippage_too_high
+  Bar 2500/3554 | Open: 0 | Closed: 0 | Equity: 100,000
+  Bar 3000/3554 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2024-12-18 20:30:00+00:00] REJECTED: slippage_too_high
+  [2025-02-19 20:30:00+00:00] REJECTED: slippage_too_high
+  Bar 3500/3554 | Open: 0 | Closed: 0 | Equity: 100,000
+============================================================
+  ARABESQUE BACKTEST — SP500 (in_sample)
+============================================================
+  Period     :  → 
+  Bars       : 3554
+  Signals    : 196 generated, 196 rejected
+
+  TRADES     : 0  (min 30 = INSUFFISANT)
+  Win rate   : 0.0%
+  Avg win    : +0.00R
+  Avg loss   : +0.00R
+
+  EXPECTANCY : +0.000R  (+0 cash)
+  Total R    : +0.0R  (+0 cash)
+  Median R   : +0.00R
+  Best/Worst : +0.00R / +0.00R
+
+  PROFIT FACTOR : 0.00
+
+  MAX DD     : 0.0%  (0 cash)
+  DD duration: 0 trades
+
+  PROP FIRM  :
+    Jours disqualifiants : 0
+    Pire DD daily        : 0.0%
+
+  TIMING     :
+    Avg bars   : 0  (wins: 0, losses: 0)
+
+  EXITS      :
+
+  REJECTIONS :
+    volume_zero               : 183
+    slippage_too_high         :  13
+============================================================
+
+--- OUT-OF-SAMPLE ---
+  [2025-07-03 15:30:00+00:00] REJECTED: slippage_too_high
+  Bar 500/1524 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-10-10 19:30:00+00:00] REJECTED: slippage_too_high
+  Bar 1000/1524 | Open: 0 | Closed: 0 | Equity: 100,000
+  [2025-12-31 20:30:00+00:00] REJECTED: slippage_too_high
+  Bar 1500/1524 | Open: 0 | Closed: 0 | Equity: 100,000
+============================================================
+  ARABESQUE BACKTEST — SP500 (out_of_sample)
+============================================================
+  Period     :  → 
+  Bars       : 1524
+  Signals    : 69 generated, 69 rejected
+
+  TRADES     : 0  (min 30 = INSUFFISANT)
+  Win rate   : 0.0%
+  Avg win    : +0.00R
+  Avg loss   : +0.00R
+
+  EXPECTANCY : +0.000R  (+0 cash)
+  Total R    : +0.0R  (+0 cash)
+  Median R   : +0.00R
+  Best/Worst : +0.00R / +0.00R
+
+  PROFIT FACTOR : 0.00
+
+  MAX DD     : 0.0%  (0 cash)
+  DD duration: 0 trades
+
+  PROP FIRM  :
+    Jours disqualifiants : 0
+    Pire DD daily        : 0.0%
+
+  TIMING     :
+    Avg bars   : 0  (wins: 0, losses: 0)
+
+  EXITS      :
+
+  REJECTIONS :
+    volume_zero               :  66
+    slippage_too_high         :   3
+============================================================
+
+============================================================
+  COMPARISON IN vs OUT
+============================================================
+  Metric                       In-Sample   Out-Sample        Delta
+  -------------------------------------------------------------
+  Trades                               0            0             
+  Win Rate                          0.0%         0.0%        +0.0%
+  Expectancy (R)                  +0.000       +0.000       +0.000
+  Profit Factor                     0.00         0.00        +0.00
+  Max DD %                          0.0%         0.0%        +0.0%
+  Disqual Days                         0            0             
+============================================================
+
+============================================================
+  MULTI-INSTRUMENT SYNTHESIS
+============================================================
+  Instrument    Trades     WR   Exp(R)     PF   MaxDD  Disq
+  ---------------------------------------------------
+  EURUSD            54   43%  +0.002  1.00    6.4%     0
+  GBPUSD            73   42%  -0.102  0.82    8.4%     0
+  XAUUSD             0    0%  +0.000  0.00    0.0%     0
+  BTC                0    0%  +0.000  0.00    0.0%     0
+  SP500              0    0%  +0.000  0.00    0.0%     0
+============================================================

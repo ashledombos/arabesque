@@ -231,9 +231,20 @@ class BacktestRunner:
                 else:
                     fill_price -= slip
 
+                # ── FIX: Pour le guard slippage, comparer au prix d'exécution,
+                # pas au close de la bougie précédente.
+                # En live: signal fire → fill en secondes → gap minime.
+                # En backtest: signal fire → fill 1h plus tard → gap = mouvement normal.
+                # On update tv_close au open de la barre suivante pour le guard.
+                original_tv_close = signal.tv_close
+                signal.tv_close = next_bar["Open"]
+
                 # Guards
                 ok, decision = self.guards.check_all(signal, self.account, bid, ask)
                 all_decisions.append(decision)
+
+                # Restaurer tv_close pour le PositionManager
+                signal.tv_close = original_tv_close
 
                 if not ok:
                     n_rejected += 1
@@ -253,8 +264,9 @@ class BacktestRunner:
                     rejection_reasons["sizing_zero"] = rejection_reasons.get("sizing_zero", 0) + 1
                     continue
 
-                # Volume (lots) — arrondi vers le bas
-                volume = risk_cash / (risk_distance * 100_000)  # Standard lot FX
+                # Volume (lots) — taille du contrat dépend de l'instrument
+                contract_size = self._contract_size(instrument, fill_price)
+                volume = risk_cash / (risk_distance * contract_size)
                 volume = int(volume * 100) / 100  # Arrondi 0.01 lot
 
                 if volume <= 0:
@@ -364,6 +376,63 @@ class BacktestRunner:
         if self.bt_cfg.spread_fixed > 0:
             return self.bt_cfg.spread_fixed
         return price * self.bt_cfg.spread_pct
+
+    @staticmethod
+    def _contract_size(instrument: str, price: float) -> float:
+        """Taille du contrat pour le sizing.
+
+        Retourne la valeur en devise de base par lot (1.0 lot).
+        FX = 100,000 unités. Gold = 100 oz. Indices = $1/point. etc.
+        """
+        inst = instrument.upper()
+
+        # FX pairs (6 chars ou contient USD + autre devise)
+        fx_currencies = {
+            "EUR", "GBP", "USD", "CHF", "CAD", "AUD", "NZD", "JPY",
+            "CNH", "CZK", "HKD", "MXN", "NOK", "PLN", "SEK", "SGD",
+            "ZAR", "ILS", "HUF",
+        }
+        if len(inst) == 6 and inst[:3] in fx_currencies and inst[3:] in fx_currencies:
+            return 100_000
+
+        # Métaux précieux
+        if inst in ("XAUUSD", "GOLD"):
+            return 100  # 100 oz per lot
+        if inst in ("XAGUSD", "SILVER"):
+            return 5_000  # 5000 oz per lot
+        if inst in ("XPTUSD", "PLATINUM", "XPDUSD", "PALLADIUM"):
+            return 100
+        if inst in ("COPPER",):
+            return 25_000  # 25000 lbs
+
+        # Crypto (1 lot = 1 unité de la crypto)
+        crypto = {"BTC", "ETH", "LTC", "SOL", "BNB", "BCH", "XRP", "DOGE",
+                  "ADA", "DOT", "XMR", "DASH", "NEO", "UNI", "XLM", "AAVE",
+                  "MANA", "IMX", "GRT", "ETC", "ALGO", "NEAR", "LINK", "AVAX",
+                  "XTZ", "FET", "ICP", "SAND", "GAL", "VET"}
+        if inst in crypto:
+            return 1  # 1 lot = 1 coin
+
+        # Indices CFD (1 lot = $1 per point typiquement)
+        indices = {"SP500", "NAS100", "US30", "US2000", "GER40", "UK100",
+                   "FRA40", "EU50", "IBEX35", "AEX25", "JPN225", "HK50",
+                   "AUS200", "USTEC", "USDX"}
+        if inst in indices:
+            return 1  # CFD : 1 lot = $1/point
+
+        # Energies
+        if inst in ("USOIL", "UKOIL", "BRENT"):
+            return 1_000  # 1000 barils
+        if inst in ("NATGAS",):
+            return 10_000  # 10000 MMBtu
+
+        # Commodités agricoles
+        agri = {"COCOA", "COFFEE", "CORN", "COTTON", "SOYBEAN", "WHEAT", "SUGAR"}
+        if inst in agri:
+            return 100  # Simplifié
+
+        # Actions (1 lot = 1 action en CFD)
+        return 1
 
 
 # ── Convenience functions ────────────────────────────────────────────
