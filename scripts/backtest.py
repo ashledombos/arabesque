@@ -36,6 +36,7 @@ from arabesque.backtest.runner import (
     run_backtest, run_multi_instrument,
 )
 from arabesque.backtest.signal_gen import SignalGenConfig
+from arabesque.backtest.data import print_data_status
 
 # ── Presets ──────────────────────────────────────────────────────────
 
@@ -133,6 +134,16 @@ Exemples :
                         help="Split in/out sample (default: 0.70)")
     parser.add_argument("--quiet", action="store_true",
                         help="Désactiver l'affichage détaillé")
+    parser.add_argument("--data-root", type=str, default=None,
+                        help="Chemin vers le data root barres_au_sol "
+                             "(default: ~/dev/barres_au_sol/data ou "
+                             "env BARRES_AU_SOL_DATA_ROOT)")
+    parser.add_argument("--data-status", action="store_true",
+                        help="Afficher la disponibilité des données Parquet "
+                             "puis quitter")
+    parser.add_argument("--no-parquet", action="store_true",
+                        help="Forcer l'utilisation de Yahoo Finance "
+                             "(ignorer les données Parquet)")
 
     args = parser.parse_args()
 
@@ -150,6 +161,11 @@ Exemples :
         instruments = [i.upper() for i in args.instruments]
     else:
         parser.print_help()
+        sys.exit(0)
+
+    # Data status
+    if args.data_status:
+        print_data_status(instruments, data_root=args.data_root)
         sys.exit(0)
 
     # Config
@@ -170,6 +186,7 @@ Exemples :
             split_pct=args.split,
             verbose=not args.quiet,
             strategy=args.strategy,
+            data_root=args.data_root,
         )
     else:
         run_multi_instrument(
@@ -181,6 +198,7 @@ Exemples :
             split_pct=args.split,
             verbose=not args.quiet,
             strategy=args.strategy,
+            data_root=args.data_root,       #
         )
 
 
