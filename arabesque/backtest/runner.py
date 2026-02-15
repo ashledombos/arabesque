@@ -439,15 +439,16 @@ class BacktestRunner:
 
 def run_backtest(
     instrument: str,
-    period: str = "2y",
+    period: str = "730d",
     start: str | None = None,
     end: str | None = None,
     bt_config: BacktestConfig | None = None,
-    signal_config: SignalGenConfig | None = None,
     manager_config: ManagerConfig | None = None,
+    signal_config: SignalGenConfig | None = None,
     split_pct: float = 0.70,
     verbose: bool = True,
     strategy: str = "mean_reversion",
+    data_root: str | None = None,
 ) -> tuple[BacktestResult, BacktestResult]:
     """Lance un backtest complet avec in-sample / out-of-sample.
 
@@ -468,9 +469,10 @@ def run_backtest(
     print(f"  ARABESQUE BACKTEST — {instrument} ({symbol})")
     print(f"  Strategy: {strat_label}")
     print(f"{'='*60}")
-    print(f"  Downloading data...")
+    print(f"  Loading data...")
 
-    df = load_ohlc(symbol, period=period, start=start, end=end)
+    df = load_ohlc(symbol, period=period, start=start, end=end,
+                   instrument=instrument, data_root=data_root)
     print(f"  Loaded {len(df)} bars from {df.index[0]} to {df.index[-1]}")
 
     # 2. Créer le signal generator
