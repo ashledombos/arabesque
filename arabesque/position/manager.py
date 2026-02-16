@@ -206,9 +206,17 @@ class PositionManager:
                 f"SL hit (ambiguous bar: SL and TP both touched, conservative=SL)")
 
         if sl_hit:
-            return self._close_position(
-                pos, pos.sl, DecisionType.EXIT_SL,
-                f"SL hit @ {pos.sl:.5f}")
+            # Discriminer : SL original (loss) vs trailing SL (win)
+            if pos.trailing_active or pos.breakeven_set:
+                # Le SL a été remonté → c'est une sortie trailing
+                # result_r sera positif si SL > entry
+                dtype = DecisionType.EXIT_TRAILING
+                reason = (f"Trailing SL hit @ {pos.sl:.5f} "
+                         f"(tier {pos.trailing_tier}, MFE={pos.mfe_r:.2f}R)")
+            else:
+                dtype = DecisionType.EXIT_SL
+                reason = f"SL hit @ {pos.sl:.5f}"
+            return self._close_position(pos, pos.sl, dtype, reason)
 
         if tp_hit:
             return self._close_position(
