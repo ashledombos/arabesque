@@ -187,19 +187,26 @@ class PositionManager:
 
     # ── SL/TP intrabar (CRITIQUE) ────────────────────────────────────
 
-    def _check_sl_tp_intrabar(self, pos: Position, high: float, low: float) -> Decision | None:
+    def _check_sl_tp_intrabar(self, pos, high: float, low: float):
         """Vérifie SL/TP sur high/low avec règle conservatrice.
-
+    
         Si SL ET TP touchés dans la même bougie → PRENDRE LE SL (pire cas).
         C'est la règle conservatrice standard pour éviter l'optimisme OHLC.
+    
+        NOUVEAU : Discrimine EXIT_TRAILING vs EXIT_SL selon que le SL
+        a été remonté (trailing/breakeven actif) ou non.
         """
+        from arabesque.models import Side, DecisionType
+    
         is_long = pos.side == Side.LONG
-
+    
         sl_hit = (low <= pos.sl) if is_long else (high >= pos.sl) if pos.sl > 0 else False
         tp_hit = (high >= pos.tp) if is_long and pos.tp > 0 else \
                  (low <= pos.tp) if not is_long and pos.tp > 0 else False
-
+    
         if sl_hit and tp_hit:
+            # Ambiguïté OHLC → pire cas = SL
+            # Mais discriminer trailing vs SL original
             if pos.trailing_active or pos.breakeven_set:
                 dtype = DecisionType.EXIT_TRAILING
                 reason = (f"Trailing SL hit (ambiguous bar) @ {pos.sl:.5f} "
@@ -208,12 +215,12 @@ class PositionManager:
                 dtype = DecisionType.EXIT_SL
                 reason = "SL hit (ambiguous bar: SL and TP both touched, conservative=SL)"
             return self._close_position(pos, pos.sl, dtype, reason)
-
+    
         if sl_hit:
             # Discriminer : SL original (loss) vs trailing SL (win)
             if pos.trailing_active or pos.breakeven_set:
                 # Le SL a été remonté → c'est une sortie trailing
-                # result_r sera positif si SL > entry
+                # result_r sera positif si SL > entry (LONG) ou SL < entry (SHORT)
                 dtype = DecisionType.EXIT_TRAILING
                 reason = (f"Trailing SL hit @ {pos.sl:.5f} "
                          f"(tier {pos.trailing_tier}, MFE={pos.mfe_r:.2f}R)")
@@ -221,12 +228,12 @@ class PositionManager:
                 dtype = DecisionType.EXIT_SL
                 reason = f"SL hit @ {pos.sl:.5f}"
             return self._close_position(pos, pos.sl, dtype, reason)
-
+    
         if tp_hit:
             return self._close_position(
                 pos, pos.tp, DecisionType.EXIT_TP,
                 f"TP hit @ {pos.tp:.5f}")
-
+    
         return None
 
     # ── Break-even ───────────────────────────────────────────────────
