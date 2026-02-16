@@ -10,3 +10,10 @@ from arabesque.backtest.signal_gen import BacktestSignalGenerator, SignalGenConf
 from arabesque.backtest.signal_gen_trend import TrendSignalGenerator, TrendSignalConfig
 from arabesque.backtest.signal_gen_combined import CombinedSignalGenerator
 from arabesque.backtest.metrics import compute_metrics, format_report, BacktestMetrics
+from arabesque.backtest.stats import (
+    wilson_score_interval,
+    bootstrap_expectancy,
+    monte_carlo_drawdown,
+    full_statistical_analysis,
+)
+from arabesque.backtest.pipeline import Pipeline, PipelineConfig
