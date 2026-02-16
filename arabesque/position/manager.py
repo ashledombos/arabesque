@@ -200,10 +200,14 @@ class PositionManager:
                  (low <= pos.tp) if not is_long and pos.tp > 0 else False
 
         if sl_hit and tp_hit:
-            # Ambiguïté OHLC → pire cas = SL
-            return self._close_position(
-                pos, pos.sl, DecisionType.EXIT_SL,
-                f"SL hit (ambiguous bar: SL and TP both touched, conservative=SL)")
+            if pos.trailing_active or pos.breakeven_set:
+                dtype = DecisionType.EXIT_TRAILING
+                reason = (f"Trailing SL hit (ambiguous bar) @ {pos.sl:.5f} "
+                         f"(tier {pos.trailing_tier})")
+            else:
+                dtype = DecisionType.EXIT_SL
+                reason = "SL hit (ambiguous bar: SL and TP both touched, conservative=SL)"
+            return self._close_position(pos, pos.sl, dtype, reason)
 
         if sl_hit:
             # Discriminer : SL original (loss) vs trailing SL (win)
