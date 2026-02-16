@@ -9,6 +9,8 @@ Calcule :
 - Win rate, avg win, avg loss
 - Slippage sensitivity
 - Sortie par type (SL, TP, trailing, giveback, deadfish, time-stop)
+- Ventilation par trailing tier (NOUVEAU)
+- Distribution MFE (NOUVEAU)
 """
 
 from __future__ import annotations
@@ -71,6 +73,11 @@ class BacktestMetrics:
     exits_by_type: dict[str, int] = field(default_factory=dict)
     exits_by_type_r: dict[str, float] = field(default_factory=dict)
 
+    # ── NOUVEAU : Trailing tier breakdown ──
+    exits_by_trailing_tier: dict[int, int] = field(default_factory=dict)
+    exits_by_trailing_tier_r: dict[int, float] = field(default_factory=dict)
+    mfe_distribution: dict[str, int] = field(default_factory=dict)  # "<0.25R": count
+
     # Slippage sensitivity
     slippage_sensitivity: dict[str, float] = field(default_factory=dict)
 
@@ -94,6 +101,7 @@ def compute_metrics(
     sample_type: str = "",
 ) -> BacktestMetrics:
     """Calcule toutes les métriques à partir des positions fermées."""
+
     m = BacktestMetrics(instrument=instrument, sample_type=sample_type)
 
     if not closed_positions:
@@ -180,6 +188,9 @@ def compute_metrics(
         r = p.result_r or 0
         m.exits_by_type_r[reason] = m.exits_by_type_r.get(reason, 0) + r
 
+    # ── NOUVEAU : Trailing tier breakdown + MFE distribution ──
+    _compute_trailing_breakdown(closed_positions, m)
+
     # Dates
     dates = [p.ts_entry for p in closed_positions if p.ts_entry]
     if dates:
@@ -187,6 +198,42 @@ def compute_metrics(
         m.end_date = str(max(dates).date())
 
     return m
+
+
+def _compute_trailing_breakdown(positions: list[Position], m: BacktestMetrics):
+    """Ventile les exits par trailing tier et calcule la distribution MFE.
+
+    Trailing tier = le palier atteint par le trade avant de sortir.
+    0 = pas de trailing activé (SL original ou autre exit).
+    1-5 = paliers du trailing adaptatif.
+
+    MFE distribution = combien loin les trades vont avant de revenir.
+    Permet de diagnostiquer si le problème est le signal ou la gestion.
+    """
+    for p in positions:
+        tier = p.trailing_tier
+        m.exits_by_trailing_tier[tier] = m.exits_by_trailing_tier.get(tier, 0) + 1
+        r = p.result_r or 0
+        m.exits_by_trailing_tier_r[tier] = m.exits_by_trailing_tier_r.get(tier, 0) + r
+
+    # Distribution MFE par buckets
+    for p in positions:
+        mfe = p.mfe_r
+        if mfe < 0.25:
+            bucket = "<0.25R"
+        elif mfe < 0.5:
+            bucket = "0.25-0.5R"
+        elif mfe < 1.0:
+            bucket = "0.5-1.0R"
+        elif mfe < 1.5:
+            bucket = "1.0-1.5R"
+        elif mfe < 2.0:
+            bucket = "1.5-2.0R"
+        elif mfe < 3.0:
+            bucket = "2.0-3.0R"
+        else:
+            bucket = "3.0R+"
+        m.mfe_distribution[bucket] = m.mfe_distribution.get(bucket, 0) + 1
 
 
 def _compute_disqualifying_days(
@@ -303,6 +350,9 @@ def format_report(m: BacktestMetrics) -> str:
         avg_r = m.exits_by_type_r.get(exit_type, 0) / count if count > 0 else 0
         lines.append(f"    {exit_type:25s} : {count:3d} trades  avg {avg_r:+.2f}R")
 
+    # ── NOUVEAU : Trailing tiers ──
+    lines.extend(_format_trailing_section(m))
+
     if m.rejection_reasons:
         lines.extend([f"", f"  REJECTIONS :"])
         for reason, count in sorted(m.rejection_reasons.items(), key=lambda x: -x[1]):
@@ -315,3 +365,31 @@ def format_report(m: BacktestMetrics) -> str:
 
     lines.append(f"{'='*60}")
     return "\n".join(lines)
+
+
+def _format_trailing_section(m: BacktestMetrics) -> list[str]:
+    """Section trailing tier + MFE distribution pour format_report."""
+    lines = []
+
+    if m.exits_by_trailing_tier:
+        lines.extend([f"", f"  TRAILING TIERS :"])
+        for tier in sorted(m.exits_by_trailing_tier.keys()):
+            count = m.exits_by_trailing_tier[tier]
+            total_r = m.exits_by_trailing_tier_r.get(tier, 0)
+            avg_r = total_r / count if count > 0 else 0
+            label = f"Tier {tier}" if tier > 0 else "No trail"
+            lines.append(f"    {label:15s} : {count:3d} trades  avg {avg_r:+.2f}R  total {total_r:+.1f}R")
+
+    if m.mfe_distribution:
+        lines.extend([f"", f"  MFE DISTRIBUTION (combien loin vont les trades) :"])
+        # Ordre fixe des buckets
+        bucket_order = ["<0.25R", "0.25-0.5R", "0.5-1.0R",
+                        "1.0-1.5R", "1.5-2.0R", "2.0-3.0R", "3.0R+"]
+        total = sum(m.mfe_distribution.values())
+        for bucket in bucket_order:
+            count = m.mfe_distribution.get(bucket, 0)
+            pct = count / total * 100 if total > 0 else 0
+            bar = "█" * int(pct / 2)
+            lines.append(f"    {bucket:12s} : {count:3d} ({pct:4.1f}%) {bar}")
+
+    return lines
