@@ -183,7 +183,7 @@ class BacktestSignalGenerator:
             if rr < self.cfg.min_rr:
                 return None
 
-            return Signal(
+            sig = Signal(
                 instrument=instrument,
                 side=Side.LONG,
                 timeframe="1h",
@@ -208,6 +208,7 @@ class BacktestSignalGenerator:
                 rr=round(rr, 2),
                 timestamp=df.index[idx],
             )
+            return label_trend_signal(sig, df, idx)
 
         # ── SHORT : close > BB upper ──
         if close > bb_upper:
@@ -231,7 +232,7 @@ class BacktestSignalGenerator:
             if rr < self.cfg.min_rr:
                 return None
 
-            return Signal(
+            sig = Signal(
                 instrument=instrument,
                 side=Side.SHORT,
                 timeframe="1h",
@@ -256,6 +257,7 @@ class BacktestSignalGenerator:
                 rr=round(rr, 2),
                 timestamp=df.index[idx],
             )
+            return label_trend_signal(sig, df, idx)
 
         return None
 
