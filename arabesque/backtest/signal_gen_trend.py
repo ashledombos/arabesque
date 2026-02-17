@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from arabesque.models import Signal, Side
+from arabesque.backtest.signal_labeler import label_mr_signal
 
 
 @dataclass
@@ -271,7 +272,7 @@ class TrendSignalGenerator:
             if rr < self.cfg.min_rr:
                 return None
 
-            return Signal(
+            sig = Signal(
                 instrument=instrument,
                 side=Side.LONG,
                 timeframe="1h",
@@ -297,6 +298,7 @@ class TrendSignalGenerator:
                 strategy_type="trend",
                 timestamp=df.index[idx],
             )
+            return label_mr_signal(sig, df, idx)
 
         # ── SHORT breakout : close < BB lower ──
         if close < bb_lower - self.cfg.breakout_margin:
@@ -328,7 +330,7 @@ class TrendSignalGenerator:
             if rr < self.cfg.min_rr:
                 return None
 
-            return Signal(
+            sig = Signal(
                 instrument=instrument,
                 side=Side.SHORT,
                 timeframe="1h",
@@ -354,6 +356,7 @@ class TrendSignalGenerator:
                 strategy_type="trend",
                 timestamp=df.index[idx],
             )
+            return label_mr_signal(sig, df, idx)
 
         return None
 
