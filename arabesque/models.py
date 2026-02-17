@@ -110,6 +110,10 @@ class Signal:
 
     # Type de stratégie ("mean_reversion" ou "trend")
     strategy_type: str = "mean_reversion"
+    
+    # Phase 1.3 : Sub-type et facteurs de qualité
+    sub_type: str = ""
+    label_factors: dict = field(default_factory=dict)
 
     @classmethod
     def from_webhook_json(cls, data: dict) -> Signal:
