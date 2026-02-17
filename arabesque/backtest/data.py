@@ -130,13 +130,15 @@ def get_last_source_info() -> Optional[DataSourceInfo]:
 
 
 def load_ohlc(
-    symbol_or_instrument: str,
+    symbol_or_instrument: str = "",
     period: str = "2y",
     interval: str = "1h",
     start: str | None = None,
     end: str | None = None,
     data_root: str | None = None,
     prefer_parquet: bool = True,
+    *,
+    instrument: str | None = None,
 ) -> pd.DataFrame:
     """Charge les données OHLC.
 
@@ -151,6 +153,9 @@ def load_ohlc(
         start/end: Dates optionnelles (format "YYYY-MM-DD")
         data_root: Chemin vers les données barres_au_sol (défaut: auto-détection)
         prefer_parquet: Si True, cherche Parquet d'abord (défaut: True)
+        instrument: Alias kwarg — si passé, utilisé pour la résolution Parquet.
+                    Permet la compatibilité avec runner.py qui appelle :
+                    load_ohlc(symbol, period=..., instrument=instrument)
 
     Returns:
         DataFrame avec colonnes [Open, High, Low, Close, Volume]
@@ -158,14 +163,16 @@ def load_ohlc(
     """
     global _last_source_info
 
+    # Si instrument= est passé comme kwarg, l'utiliser pour la résolution Parquet
+    effective_instrument = instrument or symbol_or_instrument
+
     if data_root is None:
         data_root = _default_data_root()
 
     # ── Tentative Parquet ──
     if prefer_parquet:
-        # Extraire le nom d'instrument (supprimer =X, -USD, etc. si c'est un symbole Yahoo)
-        instrument = _normalize_instrument(symbol_or_instrument)
-        pq_path = _parquet_path_for(instrument, data_root, timeframe=interval)
+        normalized = _normalize_instrument(effective_instrument)
+        pq_path = _parquet_path_for(normalized, data_root, timeframe=interval)
 
         if pq_path:
             try:
@@ -177,7 +184,7 @@ def load_ohlc(
                 pass  # Fallback to Yahoo
 
     # ── Fallback Yahoo ──
-    yahoo_sym = yahoo_symbol(symbol_or_instrument)
+    yahoo_sym = yahoo_symbol(symbol_or_instrument or effective_instrument)
     df = _load_from_yahoo(yahoo_sym, period=period, interval=interval, start=start, end=end)
     _last_source_info = DataSourceInfo("yahoo", yahoo_sym, len(df))
     return df
@@ -487,37 +494,57 @@ def list_all_ftmo_instruments() -> list[dict]:
 
 def _categorize(instrument: str) -> str:
     """Catégorise un instrument FTMO."""
-    inst = instrument.upper()
-    if inst.startswith("XA") or inst.startswith("XC") or inst.startswith("XP") or inst.startswith("XAG"):
+    inst = instrument.upper().replace(".CASH", "").replace(".C", "")
+
+    # ── Métaux (en premier car XAUUSD matche d'autres patterns) ──
+    if inst in ("XAUUSD", "XAGUSD", "XAUEUR", "XAGEUR", "XAUAUD", "XAGAUD",
+                "XCUUSD", "XPTUSD", "XPDUSD"):
         return "metals"
-    if inst.endswith("USD") and len(inst) == 6 and not inst.startswith("X"):
-        # Check if it's a known crypto
-        crypto_bases = {"BTC", "ETH", "LTC", "SOL", "BNB", "BCH", "XRP", "ADA",
-                       "DOGE", "DOT", "UNI", "XLM", "AVAX", "LINK", "AAVE",
-                       "ALGO", "NEAR", "IMX", "GRT", "GAL", "FET", "ICP",
-                       "VET", "MANA", "SAND", "XTZ", "ETC", "BAR", "NEO",
-                       "XMR", "DASH", "NER", "AVA", "LNK", "ALG"}
-        base = inst[:3]
-        if base in crypto_bases:
-            return "crypto"
-        return "fx"
-    if any(inst.startswith(p) for p in ["US", "DE", "GE", "UK", "JP", "AU", "EU", "FR", "SP", "HK", "N2"]):
-        if inst in ("USOIL", "UKOIL"):
-            return "energy"
-        return "indices"
+
+    # ── Énergie ──
     if inst in ("USOIL", "UKOIL", "NATGAS", "HEATOIL"):
         return "energy"
+
+    # ── Commodities ──
     if inst in ("COCOA", "COFFEE", "CORN", "COTTON", "SOYBEAN", "SUGAR", "WHEAT"):
         return "commodities"
-    if inst == "DXY":
+
+    # ── Indices (noms explicites uniquement) ──
+    INDICES = {
+        "US30", "US500", "US100", "US2000", "USTEC",
+        "DE40", "GER40", "UK100", "JP225", "AU200", "AUS200",
+        "EU50", "FRA40", "SPN35", "HK50", "N25", "DXY",
+    }
+    if inst in INDICES:
         return "indices"
-    # FX exotiques et crosses
-    fx_currencies = {"EUR", "USD", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD",
-                    "CNH", "CZK", "HKD", "HUF", "ILS", "MXN", "NOK", "PLN",
-                    "SEK", "SGD", "ZAR"}
+
+    # ── Crypto (base connue + USD) ──
+    CRYPTO_BASES = {
+        "BTC", "ETH", "LTC", "SOL", "BNB", "BCH", "XRP", "ADA",
+        "DOGE", "DOT", "UNI", "XLM", "VET", "VEC",
+        "MANA", "MAN", "SAND", "SAN", "XTZ",
+        "AVAX", "AVA", "LINK", "LNK", "AAVE", "AAV",
+        "ALGO", "ALG", "NEAR", "NER", "IMX",
+        "GRT", "GAL", "FET", "ICP", "BAR",
+        "NEO", "XMR", "DASH", "DAS", "ETC",
+    }
+    if inst.endswith("USD") and len(inst) >= 6:
+        base = inst[:-3]
+        if base in CRYPTO_BASES:
+            return "crypto"
+    if inst in CRYPTO_BASES:
+        return "crypto"
+
+    # ── FX (6 chars, deux devises connues) ──
+    FX_CURRENCIES = {
+        "EUR", "USD", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD",
+        "CNH", "CZK", "HKD", "HUF", "ILS", "MXN", "NOK", "PLN",
+        "SEK", "SGD", "ZAR", "TRY", "DKK",
+    }
     if len(inst) == 6:
         base = inst[:3]
         quote = inst[3:]
-        if base in fx_currencies and quote in fx_currencies:
+        if base in FX_CURRENCIES and quote in FX_CURRENCIES:
             return "fx"
+
     return "other"
