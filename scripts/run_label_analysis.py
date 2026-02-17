@@ -154,17 +154,19 @@ def main():
     args = parser.parse_args()
 
     # Résoudre la liste d'instruments
+    # NOTE: list_all_ftmo_instruments() retourne une liste de dicts
+    #       {"ftmo_symbol": ..., "source": ...} — on extrait le symbole string.
     if args.instruments:
         instruments = [i.upper() for i in args.instruments]
     elif args.list:
-        all_inst = list_all_ftmo_instruments()
+        all_inst = [d["ftmo_symbol"] for d in list_all_ftmo_instruments()]
         if args.list == "all":
             instruments = all_inst
         else:
             instruments = [i for i in all_inst if _categorize(i) == args.list]
     else:
-        # Auto: tous les instruments avec Parquet
-        instruments = list_all_ftmo_instruments()
+        # Auto: tous les instruments depuis instruments.csv
+        instruments = [d["ftmo_symbol"] for d in list_all_ftmo_instruments()]
 
     if not instruments:
         print("Aucun instrument trouvé.")
