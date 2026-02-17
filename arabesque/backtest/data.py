@@ -1,13 +1,16 @@
 """
 Arabesque v2 — Backtest data loader.
 
-Charge les données OHLC avec priorité :
-1. Parquet dérivés 1H de barres_au_sol (Dukascopy / CCXT)
-2. Fallback Yahoo Finance si Parquet absent ou insuffisant
+PRIORITÉ DES SOURCES :
+  1. Parquet barres_au_sol (Dukascopy/CCXT) — données FTMO exactes
+  2. Yahoo Finance — fallback si pas de Parquet
+
+Le chemin vers les données Parquet est configurable :
+  - Env var ARABESQUE_DATA_ROOT (ex: /home/user/dev/barres_au_sol/data)
+  - Argument data_root dans load_ohlc()
+  - Défaut : ../barres_au_sol/data (relatif au repo arabesque)
 
 Gère :
-- Mapping FTMO instrument → clé Parquet (via instruments.csv ou heuristique)
-- Normalisation colonnes (lowercase Parquet → capitalisé Arabesque)
 - Gaps weekend (vendredi close → lundi open)
 - Barres manquantes (forward-fill limité à 3 barres)
 - Détection jours de trading pour reset daily DD
@@ -16,182 +19,207 @@ Gère :
 from __future__ import annotations
 
 import os
-import logging
 from pathlib import Path
 from typing import Optional
 
 import pandas as pd
-import numpy as np
-
-logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────
-# Configuration Parquet
-# ─────────────────────────────────────────────────────────────
+# ── Configuration ────────────────────────────────────────────────
 
-# Chemin par défaut vers le data root de barres_au_sol.
-# Peut être overridé via :
-#   - paramètre data_root dans load_ohlc()
-#   - variable d'env BARRES_AU_SOL_DATA_ROOT
-#   - argument CLI --data-root
-DEFAULT_DATA_ROOT = os.environ.get(
-    "BARRES_AU_SOL_DATA_ROOT",
-    os.path.expanduser("~/dev/barres_au_sol/data"),
-)
-
-# Chemin vers instruments.csv de barres_au_sol (pour le mapping)
-DEFAULT_INSTRUMENTS_CSV = os.environ.get(
-    "BARRES_AU_SOL_INSTRUMENTS_CSV",
-    os.path.expanduser("~/dev/barres_au_sol/instruments.csv"),
-)
+def _default_data_root() -> str:
+    """Chemin par défaut vers les données barres_au_sol."""
+    # Env var en priorité
+    env = os.environ.get("ARABESQUE_DATA_ROOT")
+    if env:
+        return env
+    # Sinon, relatif au repo arabesque (../barres_au_sol/data)
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    return str(repo_root.parent / "barres_au_sol" / "data")
 
 
-# ─────────────────────────────────────────────────────────────
-# Mapping FTMO instrument → clé Parquet
-# ─────────────────────────────────────────────────────────────
+def _instruments_csv_path() -> str:
+    """Chemin vers instruments.csv de barres_au_sol."""
+    env = os.environ.get("ARABESQUE_DATA_ROOT")
+    if env:
+        return str(Path(env).parent / "instruments.csv")
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    return str(repo_root.parent / "barres_au_sol" / "instruments.csv")
 
-def _load_instruments_mapping(csv_path: str | None = None) -> dict[str, dict]:
-    """Charge instruments.csv de barres_au_sol et construit le mapping.
 
-    Returns:
-        Dict {ftmo_symbol: {"source": str, "key": str}}
-        ex: {"EURUSD": {"source": "dukascopy", "key": "EURUSD"},
-             "BTC": {"source": "ccxt", "key": "BTCUSDT_BINANCE"}}
-    """
-    csv_path = csv_path or DEFAULT_INSTRUMENTS_CSV
+# ── Mapping instruments ─────────────────────────────────────────
+
+# Cache du CSV instruments (chargé une seule fois)
+_INSTRUMENTS_CACHE: Optional[pd.DataFrame] = None
+
+
+def _load_instruments_csv() -> Optional[pd.DataFrame]:
+    """Charge instruments.csv, retourne None si introuvable."""
+    global _INSTRUMENTS_CACHE
+    if _INSTRUMENTS_CACHE is not None:
+        return _INSTRUMENTS_CACHE
+
+    csv_path = _instruments_csv_path()
     if not os.path.exists(csv_path):
-        logger.debug(f"instruments.csv not found at {csv_path}")
-        return {}
+        return None
 
-    try:
-        df = pd.read_csv(csv_path).fillna("")
-    except Exception as e:
-        logger.warning(f"Failed to load instruments.csv: {e}")
-        return {}
-
-    mapping = {}
-    for _, row in df.iterrows():
-        ftmo = str(row.get("ftmo_symbol", "")).strip()
-        source = str(row.get("source", "")).strip().lower()
-        data_symbol = str(row.get("data_symbol", "")).strip()
-        exchange = str(row.get("exchange", "")).strip() or "binance"
-
-        if not ftmo or not source or not data_symbol:
-            continue
-
-        if source == "dukascopy":
-            key = data_symbol.upper()
-        elif source == "ccxt":
-            key = data_symbol.replace("/", "").upper() + "_" + exchange.upper()
-        else:
-            continue
-
-        mapping[ftmo.upper()] = {"source": source, "key": key}
-
-    return mapping
+    df = pd.read_csv(csv_path).fillna("")
+    _INSTRUMENTS_CACHE = df
+    return df
 
 
-# Cache global du mapping (chargé une fois)
-_INSTRUMENTS_MAP: dict[str, dict] | None = None
+def _parquet_path_for(instrument: str, data_root: str, timeframe: str = "1h") -> Optional[str]:
+    """Trouve le chemin Parquet pour un instrument FTMO.
 
-
-def _get_instruments_map(csv_path: str | None = None) -> dict[str, dict]:
-    """Retourne le mapping instruments, avec cache."""
-    global _INSTRUMENTS_MAP
-    if _INSTRUMENTS_MAP is None:
-        _INSTRUMENTS_MAP = _load_instruments_mapping(csv_path)
-    return _INSTRUMENTS_MAP
-
-
-def _resolve_parquet_path(
-    instrument: str,
-    data_root: str,
-    timeframe: str = "1h",
-    csv_path: str | None = None,
-) -> str | None:
-    """Résout le chemin Parquet pour un instrument FTMO.
-
-    Stratégie :
-    1. Chercher dans instruments.csv (mapping exact)
-    2. Heuristique : essayer les chemins courants
-       - dukascopy/derived/{INSTRUMENT}_1h.parquet
-       - ccxt/derived/{INSTRUMENT}USDT_BINANCE_1h.parquet
+    Cherche dans instruments.csv la correspondance :
+      FTMO symbol → source (dukascopy/ccxt) → data_symbol → KEY → fichier dérivé
 
     Returns:
         Chemin absolu vers le fichier Parquet, ou None si introuvable.
     """
-    inst_upper = instrument.upper()
-    mapping = _get_instruments_map(csv_path)
+    csv = _load_instruments_csv()
+    if csv is None:
+        return None
 
-    # 1. Mapping via instruments.csv
-    if inst_upper in mapping:
-        info = mapping[inst_upper]
-        path = os.path.join(
-            data_root, info["source"], "derived",
-            f"{info['key']}_{timeframe}.parquet"
-        )
-        if os.path.exists(path):
-            return path
-        logger.debug(f"Parquet mapped but not found: {path}")
+    # Chercher l'instrument dans le CSV (colonne ftmo_symbol)
+    matches = csv[csv["ftmo_symbol"].str.upper() == instrument.upper()]
+    if matches.empty:
+        return None
 
-    # 2. Heuristique — essayer les chemins courants
-    candidates = [
-        # Dukascopy direct (FX, métaux)
-        os.path.join(data_root, "dukascopy", "derived", f"{inst_upper}_{timeframe}.parquet"),
-        # CCXT Binance (crypto)
-        os.path.join(data_root, "ccxt", "derived", f"{inst_upper}USDT_BINANCE_{timeframe}.parquet"),
-        os.path.join(data_root, "ccxt", "derived", f"{inst_upper}USD_BINANCE_{timeframe}.parquet"),
-        # CCXT avec /
-        os.path.join(data_root, "ccxt", "derived", f"{inst_upper}_BINANCE_{timeframe}.parquet"),
-    ]
+    row = matches.iloc[0]
+    source = str(row["source"]).strip().lower()
+    data_symbol = str(row["data_symbol"]).strip()
+    exchange = str(row.get("exchange", "")).strip() or "binance"
 
-    for path in candidates:
-        if os.path.exists(path):
-            logger.info(f"Parquet found via heuristic: {path}")
-            return path
+    # Construire la clé (même logique que data_orchestrator.py)
+    if source == "dukascopy":
+        key = data_symbol.upper()
+    elif source == "ccxt":
+        key = data_symbol.replace("/", "").upper() + "_" + exchange.upper()
+    else:
+        return None
+
+    # Chemin du fichier dérivé
+    path = os.path.join(data_root, source, "derived", f"{key}_{timeframe}.parquet")
+    if os.path.exists(path):
+        return path
 
     return None
 
 
-# ─────────────────────────────────────────────────────────────
-# Chargement Parquet
-# ─────────────────────────────────────────────────────────────
+# ── Chargement OHLC ─────────────────────────────────────────────
 
-def _load_parquet_ohlc(
-    parquet_path: str,
+class DataSourceInfo:
+    """Métadonnées sur la source de données utilisée."""
+    def __init__(self, source: str, path_or_symbol: str, bars: int):
+        self.source = source                # "parquet" ou "yahoo"
+        self.path_or_symbol = path_or_symbol
+        self.bars = bars
+
+    def __repr__(self):
+        return f"[{self.source}] {self.path_or_symbol} ({self.bars} bars)"
+
+
+# Dernier source info (accessible après load_ohlc)
+_last_source_info: Optional[DataSourceInfo] = None
+
+
+def get_last_source_info() -> Optional[DataSourceInfo]:
+    """Retourne les infos de la dernière source de données chargée."""
+    return _last_source_info
+
+
+def load_ohlc(
+    symbol_or_instrument: str,
+    period: str = "2y",
+    interval: str = "1h",
     start: str | None = None,
     end: str | None = None,
+    data_root: str | None = None,
+    prefer_parquet: bool = True,
 ) -> pd.DataFrame:
-    """Charge un fichier Parquet dérivé et normalise pour Arabesque.
+    """Charge les données OHLC.
 
-    barres_au_sol stocke : open, high, low, close, volume (lowercase)
-    Arabesque attend :    Open, High, Low, Close, Volume (capitalisé)
+    PRIORITÉ :
+      1. Si prefer_parquet=True, cherche dans barres_au_sol (Parquet)
+      2. Sinon, ou si pas trouvé, charge depuis Yahoo Finance
+
+    Args:
+        symbol_or_instrument: Nom FTMO (ex: "EURUSD") ou symbole Yahoo (ex: "EURUSD=X")
+        period: Période Yahoo (ex: "2y", "730d"). Ignoré si start/end.
+        interval: Intervalle ("1h" pour Arabesque)
+        start/end: Dates optionnelles (format "YYYY-MM-DD")
+        data_root: Chemin vers les données barres_au_sol (défaut: auto-détection)
+        prefer_parquet: Si True, cherche Parquet d'abord (défaut: True)
+
+    Returns:
+        DataFrame avec colonnes [Open, High, Low, Close, Volume]
+        Index = DatetimeIndex UTC.
     """
-    df = pd.read_parquet(parquet_path)
+    global _last_source_info
 
-    if df.empty:
-        raise ValueError(f"Parquet vide : {parquet_path}")
+    if data_root is None:
+        data_root = _default_data_root()
 
-    # Normaliser les noms de colonnes (lowercase → capitalisé)
-    col_map = {
-        "open": "Open", "high": "High", "low": "Low",
-        "close": "Close", "volume": "Volume",
-    }
+    # ── Tentative Parquet ──
+    if prefer_parquet:
+        # Extraire le nom d'instrument (supprimer =X, -USD, etc. si c'est un symbole Yahoo)
+        instrument = _normalize_instrument(symbol_or_instrument)
+        pq_path = _parquet_path_for(instrument, data_root, timeframe=interval)
+
+        if pq_path:
+            try:
+                df = _load_from_parquet(pq_path, start=start, end=end)
+                if df is not None and len(df) > 100:
+                    _last_source_info = DataSourceInfo("parquet", pq_path, len(df))
+                    return df
+            except Exception:
+                pass  # Fallback to Yahoo
+
+    # ── Fallback Yahoo ──
+    yahoo_sym = yahoo_symbol(symbol_or_instrument)
+    df = _load_from_yahoo(yahoo_sym, period=period, interval=interval, start=start, end=end)
+    _last_source_info = DataSourceInfo("yahoo", yahoo_sym, len(df))
+    return df
+
+
+def _normalize_instrument(s: str) -> str:
+    """Normalise un symbole vers un nom FTMO.
+
+    "EURUSD=X" → "EURUSD"
+    "BTC-USD"  → "BTC" ou "BTCUSD"
+    "GC=F"     → "XAUUSD"  (pas de correspondance directe, on tente quand même)
+    """
+    s = s.strip().upper()
+    # Supprimer suffixes Yahoo
+    for suffix in ["=X", "-USD", "=F"]:
+        if s.endswith(suffix):
+            s = s[:-len(suffix)]
+    return s
+
+
+def _load_from_parquet(
+    path: str,
+    start: str | None = None,
+    end: str | None = None,
+) -> Optional[pd.DataFrame]:
+    """Charge un fichier Parquet barres_au_sol et normalise les colonnes."""
+    df = pd.read_parquet(path)
+    if df is None or df.empty:
+        return None
+
+    # barres_au_sol utilise des colonnes lowercase
+    col_map = {"open": "Open", "high": "High", "low": "Low", "close": "Close", "volume": "Volume"}
     df = df.rename(columns=col_map)
 
-    # S'assurer qu'on a les colonnes nécessaires
+    # S'assurer que les colonnes nécessaires existent
     required = ["Open", "High", "Low", "Close"]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        raise ValueError(f"Colonnes manquantes dans {parquet_path}: {missing}")
+    if not all(c in df.columns for c in required):
+        return None
 
     # Ajouter Volume si absent
     if "Volume" not in df.columns:
-        df["Volume"] = 0.0
-
-    # Garder seulement OHLCV
-    df = df[["Open", "High", "Low", "Close", "Volume"]].copy()
+        df["Volume"] = 0
 
     # S'assurer de l'index UTC
     if df.index.tz is None:
@@ -211,29 +239,14 @@ def _load_parquet_ohlc(
     return df
 
 
-# ─────────────────────────────────────────────────────────────
-# Chargement Yahoo Finance (fallback)
-# ─────────────────────────────────────────────────────────────
-
-def _load_yahoo_ohlc(
+def _load_from_yahoo(
     symbol: str,
     period: str = "2y",
     interval: str = "1h",
     start: str | None = None,
     end: str | None = None,
 ) -> pd.DataFrame:
-    """Charge les données OHLC depuis Yahoo Finance.
-
-    Args:
-        symbol: Symbole Yahoo (ex: "EURUSD=X", "GC=F" pour l'or)
-        period: Période (ex: "2y", "730d"). Ignoré si start/end fournis.
-        interval: Intervalle ("1h" pour Arabesque)
-        start/end: Dates optionnelles (format "YYYY-MM-DD")
-
-    Returns:
-        DataFrame avec colonnes [Open, High, Low, Close, Volume]
-        Index = DatetimeIndex UTC.
-    """
+    """Charge les données OHLC depuis Yahoo Finance."""
     import yfinance as yf
 
     ticker = yf.Ticker(symbol)
@@ -248,7 +261,7 @@ def _load_yahoo_ohlc(
     df = ticker.history(**kwargs)
 
     if df.empty:
-        raise ValueError(f"Aucune donnée Yahoo pour {symbol} avec {kwargs}")
+        raise ValueError(f"Aucune donnée pour {symbol} avec {kwargs}")
 
     # Garder seulement OHLCV
     cols = ["Open", "High", "Low", "Close", "Volume"]
@@ -266,107 +279,89 @@ def _load_yahoo_ohlc(
     return df
 
 
-# ─────────────────────────────────────────────────────────────
-# API publique
-# ─────────────────────────────────────────────────────────────
+def _clean_ohlc(df: pd.DataFrame) -> pd.DataFrame:
+    """Nettoie les données OHLC."""
+    # Supprimer NaN et zéros
+    mask = (
+        df["Open"].notna() & df["High"].notna() &
+        df["Low"].notna() & df["Close"].notna() &
+        (df["Open"] > 0) & (df["Close"] > 0)
+    )
+    df = df[mask].copy()
 
-def load_ohlc(
-    symbol: str,
-    period: str = "2y",
-    interval: str = "1h",
-    start: str | None = None,
-    end: str | None = None,
-    # ── Parquet bridge ──
-    instrument: str | None = None,
-    data_root: str | None = None,
-    instruments_csv: str | None = None,
-    prefer_parquet: bool = True,
-) -> pd.DataFrame:
-    """Charge les données OHLC — Parquet d'abord, Yahoo Finance en fallback.
+    # Corriger H/L si incohérents
+    df["High"] = df[["Open", "High", "Low", "Close"]].max(axis=1)
+    df["Low"] = df[["Open", "High", "Low", "Close"]].min(axis=1)
 
-    Args:
-        symbol: Symbole Yahoo (ex: "EURUSD=X"). Utilisé pour le fallback.
-        period: Période Yahoo (ex: "2y", "730d"). Ignoré si start/end.
-        interval: "1h" pour Arabesque.
-        start/end: Dates optionnelles "YYYY-MM-DD".
-        instrument: Nom FTMO (ex: "EURUSD", "BTC"). Si None, déduit de symbol.
-        data_root: Chemin vers le data root barres_au_sol.
-        instruments_csv: Chemin vers instruments.csv barres_au_sol.
-        prefer_parquet: Si True (défaut), tente Parquet d'abord.
+    # Marquer les changements de jour pour le reset daily DD
+    df["date"] = df.index.date
 
-    Returns:
-        DataFrame OHLCV, index DatetimeIndex UTC.
-    """
-    data_root = data_root or DEFAULT_DATA_ROOT
-    source_used = "yahoo"
-
-    # Déduire l'instrument depuis le symbol Yahoo si pas fourni
-    if instrument is None:
-        instrument = _instrument_from_yahoo_symbol(symbol)
-
-    # 1. Tenter Parquet
-    if prefer_parquet and instrument:
-        parquet_path = _resolve_parquet_path(
-            instrument, data_root,
-            timeframe=interval.replace("min", "m"),
-            csv_path=instruments_csv,
-        )
-
-        if parquet_path:
-            try:
-                df = _load_parquet_ohlc(parquet_path, start=start, end=end)
-
-                # Vérifier qu'on a assez de données
-                min_bars = 100
-                if len(df) >= min_bars:
-                    source_used = "parquet"
-                    logger.info(
-                        f"Loaded {len(df)} bars from Parquet: {parquet_path}"
-                    )
-                    print(f"  [Parquet] {os.path.basename(parquet_path)} → {len(df)} bars")
-                    return df
-                else:
-                    logger.warning(
-                        f"Parquet too short ({len(df)} bars < {min_bars}), "
-                        f"falling back to Yahoo"
-                    )
-                    print(f"  [Parquet] {os.path.basename(parquet_path)} → "
-                          f"seulement {len(df)} bars, fallback Yahoo")
-            except Exception as e:
-                logger.warning(f"Parquet load failed: {e}, falling back to Yahoo")
-                print(f"  [Parquet] Erreur: {e}, fallback Yahoo")
-
-    # 2. Fallback Yahoo Finance
-    yahoo_sym = symbol if "=" in symbol or "-" in symbol or "^" in symbol else yahoo_symbol(symbol)
-    print(f"  [Yahoo] {yahoo_sym}")
-    df = _load_yahoo_ohlc(yahoo_sym, period=period, interval=interval,
-                          start=start, end=end)
     return df
 
 
-# ─────────────────────────────────────────────────────────────
-# Utilitaires
-# ─────────────────────────────────────────────────────────────
+def split_in_out_sample(
+    df: pd.DataFrame,
+    in_sample_pct: float = 0.70,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Split en in-sample / out-of-sample par date."""
+    n = len(df)
+    split_idx = int(n * in_sample_pct)
+    return df.iloc[:split_idx].copy(), df.iloc[split_idx:].copy()
 
-def _instrument_from_yahoo_symbol(symbol: str) -> str | None:
-    """Reverse mapping : Yahoo symbol → FTMO instrument name.
 
-    Ex: "EURUSD=X" → "EURUSD", "BTC-USD" → "BTC", "GC=F" → "XAUUSD"
+def generate_synthetic_ohlc(
+    n_bars: int = 5000,
+    start_price: float = 1.0800,
+    volatility: float = 0.0008,
+    trend: float = 0.0,
+    freq: str = "1h",
+    start_date: str = "2024-02-01",
+    instrument: str = "SYNTH",
+) -> pd.DataFrame:
+    """Génère des données OHLC synthétiques réalistes pour tester le pipeline."""
+    import numpy as np
+
+    np.random.seed(42)
+
+    dates = pd.date_range(start=start_date, periods=n_bars * 2, freq=freq, tz="UTC")
+    dates = dates[dates.dayofweek < 5][:n_bars]
+
+    prices = np.zeros(n_bars)
+    prices[0] = start_price
+    vol = volatility
+    mr_speed = 0.02
+    mr_level = start_price
+
+    for i in range(1, n_bars):
+        vol = 0.95 * vol + 0.05 * volatility * (1 + 0.5 * abs(np.random.randn()))
+        mr_pull = mr_speed * (mr_level - prices[i-1])
+        innovation = np.random.randn() * vol
+        prices[i] = prices[i-1] + trend + mr_pull + innovation
+        mr_level += trend * 0.5
+
+    opens = prices.copy()
+    closes = np.roll(prices, -1)
+    closes[-1] = prices[-1]
+    highs = np.maximum(opens, closes) + np.abs(np.random.randn(n_bars)) * volatility * 0.6
+    lows = np.minimum(opens, closes) - np.abs(np.random.randn(n_bars)) * volatility * 0.6
+    volumes = np.random.randint(100, 10000, n_bars).astype(float)
+
+    df = pd.DataFrame({
+        "Open": opens, "High": highs, "Low": lows,
+        "Close": closes, "Volume": volumes,
+    }, index=dates[:n_bars])
+    df["date"] = df.index.date
+    return df
+
+
+# ── Mapping Yahoo Finance ────────────────────────────────────────
+
+def yahoo_symbol(instrument: str) -> str:
+    """Convertit un nom d'instrument FTMO en symbole Yahoo Finance.
+
+    Utilisé comme FALLBACK quand les données Parquet ne sont pas disponibles.
     """
-    # Reverse du yahoo_symbol mapping
-    reverse = {}
-    mapping = _yahoo_mapping()
-    for ftmo, yahoo in mapping.items():
-        # Garder le premier match (le plus court / canonique)
-        if yahoo not in reverse:
-            reverse[yahoo] = ftmo
-
-    return reverse.get(symbol, None)
-
-
-def _yahoo_mapping() -> dict[str, str]:
-    """Retourne le mapping complet FTMO → Yahoo. Centralisé ici."""
-    return {
+    mapping = {
         # ── FX Majeures ──
         "EURUSD": "EURUSD=X", "GBPUSD": "GBPUSD=X",
         "USDJPY": "USDJPY=X", "USDCHF": "USDCHF=X",
@@ -402,261 +397,127 @@ def _yahoo_mapping() -> dict[str, str]:
         "BNB": "BNB-USD", "BNBUSD": "BNB-USD",
         "BCH": "BCH-USD", "BCHUSD": "BCH-USD",
         "XRP": "XRP-USD", "XRPUSD": "XRP-USD",
-        "DOGE": "DOGE-USD", "DOGEUSD": "DOGE-USD",
         "ADA": "ADA-USD", "ADAUSD": "ADA-USD",
+        "DOGE": "DOGE-USD", "DOGEUSD": "DOGE-USD",
+        "AVAX": "AVAX-USD", "AVAUSD": "AVAX-USD",
+        "LINK": "LINK-USD", "LNKUSD": "LINK-USD",
         "DOT": "DOT-USD", "DOTUSD": "DOT-USD",
-        "XMR": "XMR-USD", "XMRUSD": "XMR-USD",
-        "DASH": "DASH-USD", "DASHUSD": "DASH-USD",
-        "NEO": "NEO-USD", "NEOUSD": "NEO-USD",
-        "UNI": "UNI-USD", "UNIUSD": "UNI-USD",
-        "XLM": "XLM-USD", "XLMUSD": "XLM-USD",
-        "AAVE": "AAVE-USD", "AAVEUSD": "AAVE-USD",
-        "MANA": "MANA-USD", "MANAUSD": "MANA-USD",
-        "IMX": "IMX-USD", "IMXUSD": "IMX-USD",
-        "GRT": "GRT-USD", "GRTUSD": "GRT-USD",
-        "ETC": "ETC-USD", "ETCUSD": "ETC-USD",
-        "ALGO": "ALGO-USD", "ALGOUSD": "ALGO-USD",
-        "NEAR": "NEAR-USD", "NEARUSD": "NEAR-USD",
-        "LINK": "LINK-USD", "LINKUSD": "LINK-USD",
-        "AVAX": "AVAX-USD", "AVAXUSD": "AVAX-USD",
-        "XTZ": "XTZ-USD", "XTZUSD": "XTZ-USD",
-        "FET": "FET-USD", "FETUSD": "FET-USD",
-        "ICP": "ICP-USD", "ICPUSD": "ICP-USD",
-        "SAND": "SAND-USD", "SANDUSD": "SAND-USD",
-        "GAL": "GAL-USD", "GALUSD": "GAL-USD",
-        "VET": "VET-USD", "VETUSD": "VET-USD",
         # ── Métaux ──
-        "XAUUSD": "GC=F", "GOLD": "GC=F",
-        "XAGUSD": "SI=F", "SILVER": "SI=F",
-        "XPDUSD": "PA=F", "PALLADIUM": "PA=F",
-        "XPTUSD": "PL=F", "PLATINUM": "PL=F",
-        "COPPER": "HG=F",
-        # ── Énergie ──
-        "USOIL": "CL=F", "WTI": "CL=F",
-        "UKOIL": "BZ=F", "BRENT": "BZ=F",
-        "NATGAS": "NG=F", "NGAS": "NG=F",
-        "HEATINGOIL": "HO=F",
+        "XAUUSD": "GC=F", "XAGUSD": "SI=F",
+        "XAUEUR": "GC=F",  # Approximation
+        "XPTUSD": "PL=F", "XPDUSD": "PA=F",
+        "XCUUSD": "HG=F",
         # ── Indices ──
-        "SP500": "^GSPC", "SPX500": "^GSPC", "US500": "^GSPC",
-        "NAS100": "^NDX", "USTEC": "^NDX", "NASDAQ": "^NDX",
-        "US30": "^DJI", "DJ30": "^DJI",
-        "US2000": "^RUT", "RUSSELL": "^RUT",
-        "GER40": "^GDAXI", "DAX": "^GDAXI", "DE40": "^GDAXI",
-        "UK100": "^FTSE", "FTSE": "^FTSE",
-        "FRA40": "^FCHI", "CAC40": "^FCHI", "FR40": "^FCHI",
-        "EU50": "^STOXX50E", "STOXX50": "^STOXX50E",
-        "ESP35": "^IBEX", "IBEX": "^IBEX",
-        "NED25": "^AEX", "AEX": "^AEX",
-        "JPN225": "^N225", "NIKKEI": "^N225", "JP225": "^N225",
-        "HK50": "^HSI", "HSI": "^HSI",
-        "AUS200": "^AXJO", "ASX200": "^AXJO",
-        "USDX": "DX-Y.NYB", "DXY": "DX-Y.NYB",
-        # ── Matières premières (Soft/Agri) ──
+        "US30": "^DJI", "US500": "^GSPC", "US100": "^NDX",
+        "USTEC": "^NDX",
+        "DE40": "^GDAXI", "GER40": "^GDAXI",
+        "UK100": "^FTSE",
+        "JP225": "^N225",
+        "AU200": "^AXJO", "AUS200": "^AXJO",
+        "EU50": "^STOXX50E",
+        "FRA40": "^FCHI",
+        "SPN35": "^IBEX",
+        "HK50": "^HSI",
+        # ── Énergie ──
+        "USOIL": "CL=F", "UKOIL": "BZ=F",
+        "NATGAS": "NG=F", "HEATOIL": "HO=F",
+        # ── Commodities ──
         "COCOA": "CC=F", "COFFEE": "KC=F",
         "CORN": "ZC=F", "COTTON": "CT=F",
-        "SOYBEAN": "ZS=F", "WHEAT": "ZW=F",
-        "SUGAR": "SB=F",
-        # ── Actions US ──
-        "AAPL": "AAPL", "AMZN": "AMZN", "GOOG": "GOOG",
-        "MSFT": "MSFT", "NFLX": "NFLX", "NVDA": "NVDA",
-        "META": "META", "TSLA": "TSLA", "BAC": "BAC",
-        "V": "V", "WMT": "WMT", "PFE": "PFE",
-        "T": "T", "ZM": "ZM", "BABA": "BABA",
-        # ── Actions EU ──
-        "RACE": "RACE",
-        "MC": "MC.PA",
-        "AF": "AF.PA",
-        "ALV": "ALV.DE",
-        "BAYN": "BAYN.DE",
-        "DBK": "DBK.DE",
-        "VOW3": "VOW3.DE",
-        "IBE": "IBE.MC",
+        "SOYBEAN": "ZS=F", "SUGAR": "SB=F",
+        "WHEAT": "ZW=F",
     }
 
-
-def yahoo_symbol(instrument: str) -> str:
-    """Convertit un nom d'instrument FTMO/GFT en symbole Yahoo Finance."""
-    return _yahoo_mapping().get(instrument.upper(), instrument)
+    key = instrument.upper().replace(".CASH", "").replace(".C", "")
+    return mapping.get(key, instrument)
 
 
-def _clean_ohlc(df: pd.DataFrame) -> pd.DataFrame:
-    """Nettoie les données OHLC.
+# ── Utilitaires ──────────────────────────────────────────────────
 
-    - Supprime les lignes avec O/H/L/C = 0 ou NaN
-    - Vérifie H >= L
-    - Marque les changements de jour pour le reset daily DD
-    """
-    # Supprimer NaN et zéros
-    mask = (
-        df["Open"].notna() & df["High"].notna() &
-        df["Low"].notna() & df["Close"].notna() &
-        (df["Open"] > 0) & (df["Close"] > 0)
-    )
-    df = df[mask].copy()
-
-    # Corriger H/L si incohérents
-    df["High"] = df[["Open", "High", "Low", "Close"]].max(axis=1)
-    df["Low"] = df[["Open", "High", "Low", "Close"]].min(axis=1)
-
-    # Marquer les changements de jour pour le reset daily DD
-    df["date"] = df.index.date
-
-    return df
-
-
-def split_in_out_sample(
-    df: pd.DataFrame,
-    in_sample_pct: float = 0.70,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Split en in-sample / out-of-sample par date.
-
-    Args:
-        df: DataFrame OHLC complet
-        in_sample_pct: Proportion in-sample (0.70 = 70%)
+def list_available_parquet(data_root: str | None = None, timeframe: str = "1h") -> dict[str, str]:
+    """Liste tous les instruments disponibles en Parquet.
 
     Returns:
-        (df_in, df_out)
+        Dict {instrument_ftmo: chemin_parquet}
     """
-    n = len(df)
-    split_idx = int(n * in_sample_pct)
-    return df.iloc[:split_idx].copy(), df.iloc[split_idx:].copy()
+    if data_root is None:
+        data_root = _default_data_root()
 
+    csv = _load_instruments_csv()
+    if csv is None:
+        return {}
 
-def generate_synthetic_ohlc(
-    n_bars: int = 5000,
-    start_price: float = 1.0800,
-    volatility: float = 0.0008,
-    trend: float = 0.0,
-    freq: str = "1h",
-    start_date: str = "2024-02-01",
-    instrument: str = "SYNTH",
-) -> pd.DataFrame:
-    """Génère des données OHLC synthétiques réalistes pour tester le pipeline.
-
-    Utile quand Yahoo Finance n'est pas accessible (réseau restreint).
-    Les données ne sont PAS utilisables pour évaluer un edge — uniquement
-    pour valider le code du pipeline.
-
-    Le modèle :
-    - GBM (Geometric Brownian Motion) pour le prix de base
-    - Mean-reversion overlay (Ornstein-Uhlenbeck) pour créer des excès BB
-    - Volatility clustering (GARCH-like) pour ATR réaliste
-    - Gaps weekend (pas de barres samedi/dimanche)
-    """
-    np.random.seed(42)  # Reproductible
-
-    # Générer un index datetime (business hours only, ~24h/day FX)
-    dates = pd.date_range(start=start_date, periods=n_bars * 2, freq=freq, tz="UTC")
-    # Filtrer weekends
-    dates = dates[dates.dayofweek < 5][:n_bars]
-
-    # GBM + mean-reversion
-    prices = np.zeros(n_bars)
-    prices[0] = start_price
-
-    vol = volatility
-    mr_speed = 0.02   # Mean-reversion speed
-    mr_level = start_price
-
-    for i in range(1, n_bars):
-        # Volatility clustering
-        vol = 0.95 * vol + 0.05 * volatility * (1 + 0.5 * abs(np.random.randn()))
-
-        # Mean-reversion + drift
-        mr_pull = mr_speed * (mr_level - prices[i-1])
-        innovation = np.random.randn() * vol
-        prices[i] = prices[i-1] + trend + mr_pull + innovation
-
-        # Slowly drift mean level
-        mr_level += trend * 0.5
-
-    # Générer OHLC à partir du prix
-    opens = prices.copy()
-    closes = np.roll(prices, -1)
-    closes[-1] = prices[-1]
-
-    # Ajouter noise pour H/L
-    highs = np.maximum(opens, closes) + np.abs(np.random.randn(n_bars)) * volatility * 0.6
-    lows = np.minimum(opens, closes) - np.abs(np.random.randn(n_bars)) * volatility * 0.6
-    volumes = np.random.randint(100, 10000, n_bars).astype(float)
-
-    df = pd.DataFrame({
-        "Open": opens,
-        "High": highs,
-        "Low": lows,
-        "Close": closes,
-        "Volume": volumes,
-    }, index=dates[:n_bars])
-
-    df["date"] = df.index.date
-
-    return df
-
-
-# ─────────────────────────────────────────────────────────────
-# Diagnostic
-# ─────────────────────────────────────────────────────────────
-
-def check_parquet_availability(
-    instruments: list[str],
-    data_root: str | None = None,
-    csv_path: str | None = None,
-) -> dict[str, dict]:
-    """Diagnostic : vérifie la disponibilité Parquet pour une liste d'instruments.
-
-    Returns:
-        Dict {instrument: {"available": bool, "path": str|None, "bars": int|None,
-                           "date_range": str|None, "source": str}}
-    """
-    data_root = data_root or DEFAULT_DATA_ROOT
-    results = {}
-
-    for inst in instruments:
-        path = _resolve_parquet_path(inst, data_root, csv_path=csv_path)
-        info = {"available": False, "path": None, "bars": None,
-                "date_range": None, "source": "yahoo (fallback)"}
-
+    available = {}
+    for _, row in csv.iterrows():
+        ftmo = str(row["ftmo_symbol"]).strip()
+        if not ftmo:
+            continue
+        path = _parquet_path_for(ftmo, data_root, timeframe)
         if path:
-            try:
-                df = pd.read_parquet(path)
-                info["available"] = True
-                info["path"] = path
-                info["bars"] = len(df)
-                if len(df) > 0:
-                    info["date_range"] = f"{df.index[0]} → {df.index[-1]}"
-                # Extract source from path
-                if "/dukascopy/" in path:
-                    info["source"] = "parquet (dukascopy)"
-                elif "/ccxt/" in path:
-                    info["source"] = "parquet (ccxt)"
-                else:
-                    info["source"] = "parquet"
-            except Exception as e:
-                info["available"] = False
-                info["error"] = str(e)
+            available[ftmo] = path
 
-        results[inst] = info
-
-    return results
+    return available
 
 
-def print_data_status(
-    instruments: list[str],
-    data_root: str | None = None,
-) -> None:
-    """Affiche un tableau de disponibilité des données."""
-    status = check_parquet_availability(instruments, data_root)
+def list_all_ftmo_instruments() -> list[dict]:
+    """Liste tous les instruments FTMO depuis instruments.csv.
 
-    print(f"\n{'='*70}")
-    print(f"  DATA AVAILABILITY (root: {data_root or DEFAULT_DATA_ROOT})")
-    print(f"{'='*70}")
-    print(f"  {'Instrument':<12} {'Source':<22} {'Bars':>8} {'Range'}")
-    print(f"  {'-'*65}")
+    Returns:
+        Liste de dicts {ftmo_symbol, source, data_symbol, category}
+    """
+    csv = _load_instruments_csv()
+    if csv is None:
+        return []
 
-    for inst, info in status.items():
-        bars = str(info["bars"]) if info["bars"] else "-"
-        rng = info["date_range"] or "-"
-        src = info["source"]
-        print(f"  {inst:<12} {src:<22} {bars:>8} {rng}")
+    instruments = []
+    for _, row in csv.iterrows():
+        ftmo = str(row["ftmo_symbol"]).strip()
+        source = str(row["source"]).strip().lower()
+        data_sym = str(row["data_symbol"]).strip()
+        if not ftmo:
+            continue
+        instruments.append({
+            "ftmo_symbol": ftmo,
+            "source": source,
+            "data_symbol": data_sym,
+            "category": _categorize(ftmo),
+        })
+    return instruments
 
-    print(f"{'='*70}\n")
+
+def _categorize(instrument: str) -> str:
+    """Catégorise un instrument FTMO."""
+    inst = instrument.upper()
+    if inst.startswith("XA") or inst.startswith("XC") or inst.startswith("XP") or inst.startswith("XAG"):
+        return "metals"
+    if inst.endswith("USD") and len(inst) == 6 and not inst.startswith("X"):
+        # Check if it's a known crypto
+        crypto_bases = {"BTC", "ETH", "LTC", "SOL", "BNB", "BCH", "XRP", "ADA",
+                       "DOGE", "DOT", "UNI", "XLM", "AVAX", "LINK", "AAVE",
+                       "ALGO", "NEAR", "IMX", "GRT", "GAL", "FET", "ICP",
+                       "VET", "MANA", "SAND", "XTZ", "ETC", "BAR", "NEO",
+                       "XMR", "DASH", "NER", "AVA", "LNK", "ALG"}
+        base = inst[:3]
+        if base in crypto_bases:
+            return "crypto"
+        return "fx"
+    if any(inst.startswith(p) for p in ["US", "DE", "GE", "UK", "JP", "AU", "EU", "FR", "SP", "HK", "N2"]):
+        if inst in ("USOIL", "UKOIL"):
+            return "energy"
+        return "indices"
+    if inst in ("USOIL", "UKOIL", "NATGAS", "HEATOIL"):
+        return "energy"
+    if inst in ("COCOA", "COFFEE", "CORN", "COTTON", "SOYBEAN", "SUGAR", "WHEAT"):
+        return "commodities"
+    if inst == "DXY":
+        return "indices"
+    # FX exotiques et crosses
+    fx_currencies = {"EUR", "USD", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD",
+                    "CNH", "CZK", "HKD", "HUF", "ILS", "MXN", "NOK", "PLN",
+                    "SEK", "SGD", "ZAR"}
+    if len(inst) == 6:
+        base = inst[:3]
+        quote = inst[3:]
+        if base in fx_currencies and quote in fx_currencies:
+            return "fx"
+    return "other"
