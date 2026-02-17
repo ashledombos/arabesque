@@ -298,7 +298,7 @@ class TrendSignalGenerator:
                 strategy_type="trend",
                 timestamp=df.index[idx],
             )
-            return label_mr_signal(sig, df, idx)
+            return label_trend_signal(sig, df, idx)
 
         # ── SHORT breakout : close < BB lower ──
         if close < bb_lower - self.cfg.breakout_margin:
@@ -356,7 +356,7 @@ class TrendSignalGenerator:
                 strategy_type="trend",
                 timestamp=df.index[idx],
             )
-            return label_mr_signal(sig, df, idx)
+            return label_trend_signal(sig, df, idx)
 
         return None
 
