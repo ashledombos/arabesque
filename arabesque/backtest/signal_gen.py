@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 from arabesque.models import Signal, Side
+from arabesque.backtest.signal_labeler import label_mr_signal
 
 
 @dataclass
