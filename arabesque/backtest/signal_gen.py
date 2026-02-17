@@ -209,7 +209,7 @@ class BacktestSignalGenerator:
                 rr=round(rr, 2),
                 timestamp=df.index[idx],
             )
-            return label_trend_signal(sig, df, idx)
+            return label_mr_signal(sig, df, idx)
 
         # ── SHORT : close > BB upper ──
         if close > bb_upper:
@@ -258,7 +258,7 @@ class BacktestSignalGenerator:
                 rr=round(rr, 2),
                 timestamp=df.index[idx],
             )
-            return label_trend_signal(sig, df, idx)
+            return label_mr_signal(sig, df, idx)
 
         return None
 
