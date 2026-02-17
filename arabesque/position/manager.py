@@ -105,6 +105,11 @@ class PositionManager:
             signal_data={
                 "rsi": signal.rsi, "cmf": signal.cmf,
                 "bb_width": signal.bb_width, "regime": signal.regime,
+                "strategy_type": signal.strategy_type,
+                "sub_type": getattr(signal, "sub_type", ""),
+                "label_factors": getattr(signal, "label_factors", {}),
+                "rr": signal.rr,
+                "htf_adx": signal.htf_adx,
             },
         )
         # Recalculer SL/TP depuis le fill réel
