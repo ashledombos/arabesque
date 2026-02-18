@@ -11,6 +11,10 @@ CORRECTIONS CRITIQUES vs v1 :
 Paliers trailing en R (inspiré BB_RPB_TSL) :
   BB_RPB_TSL :  +3% → trail 1.5%,  +6% → 2%,  +10% → 3%,  +20% → 5%
   Arabesque  :  +0.5R → trail 0.3R, +1.0R → 0.5R, +1.5R → 0.8R, +2.0R → 1.2R
+
+TP FIXE PAR SUB-TYPE :
+  mr_deep_wide, mr_deep_narrow, trend_strong → TP à 1.5R
+  (basé sur l'analyse explore_tp_vs_tsl : +35% Total R vs trailing seul)
 """
 
 from __future__ import annotations
@@ -32,6 +36,15 @@ class TrailingTier:
     trail_distance_r: float
 
 
+# Sub-types avec TP fixe validé sur backtest multi-instruments
+# Source : explore_tp_vs_tsl.py — tp_fixed_1.5r = +127R vs trailing +94R
+TP_FIXED_SUBTYPES: dict[str, float] = {
+    "mr_deep_wide":    1.5,
+    "mr_deep_narrow":  1.5,
+    "trend_strong":    1.5,
+}
+
+
 @dataclass
 class ManagerConfig:
     # Trailing paliers (du plus haut au plus bas)
@@ -42,6 +55,12 @@ class ManagerConfig:
         TrailingTier(mfe_threshold_r=1.0, trail_distance_r=0.5),
         TrailingTier(mfe_threshold_r=0.5, trail_distance_r=0.3),
     ])
+
+    # TP fixe par sub-type (None = utiliser trailing par défaut)
+    # Surcharge tp_r_by_subtype={} pour désactiver tous les TP fixes
+    tp_r_by_subtype: dict[str, float] = field(
+        default_factory=lambda: dict(TP_FIXED_SUBTYPES)
+    )
 
     # Break-even
     be_trigger_r: float = 0.5
@@ -114,6 +133,17 @@ class PositionManager:
         )
         # Recalculer SL/TP depuis le fill réel
         pos.recalculate_from_fill(fill_price, signal)
+
+        # Appliquer TP fixe selon sub_type si configuré
+        sub_type = getattr(signal, "sub_type", "") or ""
+        tp_r = self.cfg.tp_r_by_subtype.get(sub_type)
+        if tp_r is not None and pos.R > 0:
+            if pos.side == Side.LONG:
+                pos.tp = pos.entry + tp_r * pos.R
+            else:
+                pos.tp = pos.entry - tp_r * pos.R
+            pos.signal_data["tp_fixed_r"] = tp_r
+
         self.positions.append(pos)
         return pos
 
@@ -194,24 +224,23 @@ class PositionManager:
 
     def _check_sl_tp_intrabar(self, pos, high: float, low: float):
         """Vérifie SL/TP sur high/low avec règle conservatrice.
-    
+
         Si SL ET TP touchés dans la même bougie → PRENDRE LE SL (pire cas).
         C'est la règle conservatrice standard pour éviter l'optimisme OHLC.
-    
+
         NOUVEAU : Discrimine EXIT_TRAILING vs EXIT_SL selon que le SL
         a été remonté (trailing/breakeven actif) ou non.
         """
         from arabesque.models import Side, DecisionType
-    
+
         is_long = pos.side == Side.LONG
-    
+
         sl_hit = (low <= pos.sl) if is_long else (high >= pos.sl) if pos.sl > 0 else False
         tp_hit = (high >= pos.tp) if is_long and pos.tp > 0 else \
                  (low <= pos.tp) if not is_long and pos.tp > 0 else False
-    
+
         if sl_hit and tp_hit:
             # Ambiguïté OHLC → pire cas = SL
-            # Mais discriminer trailing vs SL original
             if pos.trailing_active or pos.breakeven_set:
                 dtype = DecisionType.EXIT_TRAILING
                 reason = (f"Trailing SL hit (ambiguous bar) @ {pos.sl:.5f} "
@@ -220,12 +249,9 @@ class PositionManager:
                 dtype = DecisionType.EXIT_SL
                 reason = "SL hit (ambiguous bar: SL and TP both touched, conservative=SL)"
             return self._close_position(pos, pos.sl, dtype, reason)
-    
+
         if sl_hit:
-            # Discriminer : SL original (loss) vs trailing SL (win)
             if pos.trailing_active or pos.breakeven_set:
-                # Le SL a été remonté → c'est une sortie trailing
-                # result_r sera positif si SL > entry (LONG) ou SL < entry (SHORT)
                 dtype = DecisionType.EXIT_TRAILING
                 reason = (f"Trailing SL hit @ {pos.sl:.5f} "
                          f"(tier {pos.trailing_tier}, MFE={pos.mfe_r:.2f}R)")
@@ -233,12 +259,12 @@ class PositionManager:
                 dtype = DecisionType.EXIT_SL
                 reason = f"SL hit @ {pos.sl:.5f}"
             return self._close_position(pos, pos.sl, dtype, reason)
-    
+
         if tp_hit:
             return self._close_position(
                 pos, pos.tp, DecisionType.EXIT_TP,
                 f"TP hit @ {pos.tp:.5f}")
-    
+
         return None
 
     # ── Break-even ───────────────────────────────────────────────────
