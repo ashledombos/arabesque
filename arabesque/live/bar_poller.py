@@ -1,8 +1,6 @@
 """
 Arabesque — Live Bar Poller.
 
-Remplace le webhook TradingView par un flux cTrader natif.
-
 Flux :
     cTrader ProtoOASubscribeLiveTrendbarReq (H1)
         → bougie fermée
@@ -33,7 +31,6 @@ from arabesque.models import Side
 logger = logging.getLogger("arabesque.live.bar_poller")
 
 
-# ── Instruments viables issus du dernier pipeline run ────────────────────
 DEFAULT_INSTRUMENTS = [
     "AAVUSD", "ALGUSD", "AVAUSD", "BCHUSD", "BNBUSD",
     "DASHUSD", "GRTUSD", "ICPUSD", "IMXUSD", "LNKUSD",
@@ -67,56 +64,73 @@ def _signal_to_webhook_dict(
     Convertit un objet Signal (arabesque.models) en dict
     compatible avec Signal.from_webhook_json() / Orchestrator.handle_signal().
 
-    Champs clés du modèle Signal :
-        sl, tp_indicative, atr, rsi, cmf,
-        bb_lower, bb_mid, bb_upper, bb_width,
-        ema200_ltf, rr, strategy_type
+    Tous les float sont castés en float() natif Python (pas np.float64)
+    pour éviter les problèmes de sérialisation JSON.
+
+    RR : calculé depuis sig.tv_close (le close au moment du signal),
+    pas depuis le close courant qui serait trompeur en replay.
     """
-    side = "buy" if sig.side == Side.LONG else "sell"
+    side   = "buy" if sig.side == Side.LONG else "sell"
     ts_iso = sig.timestamp.isoformat() if sig.timestamp else datetime.now(timezone.utc).isoformat()
 
-    # Contexte technique depuis le DataFrame si disponible
-    rsi       = float(df_row["rsi"])        if df_row is not None and "rsi"       in df_row.index else sig.rsi
-    cmf       = float(df_row["cmf"])        if df_row is not None and "cmf"       in df_row.index else sig.cmf
-    bb_lower  = float(df_row["bb_lower"])   if df_row is not None and "bb_lower"  in df_row.index else sig.bb_lower
-    bb_mid    = float(df_row["bb_mid"])     if df_row is not None and "bb_mid"    in df_row.index else sig.bb_mid
-    bb_upper  = float(df_row["bb_upper"])   if df_row is not None and "bb_upper"  in df_row.index else sig.bb_upper
-    bb_width  = float(df_row["bb_width"])   if df_row is not None and "bb_width"  in df_row.index else sig.bb_width
-    ema200    = float(df_row["ema200"])      if df_row is not None and "ema200"    in df_row.index else sig.ema200_ltf
-    atr_val   = float(df_row["atr"])        if df_row is not None and "atr"       in df_row.index else atr
+    # ---- niveaux du signal (toujours depuis l'objet Signal) ----
+    sl_val = float(getattr(sig, "sl",            0.0) or 0.0)
+    tp_ind = float(getattr(sig, "tp_indicative", 0.0) or 0.0)
+    atr_sig = float(getattr(sig, "atr",          0.0) or 0.0)
 
-    # RR : calculé depuis sl et tp_indicative si disponibles
-    tp_ind = getattr(sig, "tp_indicative", 0.0) or 0.0
-    sl_val = getattr(sig, "sl", 0.0) or 0.0
-    if sl_val and tp_ind and close:
-        rr = abs(tp_ind - close) / abs(close - sl_val) if abs(close - sl_val) > 0 else 0.0
+    # close de référence pour le RR = close au moment du signal
+    # (sig.tv_close si disponible, sinon le close passé en argument)
+    sig_close = float(getattr(sig, "tv_close", 0.0) or 0.0) or float(close)
+
+    # RR depuis le close du signal (pas du close courant)
+    if sl_val and tp_ind and sig_close and abs(sig_close - sl_val) > 0:
+        rr = abs(tp_ind - sig_close) / abs(sig_close - sl_val)
     else:
-        rr = getattr(sig, "rr", 0.0)
+        rr = float(getattr(sig, "rr", 0.0) or 0.0)
+
+    # ---- contexte technique : DataFrame en priorité, Signal en fallback ----
+    def _f(col_df, attr_sig):
+        """Extrait depuis df_row si disponible, sinon depuis sig. Cast float."""
+        if df_row is not None and col_df in df_row.index:
+            v = df_row[col_df]
+            return float(v) if v == v else float(getattr(sig, attr_sig, 0.0))  # NaN guard
+        return float(getattr(sig, attr_sig, 0.0) or 0.0)
+
+    # Nom de colonne ema200 : le sig gen produit "ema_slow" (EMA200 LTF)
+    # On essaie les deux noms pour être robuste aux renommages futurs.
+    ema200_val = (
+        float(df_row["ema200"])    if df_row is not None and "ema200"    in df_row.index else
+        float(df_row["ema_slow"]) if df_row is not None and "ema_slow" in df_row.index else
+        float(getattr(sig, "ema200_ltf", 0.0) or 0.0)
+    )
+
+    # ATR : priorité au df_row, sinon atr du signal, sinon atr argument
+    atr_val = _f("atr", "atr") or atr_sig or float(atr)
 
     return {
-        # Identification
+        # ---- identification ----
         "instrument":    instrument,
         "symbol":        instrument,
         "side":          side,
         "ts":            ts_iso,
         "source":        "ctrader_live",
         "strategy":      sig.strategy_type or "combined",
-        # Prix
-        "tv_close":      close,
-        "close":         close,
-        # Niveaux
+        # ---- prix ----
+        "tv_close":      float(sig_close),
+        "close":         float(sig_close),
+        # ---- niveaux ----
         "sl":            sl_val,
         "tp_indicative": tp_ind,
         "atr":           atr_val,
-        "rr":            round(rr, 3),
-        # Contexte technique
-        "rsi":           rsi,
-        "cmf":           cmf,
-        "bb_lower":      bb_lower,
-        "bb_mid":        bb_mid,
-        "bb_upper":      bb_upper,
-        "bb_width":      bb_width,
-        "ema200_ltf":    ema200,
+        "rr":            round(float(rr), 3),
+        # ---- contexte technique ----
+        "rsi":           _f("rsi",      "rsi"),
+        "cmf":           _f("cmf",      "cmf"),
+        "bb_lower":      _f("bb_lower", "bb_lower"),
+        "bb_mid":        _f("bb_mid",   "bb_mid"),
+        "bb_upper":      _f("bb_upper", "bb_upper"),
+        "bb_width":      _f("bb_width", "bb_width"),
+        "ema200_ltf":    ema200_val,
     }
 
 
@@ -152,8 +166,6 @@ class BarPoller:
         self._cache_max_size = 300
         self._sig_gen = CombinedSignalGenerator()
 
-    # ── Public API ───────────────────────────────────────────────────────
-
     def start(self, blocking: bool = True):
         self._running = True
         logger.info(
@@ -168,8 +180,6 @@ class BarPoller:
     def stop(self):
         logger.info("BarPoller stopping...")
         self._running = False
-
-    # ── Main loop ────────────────────────────────────────────────────────
 
     def _run_loop(self):
         while self._running:
@@ -199,8 +209,6 @@ class BarPoller:
             while self._running:
                 time.sleep(1)
 
-    # ── Symbol resolution ────────────────────────────────────────────────
-
     def _resolve_symbol_ids(self):
         symbols = getattr(self.adapter, '_symbols', {})
         if not symbols and hasattr(self.adapter, '_load_symbols'):
@@ -211,14 +219,11 @@ class BarPoller:
             logger.warning(f"Symbols not found in cTrader: {missing}")
             self.cfg.instruments = [i for i in self.cfg.instruments if i in symbols]
 
-    # ── History seed ─────────────────────────────────────────────────────
-
     def _load_history(self, instrument: str):
         try:
             from ctrader_open_api import Protobuf
             from ctrader_open_api.messages.OpenApiMessages_pb2 import ProtoOAGetTrendbarsReq
             from ctrader_open_api.messages.OpenApiCommonMessages_pb2 import ProtoOATrendbarPeriod
-
             sym_info = self.adapter._symbols.get(instrument)
             if not sym_info:
                 return
@@ -242,14 +247,11 @@ class BarPoller:
         except Exception as e:
             logger.error(f"_load_history({instrument}): {e}")
 
-    # ── Live stream ──────────────────────────────────────────────────────
-
     def _subscribe_live_trendbars(self):
         try:
             from ctrader_open_api import Protobuf
             from ctrader_open_api.messages.OpenApiMessages_pb2 import ProtoOASubscribeLiveTrendbarReq
             from ctrader_open_api.messages.OpenApiCommonMessages_pb2 import ProtoOATrendbarPeriod
-
             for instrument in self.cfg.instruments:
                 sym_info = self.adapter._symbols.get(instrument)
                 if not sym_info:
@@ -288,8 +290,6 @@ class BarPoller:
                     self._last_bar_ts[instrument] = ts
         except Exception as e:
             logger.error(f"_on_live_trendbar({instrument}): {e}")
-
-    # ── Polling fallback ─────────────────────────────────────────────────
 
     def _run_polling_fallback(self):
         logger.info(f"Polling fallback active (interval={self.cfg.poll_interval_sec}s)")
@@ -333,8 +333,6 @@ class BarPoller:
             logger.error(f"_fetch_last_closed_bar({instrument}): {e}")
         return None
 
-    # ── Signal processing ────────────────────────────────────────────────
-
     def _on_bar_closed(self, instrument: str, bar: dict):
         with self._lock:
             ts_dt = datetime.fromtimestamp(bar["ts"], tz=timezone.utc)
@@ -350,7 +348,6 @@ class BarPoller:
             if len(cache) < 50:
                 logger.debug(f"[{instrument}] Not enough bars ({len(cache)}/50)")
                 return
-
             signals = self._generate_signals(instrument, cache)
             for sig_data in signals:
                 result = self.orchestrator.handle_signal(sig_data)
@@ -358,7 +355,6 @@ class BarPoller:
                     f"[{instrument}] handle_signal → {result.get('status')} "
                     f"({result.get('reason', result.get('position_id', ''))})"
                 )
-
             self.orchestrator.update_positions(
                 instrument=instrument,
                 high=bar["high"],
@@ -374,8 +370,6 @@ class BarPoller:
             bars=bars,
             sig_gen=self._sig_gen,
         )
-
-    # ── Helpers ──────────────────────────────────────────────────────────
 
     @staticmethod
     def _tb_to_dict(tb, divisor: float) -> dict:
@@ -411,23 +405,19 @@ def _generate_signals_from_cache(
             "low":  "Low",  "close": "Close", "volume": "Volume"
         })
 
-        # Calcul de tous les indicateurs (EMA200, BB, ATR, RSI, CMF, ADX...)
         df = sig_gen.prepare(df)
-
-        # generate_signals() → list[(bar_index, Signal)]
         all_signals = sig_gen.generate_signals(df, instrument)
         if not all_signals:
             return []
 
-        # Filtrer sur la dernière bougie uniquement
         last_idx     = len(df) - 1
         last_signals = [(i, s) for i, s in all_signals if i == last_idx]
         if not last_signals:
             return []
 
-        close    = bars[-1]["close"]
-        atr      = float(df["atr"].iloc[-1]) if "atr" in df.columns else 0.0
-        df_row   = df.iloc[-1]   # Series avec tous les indicateurs
+        close  = bars[-1]["close"]
+        atr    = float(df["atr"].iloc[-1]) if "atr" in df.columns else 0.0
+        df_row = df.iloc[-1]
 
         result = []
         for _, sig in last_signals:
@@ -435,8 +425,8 @@ def _generate_signals_from_cache(
             result.append(d)
             logger.info(
                 f"[{instrument}] Signal {sig.strategy_type}: {sig.side.value} "
-                f"close={close:.5f} sl={d['sl']:.5f} tp={d['tp_indicative']:.5f} "
-                f"rr={d['rr']:.2f} rsi={d['rsi']:.1f}"
+                f"close={d['tv_close']:.5f} sl={d['sl']:.5f} "
+                f"tp={d['tp_indicative']:.5f} rr={d['rr']:.2f} rsi={d['rsi']:.1f}"
             )
         return result
 
