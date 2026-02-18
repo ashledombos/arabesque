@@ -64,66 +64,58 @@ def _signal_to_webhook_dict(
     Convertit un objet Signal (arabesque.models) en dict
     compatible avec Signal.from_webhook_json() / Orchestrator.handle_signal().
 
-    Tous les float sont castés en float() natif Python (pas np.float64)
-    pour éviter les problèmes de sérialisation JSON.
+    Tous les float sont castés en float() natif Python (pas np.float64).
 
-    RR : calculé depuis sig.tv_close (le close au moment du signal),
-    pas depuis le close courant qui serait trompeur en replay.
+    RR : calculé depuis le close passé en argument (qui doit être
+    df.iloc[idx]["Close"], le close AU MOMENT DU SIGNAL, pas le close courant).
     """
     side   = "buy" if sig.side == Side.LONG else "sell"
     ts_iso = sig.timestamp.isoformat() if sig.timestamp else datetime.now(timezone.utc).isoformat()
 
-    # ---- niveaux du signal (toujours depuis l'objet Signal) ----
-    sl_val = float(getattr(sig, "sl",            0.0) or 0.0)
-    tp_ind = float(getattr(sig, "tp_indicative", 0.0) or 0.0)
-    atr_sig = float(getattr(sig, "atr",          0.0) or 0.0)
+    # ---- niveaux du signal ----
+    sl_val  = float(getattr(sig, "sl",            0.0) or 0.0)
+    tp_ind  = float(getattr(sig, "tp_indicative", 0.0) or 0.0)
+    atr_sig = float(getattr(sig, "atr",           0.0) or 0.0)
 
-    # close de référence pour le RR = close au moment du signal
-    # (sig.tv_close si disponible, sinon le close passé en argument)
-    sig_close = float(getattr(sig, "tv_close", 0.0) or 0.0) or float(close)
+    # close de référence pour le RR = argument `close` (doit être le close du signal)
+    sig_close = float(close) if close else float(getattr(sig, "tv_close", 0.0) or 0.0)
 
-    # RR depuis le close du signal (pas du close courant)
+    # RR
     if sl_val and tp_ind and sig_close and abs(sig_close - sl_val) > 0:
         rr = abs(tp_ind - sig_close) / abs(sig_close - sl_val)
     else:
         rr = float(getattr(sig, "rr", 0.0) or 0.0)
 
-    # ---- contexte technique : DataFrame en priorité, Signal en fallback ----
+    # ---- contexte technique : df_row en priorité, Signal en fallback ----
     def _f(col_df, attr_sig):
-        """Extrait depuis df_row si disponible, sinon depuis sig. Cast float."""
+        """Extrait depuis df_row si disponible, sinon depuis sig. Cast float. NaN guard."""
         if df_row is not None and col_df in df_row.index:
             v = df_row[col_df]
-            return float(v) if v == v else float(getattr(sig, attr_sig, 0.0))  # NaN guard
+            return float(v) if v == v else float(getattr(sig, attr_sig, 0.0))  # v==v : NaN guard
         return float(getattr(sig, attr_sig, 0.0) or 0.0)
 
-    # Nom de colonne ema200 : le sig gen produit "ema_slow" (EMA200 LTF)
-    # On essaie les deux noms pour être robuste aux renommages futurs.
+    # ema_slow = EMA200 LTF (le sig gen ne crée pas de colonne "ema200")
     ema200_val = (
         float(df_row["ema200"])    if df_row is not None and "ema200"    in df_row.index else
         float(df_row["ema_slow"]) if df_row is not None and "ema_slow" in df_row.index else
         float(getattr(sig, "ema200_ltf", 0.0) or 0.0)
     )
 
-    # ATR : priorité au df_row, sinon atr du signal, sinon atr argument
     atr_val = _f("atr", "atr") or atr_sig or float(atr)
 
     return {
-        # ---- identification ----
         "instrument":    instrument,
         "symbol":        instrument,
         "side":          side,
         "ts":            ts_iso,
         "source":        "ctrader_live",
         "strategy":      sig.strategy_type or "combined",
-        # ---- prix ----
         "tv_close":      float(sig_close),
         "close":         float(sig_close),
-        # ---- niveaux ----
         "sl":            sl_val,
         "tp_indicative": tp_ind,
         "atr":           atr_val,
         "rr":            round(float(rr), 3),
-        # ---- contexte technique ----
         "rsi":           _f("rsi",      "rsi"),
         "cmf":           _f("cmf",      "cmf"),
         "bb_lower":      _f("bb_lower", "bb_lower"),
@@ -138,10 +130,6 @@ class BarPoller:
     """
     Souscrit aux barres 1H cTrader et déclenche le pipeline Arabesque
     à chaque fermeture de bougie.
-
-    Deux modes de réception :
-    1. Stream natif  : ProtoOASubscribeLiveTrendbarReq → callback Twisted
-    2. Polling fallback : vérif toutes les poll_interval_sec secondes
     """
 
     def __init__(
@@ -155,7 +143,6 @@ class BarPoller:
         self.orchestrator = orchestrator
         self.cfg          = config or BarPollerConfig()
         self.on_bar_closed = on_bar_closed
-
         self._running         = False
         self._reconnect_count = 0
         self._lock            = threading.Lock()
@@ -415,13 +402,14 @@ def _generate_signals_from_cache(
         if not last_signals:
             return []
 
-        close  = bars[-1]["close"]
-        atr    = float(df["atr"].iloc[-1]) if "atr" in df.columns else 0.0
         df_row = df.iloc[-1]
+        atr    = float(df["atr"].iloc[-1]) if "atr" in df.columns else 0.0
 
         result = []
-        for _, sig in last_signals:
-            d = _signal_to_webhook_dict(sig, instrument, close, atr, df_row=df_row)
+        for idx, sig in last_signals:
+            # close AU MOMENT DU SIGNAL (pas le close courant du cache)
+            sig_close = float(df.iloc[idx]["Close"])
+            d = _signal_to_webhook_dict(sig, instrument, sig_close, atr, df_row=df_row)
             result.append(d)
             logger.info(
                 f"[{instrument}] Signal {sig.strategy_type}: {sig.side.value} "
