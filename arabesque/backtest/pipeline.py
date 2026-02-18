@@ -313,6 +313,7 @@ class Pipeline:
 
             src = get_last_source_info()
             data_source = src.source if src else "unknown"
+            m_in = result_in.metrics
             m_out = result_out.metrics
 
             # Stats rapides
@@ -329,11 +330,11 @@ class Pipeline:
                     "exp_ci95": f"[{b.ci95_low:+.3f},{b.ci95_high:+.3f}]",
                     "p_exp_pos": round(b.p_positive, 3),
                     "dd_p95": round(d.p95_dd, 1),
-                    "ftmo_ok": d.ftmo_compatible,
-                    "edge_sig": b.significant_at_95,
+                    "ftmo_ok": bool(d.ftmo_compatible),
+                    "edge_sig": bool(b.significant_at_95),
                 }
 
-            viable = (
+            viable = bool(
                 m_out.n_trades >= 30
                 and m_out.expectancy_r > 0
                 and m_out.profit_factor >= 1.0
@@ -351,7 +352,14 @@ class Pipeline:
                 verdict = "WEAK"
 
             metrics = {
-                "trades_is": result_in.metrics.n_trades,
+                # IS
+                "trades_is": m_in.n_trades,
+                "wr_is": round(m_in.win_rate, 3),
+                "exp_is": round(m_in.expectancy_r, 4),
+                "pf_is": round(m_in.profit_factor, 2),
+                "dd_is": round(m_in.max_dd_pct, 1),
+                "disqual_is": m_in.n_disqualifying_days,
+                # OOS
                 "trades_oos": m_out.n_trades,
                 "wr_oos": round(m_out.win_rate, 3),
                 "exp_oos": round(m_out.expectancy_r, 4),
@@ -437,7 +445,7 @@ class Pipeline:
                 "viable": r.stage3_passed,
                 "alerts": r.alerts,
             }
-            f.write(json.dumps(meta, ensure_ascii=False, default=str) + "\n")
+            f.write(json.dumps(meta, ensure_ascii=False) + "\n")
 
             for inst, sr in r.all_results.items():
                 entry = {
@@ -451,7 +459,7 @@ class Pipeline:
                     "duration_s": round(sr.duration_s, 2),
                     "metrics": sr.metrics,
                 }
-                f.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 
         print(f"  JSON -> {path}")
         return path
