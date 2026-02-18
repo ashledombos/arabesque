@@ -42,6 +42,7 @@ class AuditLogger:
         self._write_cf(cf)
 
     def summary(self) -> str:
+        """Résumé court pour get_status()."""
         s = self.stats
         total = s["signals"]
         if total == 0:
@@ -57,6 +58,30 @@ class AuditLogger:
         if cf_total > 0:
             lines.append(f"Counterfactuals: {cf_total} ({s['cf_profit']} would profit, {s['cf_loss']} would lose)")
         return "\n".join(lines)
+
+    def print_terminal_summary(self, title: str = "SESSION SUMMARY") -> None:
+        """Affiche un résumé lisible (≤15 lignes) dans le terminal."""
+        s = self.stats
+        total = s["signals"]
+        sep = "─" * 50
+        print(f"\n{sep}")
+        print(f"  {title}")
+        print(sep)
+        if total == 0:
+            print("  Aucun signal reçu.")
+        else:
+            acc_pct = 100 * s['accepted'] / total if total else 0
+            rej_pct = 100 * s['rejected'] / total if total else 0
+            print(f"  Signaux      : {total}  (✓ {s['accepted']} acceptés {acc_pct:.0f}%  ✕ {s['rejected']} rejetés {rej_pct:.0f}%)")
+            if s["rejections"]:
+                top = sorted(s["rejections"].items(), key=lambda x: -x[1])[:5]
+                reasons_str = "  ".join(f"{r}:{n}" for r, n in top)
+                print(f"  Top rejets   : {reasons_str}")
+        cf_total = s["cf_profit"] + s["cf_loss"]
+        if cf_total > 0:
+            cf_wr = 100 * s['cf_profit'] / cf_total
+            print(f"  Counterfact. : {cf_total}  ({cf_wr:.0f}% auraient profité)")
+        print(sep)
 
     def _write(self, decision: Decision) -> None:
         date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
