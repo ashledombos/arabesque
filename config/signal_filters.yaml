@@ -1,0 +1,63 @@
+# ═══════════════════════════════════════════════════════════════════
+# Arabesque — Matrice d'activation sub_type × catégorie d'instrument
+#
+# Basé sur l'analyse OOS de 6 759 trades / 102 instruments (Phase 1.3)
+# true  = combinaison autorisée en production
+# false = filtrée (résultat négatif OOS ou trop peu de trades)
+# ═══════════════════════════════════════════════════════════════════
+
+signal_filters:
+
+  # MR shallow + wide : positif uniquement sur energy et commodities
+  mr_shallow_wide:
+    commodities: true
+    energy: true
+    crypto: false
+    fx: false
+    indices: false
+    metals: false
+
+  # Trend fort : solide sur crypto/fx/indices, détruit sur metals
+  trend_strong:
+    commodities: false
+    energy: false
+    crypto: true
+    fx: true
+    indices: true
+    metals: false
+
+  # Trend modéré : energy + crypto seulement
+  trend_moderate:
+    commodities: false
+    energy: true
+    crypto: true
+    fx: false
+    indices: false
+    metals: false
+
+  # MR shallow + narrow : energy, crypto, indices, metals
+  mr_shallow_narrow:
+    commodities: false
+    energy: true
+    crypto: true
+    fx: false
+    indices: true
+    metals: true
+
+  # MR deep + wide : meilleur setup — commodities, energy, crypto
+  mr_deep_wide:
+    commodities: true
+    energy: true
+    crypto: true
+    fx: false
+    indices: false
+    metals: false
+
+  # MR deep + narrow : non défini dans la matrice initiale — conservateur
+  mr_deep_narrow:
+    commodities: false
+    energy: false
+    crypto: false
+    fx: false
+    indices: false
+    metals: false
