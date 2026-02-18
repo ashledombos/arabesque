@@ -1,3 +1,3 @@
-from arabesque.live.bar_poller import BarPoller, PollerConfig
+from arabesque.live.bar_poller import BarPoller
 
-__all__ = ["BarPoller", "PollerConfig"]
+__all__ = ["BarPoller"]
