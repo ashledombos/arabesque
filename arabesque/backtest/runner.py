@@ -35,7 +35,8 @@ from arabesque.backtest.signal_gen import BacktestSignalGenerator, SignalGenConf
 from arabesque.backtest.metrics import (
     BacktestMetrics, compute_metrics, slippage_sensitivity, format_report,
 )
-from arabesque.backtest.data import load_ohlc, split_in_out_sample, yahoo_symbol
+from arabesque.backtest.data import load_ohlc, split_in_out_sample, yahoo_symbol, _categorize
+from arabesque.core.signal_filter import SignalFilter
 
 
 @dataclass
@@ -59,6 +60,9 @@ class BacktestConfig:
 
     # Cooldown entre signaux sur le même instrument (barres)
     signal_cooldown_bars: int = 5
+
+    # Chemin vers la matrice de filtres (None = pas de filtrage)
+    signal_filter_path: str | None = "config/signal_filters.yaml"
 
     # Verbose
     verbose: bool = False
@@ -111,6 +115,13 @@ class BacktestRunner:
             start_balance=self.bt_cfg.start_balance,
             daily_start_balance=self.bt_cfg.start_balance,
         )
+        # ── SignalFilter ──
+        if self.bt_cfg.signal_filter_path:
+            self.signal_filter: SignalFilter | None = SignalFilter(
+                self.bt_cfg.signal_filter_path
+            )
+        else:
+            self.signal_filter = None
 
     def run(
         self,
@@ -345,30 +356,51 @@ class BacktestRunner:
     def _precompute_signals(
         self, df: pd.DataFrame, instrument: str
     ) -> dict[int, Signal]:
-        """Pré-calcule les signaux pour chaque barre.
+        """Pré-calcule les signaux pour chaque barre, avec filtrage sub_type × catégorie.
 
         Retourne un dict {bar_index: Signal}.
         Gère deux formats de retour du signal generator :
         - list[Signal] (mean-reversion) → lookup par timestamp
         - list[tuple[int, Signal]] (trend/combined) → index direct
+
+        Le SignalFilter est appliqué ici, avant la boucle principale :
+        - fail-open si le fichier YAML est absent (self.signal_filter est None)
+        - fail-open si sub_type ou catégorie sont inconnus dans la matrice
         """
         signals = self.sig_gen.generate_signals(df, instrument)
+        category = _categorize(instrument)
         signal_map: dict[int, Signal] = {}
+        n_filtered = 0
 
         for item in signals:
             if isinstance(item, tuple) and len(item) == 2:
-                # Format (bar_index, Signal)
                 idx, sig = item
-                signal_map[int(idx)] = sig
+                idx = int(idx)
             else:
-                # Format Signal direct → lookup par timestamp
                 sig = item
                 try:
                     idx = df.index.get_loc(sig.timestamp)
-                    if isinstance(idx, (int, np.integer)):
-                        signal_map[int(idx)] = sig
+                    if not isinstance(idx, (int, np.integer)):
+                        continue
+                    idx = int(idx)
                 except (KeyError, AttributeError):
                     continue
+
+            # ── Filtre sub_type × catégorie ──
+            if self.signal_filter is not None and not self.signal_filter.is_allowed(
+                sig.sub_type, category
+            ):
+                n_filtered += 1
+                continue
+
+            signal_map[idx] = sig
+
+        if n_filtered and self.bt_cfg.verbose:
+            print(
+                f"  [{instrument}] SignalFilter: {n_filtered} signal(s) filtrés"
+                f" (sub_type × {category})"
+            )
+
         return signal_map
 
     def _compute_spread(self, price: float) -> float:
@@ -468,6 +500,9 @@ def run_backtest(
     print(f"\n{'='*60}")
     print(f"  ARABESQUE BACKTEST — {instrument} ({symbol})")
     print(f"  Strategy: {strat_label}")
+    filter_status = "ON" if cfg.signal_filter_path else "OFF"
+    print(f"  SignalFilter: {filter_status}"
+          + (f" ({cfg.signal_filter_path})" if cfg.signal_filter_path else ""))
     print(f"{'='*60}")
     print(f"  Loading data...")
 
