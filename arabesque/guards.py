@@ -6,6 +6,10 @@ CORRECTIONS vs v1 :
 2. AccountState a des valeurs initiales cohérentes
 3. Sizing plafonne au DD restant (pas juste risk_per_trade)
 4. Guard duplicate instrument (v0.1)
+
+CORRECTIONS v2.1 :
+5. Pause automatique à (max_total_dd - 1%) pour éviter la zombie phase
+6. Sizing progressif : réduction linéaire du risque selon DD restant
 """
 
 from __future__ import annotations
@@ -23,6 +27,10 @@ class PropConfig:
     max_positions: int = 3
     max_daily_trades: int = 10
     risk_per_trade_pct: float = 0.5
+    # Marge de sécurité avant le seuil fatal (en points de %).
+    # Pause dès que total_dd <= -(max_total_dd - dd_safety_margin).
+    # Ex : max=8%, margin=1% → pause à -7%.
+    dd_safety_margin_pct: float = 1.0
 
 
 @dataclass
@@ -130,8 +138,15 @@ class Guards:
         return True, None, ""
 
     def _total_dd(self, a: AccountState):
-        if a.total_dd_pct <= -self.prop.max_total_dd_pct:
-            return False, RejectReason.MAX_DD_LIMIT, f"DD total {a.total_dd_pct:.1f}%"
+        """Pause dès (max_total_dd - dd_safety_margin) pour conserver
+        une marge de 1% avant le seuil prop fatal.
+        Ex : max=8%, margin=1% → pause à -7%.
+        """
+        pause_threshold = -(self.prop.max_total_dd_pct - self.prop.dd_safety_margin_pct)
+        if a.total_dd_pct <= pause_threshold:
+            return False, RejectReason.MAX_DD_LIMIT, (
+                f"DD total {a.total_dd_pct:.1f}% <= pause {pause_threshold:.1f}%"
+            )
         return True, None, ""
 
     def _max_positions(self, a: AccountState):
@@ -186,20 +201,49 @@ class Guards:
     # ── Sizing ───────────────────────────────────────────────────────
 
     def compute_sizing(self, signal: Signal, account: AccountState) -> dict:
-        """Calcule le risk_cash plafonné au DD restant."""
+        """Calcule le risk_cash avec réduction linéaire selon le DD.
+
+        Logique :
+        - Entre 0% et -dd_safety_margin% DD : risque plein.
+        - Entre -dd_safety_margin% et -(max_total_dd - margin)% :
+          réduction linéaire de 100% à MIN_RISK_RATIO (10%).
+        - Au-delà : le guard _total_dd bloque avant d'arriver ici.
+
+        Exemple avec max=8%, margin=1% (pause à -7%) :
+          DD =  0% → ratio = 1.00 → risk = 500$
+          DD = -3% → ratio = 0.71 → risk = 357$
+          DD = -5% → ratio = 0.43 → risk = 214$
+          DD = -6% → ratio = 0.29 → risk = 143$
+          DD = -7% → guard bloque (jamais atteint ici)
+        """
+        MIN_RISK_RATIO = 0.10  # plancher à 10% du risque nominal
+
         entry = signal.tv_close
         sl = signal.sl
         if entry == 0 or sl == 0:
             return {"risk_cash": 0, "risk_distance": 0, "error": "missing entry/sl"}
 
         risk_distance = abs(entry - sl)
-        risk_pct_cash = account.start_balance * (self.prop.risk_per_trade_pct / 100)
+        risk_nominal = account.start_balance * (self.prop.risk_per_trade_pct / 100)
 
-        # Plafonner au DD restant
+        # Réduction linéaire selon le DD total
+        # pause_zone = plage entre 0% et -(max - margin)%
+        pause_threshold_pct = self.prop.max_total_dd_pct - self.prop.dd_safety_margin_pct
+        total_dd_abs = abs(min(0.0, account.total_dd_pct))  # 0 si positif
+        if total_dd_abs == 0:
+            dd_ratio = 1.0
+        else:
+            dd_ratio = max(
+                MIN_RISK_RATIO,
+                1.0 - (total_dd_abs / pause_threshold_pct) * (1.0 - MIN_RISK_RATIO)
+            )
+
+        # Plafonner aussi au DD daily restant (protection intraday)
         remaining_daily = max(0, (self.prop.max_daily_dd_pct + account.daily_dd_pct) / 100 * account.start_balance)
-        remaining_total = max(0, (self.prop.max_total_dd_pct + account.total_dd_pct) / 100 * account.start_balance)
-        max_risk = min(risk_pct_cash, remaining_daily * 0.5, remaining_total * 0.3)
-        risk_cash = max(0, min(risk_pct_cash, max_risk))
+        max_risk_daily = remaining_daily * 0.5
+
+        risk_cash = min(risk_nominal * dd_ratio, max_risk_daily)
+        risk_cash = max(0.0, risk_cash)
 
         return {
             "risk_cash": round(risk_cash, 2),
