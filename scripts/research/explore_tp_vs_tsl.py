@@ -52,7 +52,15 @@ HIGH_AVGWIN_SUBTYPES = {
 }
 
 
-# ── Helpers ──────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────
+
+def _get_subtype(pos) -> str:
+    """Extrait le sub_type d'une position depuis signal_data ou attribut direct."""
+    sd = getattr(pos, "signal_data", {})
+    if isinstance(sd, dict) and sd.get("sub_type"):
+        return sd["sub_type"]
+    return getattr(pos, "_sub_type", "")
+
 
 def _categorize(instrument: str) -> str:
     """Version minimale de _categorize pour filtrage."""
@@ -154,7 +162,7 @@ def run_backtest(instrument: str, period: str, split_pct: float, verbose: bool):
         return None
 
 
-# ── Main ─────────────────────────────────────────────────────────────
+# ── Main ─────────────────────────────────────────────────────────
 
 def main():
     parser = argparse.ArgumentParser(
@@ -222,18 +230,19 @@ def main():
 
     # ── Filtrer sur sub-types avec AvgWin > min_avgwin ──
     groups_all = analyze_by_subtype(all_oos, min_trades=10)
-    eligible_subtypes = {
-        sub for sub, g in groups_all.items()
-        if (g.n_trades > 0 and
-            (sum(r for r in [getattr(p, 'result_r', 0) or 0
-                             for p in all_oos
-                             if _get_subtype(p) == sub] if r > 0 else [])
-             / max(1, sum(1 for p in all_oos
-                          if _get_subtype(p) == sub
-                          and (getattr(p, 'result_r', 0) or 0) > 0))
-             ) >= args.min_avgwin
-        )
-    }
+    eligible_subtypes = set()
+    for sub, g in groups_all.items():
+        if g.n_trades == 0:
+            continue
+        wins = [
+            getattr(p, 'result_r', 0) or 0
+            for p in all_oos
+            if _get_subtype(p) == sub
+            and (getattr(p, 'result_r', 0) or 0) > 0
+        ]
+        avg_win = sum(wins) / max(1, len(wins))
+        if avg_win >= args.min_avgwin:
+            eligible_subtypes.add(sub)
 
     # Simplification : utiliser HIGH_AVGWIN_SUBTYPES comme base
     eligible_subtypes = eligible_subtypes | HIGH_AVGWIN_SUBTYPES
@@ -289,14 +298,6 @@ def main():
     with open(args.json, "w") as f:
         json.dump(export, f, indent=2)
     print(f"\n  JSON → {args.json}")
-
-
-def _get_subtype(pos) -> str:
-    """Extrait le sub_type d'une position depuis signal_data ou attribut direct."""
-    sd = getattr(pos, "signal_data", {})
-    if isinstance(sd, dict) and sd.get("sub_type"):
-        return sd["sub_type"]
-    return getattr(pos, "_sub_type", "")
 
 
 if __name__ == "__main__":
