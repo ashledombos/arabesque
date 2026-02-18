@@ -13,8 +13,11 @@ Paliers trailing en R (inspiré BB_RPB_TSL) :
   Arabesque  :  +0.5R → trail 0.3R, +1.0R → 0.5R, +1.5R → 0.8R, +2.0R → 1.2R
 
 TP FIXE PAR SUB-TYPE :
-  mr_deep_wide, mr_deep_narrow, trend_strong → TP à 1.5R
-  (basé sur l'analyse explore_tp_vs_tsl : +35% Total R vs trailing seul)
+  trend_strong → TP à 1.5R (validé : 70 hits, +51.7R sur 449 trades OOS multi-instruments)
+
+  NON retenus (backtest réel invalide la simulation MFE a posteriori) :
+  - mr_deep_wide   : 547 trades, -0.6R total — TP ne compense pas les SL
+  - mr_deep_narrow : trop rare en OOS pour conclure
 """
 
 from __future__ import annotations
@@ -36,12 +39,11 @@ class TrailingTier:
     trail_distance_r: float
 
 
-# Sub-types avec TP fixe validé sur backtest multi-instruments
-# Source : explore_tp_vs_tsl.py — tp_fixed_1.5r = +127R vs trailing +94R
+# Sub-types avec TP fixe validé sur backtest multi-instruments (OOS réel)
+# Critère de validation : N >= 100, Total R positif, TP hits > 30
+# trend_strong : 449 trades, WR=65%, +51.7R, 70 TP hits — OK
 TP_FIXED_SUBTYPES: dict[str, float] = {
-    "mr_deep_wide":    1.5,
-    "mr_deep_narrow":  1.5,
-    "trend_strong":    1.5,
+    "trend_strong": 1.5,
 }
 
 
