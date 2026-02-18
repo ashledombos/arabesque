@@ -62,6 +62,8 @@ class RejectReason(str, Enum):
     DAILY_DD_LIMIT = "daily_dd_limit"
     MAX_DD_LIMIT = "max_dd_limit"
     MAX_POSITIONS = "max_positions"
+    OPEN_RISK_LIMIT = "open_risk_limit"
+    MAX_DAILY_TRADES = "max_daily_trades"
     DUPLICATE_INSTRUMENT = "duplicate_instrument"
     MARGIN_INSUFFICIENT = "margin_insufficient"
     MIN_RR_NOT_MET = "min_rr_not_met"
@@ -110,7 +112,7 @@ class Signal:
 
     # Type de stratégie ("mean_reversion" ou "trend")
     strategy_type: str = "mean_reversion"
-    
+
     # Phase 1.3 : Sub-type et facteurs de qualité
     sub_type: str = ""
     label_factors: dict = field(default_factory=dict)

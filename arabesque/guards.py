@@ -10,6 +10,16 @@ CORRECTIONS vs v1 :
 CORRECTIONS v2.1 :
 5. Pause automatique à (max_total_dd - 1%) pour éviter la zombie phase
 6. Sizing progressif : réduction linéaire du risque selon DD restant
+
+CORRECTIONS v2.2 :
+7. Guard max_positions remplacé par guard d'exposition DD cumulée (open_risk_limit)
+   - PropConfig.max_open_risk_pct : % du start_balance max en risque ouvert simultané
+   - PropConfig.max_positions relevé à 10 (filet absolu anti-bug)
+   - AccountState.open_risk_cash : somme des risk_cash des positions ouvertes
+   Rationale : 19 instruments crypto corrélés → rafales de 8-12 signaux sur la même
+   bougie. max_positions=3 rejetait des signaux valides alors que l'exposition réelle
+   était faible (positions sizées à 70-80$ après réduction DD).
+8. Corrige bug _daily_trades() : utilisait RejectReason.MAX_POSITIONS au lieu de MAX_DAILY_TRADES
 """
 
 from __future__ import annotations
@@ -24,7 +34,8 @@ from arabesque.models import Signal, Decision, Counterfactual, DecisionType, Rej
 class PropConfig:
     max_daily_dd_pct: float = 3.0
     max_total_dd_pct: float = 8.0
-    max_positions: int = 3
+    max_positions: int = 10           # Filet absolu anti-bug (relevé de 3 → 10)
+    max_open_risk_pct: float = 2.0    # % du start_balance max en risque ouvert simultané
     max_daily_trades: int = 10
     risk_per_trade_pct: float = 0.5
     # Marge de sécurité avant le seuil fatal (en points de %).
@@ -50,6 +61,7 @@ class AccountState:
     daily_start_balance: float = 100_000.0
     daily_pnl: float = 0.0
     open_positions: int = 0
+    open_risk_cash: float = 0.0       # Somme des risk_cash des positions ouvertes
     daily_trades: int = 0
     open_instruments: list[str] = field(default_factory=list)
 
@@ -115,6 +127,7 @@ class Guards:
 
         # Accepté
         fill_est = broker_ask if signal.side == Side.LONG else broker_bid
+        max_open_risk = account.start_balance * (self.prop.max_open_risk_pct / 100)
         decision = Decision(
             decision_type=DecisionType.SIGNAL_ACCEPTED,
             signal_id=signal.signal_id,
@@ -125,6 +138,8 @@ class Guards:
             metadata={
                 "spread_atr": round(spread / atr, 3) if atr > 0 else 0,
                 "n_open": account.open_positions,
+                "open_risk_cash": round(account.open_risk_cash, 2),
+                "max_open_risk": round(max_open_risk, 2),
                 "daily_dd": round(account.daily_dd_pct, 2),
             },
         )
@@ -150,13 +165,35 @@ class Guards:
         return True, None, ""
 
     def _max_positions(self, a: AccountState):
+        """Guard d'exposition DD cumulée + filet absolu sur nb positions.
+
+        Logique :
+        1. Filet absolu : si open_positions >= max_positions (10), bloquer.
+           (protection anti-bug, ne devrait jamais se déclencher normalement)
+        2. Guard réel : si open_risk_cash >= max_open_risk_pct% du start_balance, bloquer.
+           Exemple : max_open_risk_pct=2.0%, start_balance=100k → seuil=2000$
+           Avec risk_per_trade=0.5% (500$) → ~4 positions pleines autorisées.
+           Avec sizing réduit (DD avancé, ~70$/trade) → 28 positions autorisées
+           (mais bloqué par le filet à 10).
+        """
+        # Filet absolu
         if a.open_positions >= self.prop.max_positions:
-            return False, RejectReason.MAX_POSITIONS, f"{a.open_positions}/{self.prop.max_positions}"
+            return False, RejectReason.MAX_POSITIONS, (
+                f"{a.open_positions}/{self.prop.max_positions} (filet absolu)"
+            )
+        # Guard exposition cumulée
+        max_open_risk = a.start_balance * (self.prop.max_open_risk_pct / 100)
+        if a.open_risk_cash >= max_open_risk:
+            return False, RejectReason.OPEN_RISK_LIMIT, (
+                f"open_risk {a.open_risk_cash:.0f}$ >= max {max_open_risk:.0f}$"
+            )
         return True, None, ""
 
     def _daily_trades(self, a: AccountState):
         if a.daily_trades >= self.prop.max_daily_trades:
-            return False, RejectReason.MAX_POSITIONS, f"trades {a.daily_trades}/{self.prop.max_daily_trades}"
+            return False, RejectReason.MAX_DAILY_TRADES, (
+                f"trades {a.daily_trades}/{self.prop.max_daily_trades}"
+            )
         return True, None, ""
 
     def _duplicate_instrument(self, signal: Signal, a: AccountState):
