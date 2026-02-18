@@ -22,14 +22,15 @@ Variables d'environnement pour le mode live/ctrader :
     CTRADER_ACCOUNT_ID
 
 Variables Arabesque :
-    ARABESQUE_BALANCE      solde de départ (défaut: 10000)
-    ARABESQUE_MAX_DAILY_DD limite DD journalier % (défaut: 5.0)
-    ARABESQUE_MAX_TOTAL_DD limite DD total % (défaut: 10.0)
-    ARABESQUE_MAX_POSITIONS positions max simultanées (défaut: 3)
-    ARABESQUE_RISK_PCT     risque par trade % (défaut: 1.0)
-    TELEGRAM_TOKEN         (optionnel)
-    TELEGRAM_CHAT_ID       (optionnel)
-    NTFY_TOPIC             (optionnel)
+    ARABESQUE_BALANCE          solde de départ (défaut: 10000)
+    ARABESQUE_MAX_DAILY_DD     limite DD journalier % (défaut: 5.0)
+    ARABESQUE_MAX_TOTAL_DD     limite DD total % (défaut: 10.0)
+    ARABESQUE_MAX_POSITIONS    filet absolu positions simultanées (défaut: 10)
+    ARABESQUE_MAX_OPEN_RISK_PCT % start_balance max en risque ouvert (défaut: 2.0)
+    ARABESQUE_RISK_PCT         risque par trade % (défaut: 1.0)
+    TELEGRAM_TOKEN             (optionnel)
+    TELEGRAM_CHAT_ID           (optionnel)
+    NTFY_TOPIC                 (optionnel)
 """
 
 from __future__ import annotations
@@ -79,14 +80,14 @@ def main():
     )
     args = parser.parse_args()
 
-    # ── Imports ──────────────────────────────────────────────────────────
+    # ── Imports ──────────────────────────────────────────────────
     from arabesque.config import ArabesqueConfig
     from arabesque.broker.adapters import DryRunAdapter
     from arabesque.webhook.orchestrator import Orchestrator
     from arabesque.live.bar_poller import BarPoller, BarPollerConfig, DEFAULT_INSTRUMENTS
     from arabesque.live.parquet_clock import ParquetClock
 
-    # ── Config ───────────────────────────────────────────────────────────
+    # ── Config ───────────────────────────────────────────────────
     if args.config:
         cfg = ArabesqueConfig.from_yaml(args.config)
     else:
@@ -95,7 +96,8 @@ def main():
             start_balance=float(os.environ.get("ARABESQUE_BALANCE", "10000")),
             max_daily_dd_pct=float(os.environ.get("ARABESQUE_MAX_DAILY_DD", "5.0")),
             max_total_dd_pct=float(os.environ.get("ARABESQUE_MAX_TOTAL_DD", "10.0")),
-            max_positions=int(os.environ.get("ARABESQUE_MAX_POSITIONS", "3")),
+            max_positions=int(os.environ.get("ARABESQUE_MAX_POSITIONS", "10")),
+            max_open_risk_pct=float(os.environ.get("ARABESQUE_MAX_OPEN_RISK_PCT", "2.0")),
             risk_per_trade_pct=float(os.environ.get("ARABESQUE_RISK_PCT", "1.0")),
             telegram_token=os.environ.get("TELEGRAM_TOKEN", ""),
             telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID", ""),
@@ -104,7 +106,7 @@ def main():
 
     instruments = args.instruments or DEFAULT_INSTRUMENTS
 
-    # ── Broker ───────────────────────────────────────────────────────────
+    # ── Broker ───────────────────────────────────────────────────
     if args.mode == "dry_run":
         broker = DryRunAdapter()
         brokers = {"dry_run": broker}
@@ -130,10 +132,10 @@ def main():
         brokers = {"ctrader": broker}
         logger.info(f"Mode LIVE — compte {ctrader_cfg.account_id}")
 
-    # ── Orchestrator ─────────────────────────────────────────────────────
+    # ── Orchestrator ───────────────────────────────────────────────
     orchestrator = Orchestrator(config=cfg, brokers=brokers)
 
-    # ── Source de barres ─────────────────────────────────────────────────
+    # ── Source de barres ───────────────────────────────────────────
     logger.info(f"Source: {args.source} | Instruments: {instruments}")
 
     try:

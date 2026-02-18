@@ -31,7 +31,8 @@ class ArabesqueConfig:
     risk_per_trade_pct: float = 0.5
     max_daily_dd_pct: float = 3.0
     max_total_dd_pct: float = 8.0
-    max_positions: int = 3
+    max_positions: int = 10            # Filet absolu anti-bug (relevé de 3 → 10)
+    max_open_risk_pct: float = 2.0     # % du start_balance max en risque ouvert simultané
     max_daily_trades: int = 10
 
     # ── Execution ──
@@ -112,14 +113,14 @@ def load_config(path: str | Path = "config/settings.yaml") -> ArabesqueConfig:
 
 def generate_default_config(path: str = "config/settings.yaml"):
     """Génère un fichier de configuration par défaut."""
-    default = """# ═══════════════════════════════════════════════════════════
+    default = """# ═══════════════════════════════════════════════════════
 # Arabesque v2 — Configuration
-# ═══════════════════════════════════════════════════════════
+# ═══════════════════════════════════════════════════════
 
 # Mode : dry_run | paper | live
 mode: dry_run
 
-# ── Brokers ──────────────────────────────────────────────
+# ── Brokers ────────────────────────────────────────────────
 brokers:
   # cTrader (FTMO)
   - type: ctrader
@@ -144,26 +145,27 @@ brokers:
   - type: dry_run
     name: dry_run
 
-# ── Webhook ──────────────────────────────────────────────
+# ── Webhook ────────────────────────────────────────────────
 webhook_host: "0.0.0.0"
 webhook_port: 5000
 webhook_secret: ""    # Set via ARABESQUE_SECRET env var
 
-# ── Prop firm constraints ────────────────────────────────
+# ── Prop firm constraints ───────────────────────────────────
 start_balance: 100000
 risk_per_trade_pct: 0.5
 max_daily_dd_pct: 3.0
 max_total_dd_pct: 8.0
-max_positions: 3
+max_positions: 10          # Filet absolu (ne devrait jamais se déclencher)
+max_open_risk_pct: 2.0     # % du start_balance max en risque ouvert simultané
 max_daily_trades: 10
 
-# ── Execution guards ────────────────────────────────────
+# ── Execution guards ───────────────────────────────────────
 max_spread_atr: 0.15
 max_slippage_atr: 0.10
 signal_expiry_sec: 300
 min_rr: 0.5
 
-# ── Instruments autorisés ────────────────────────────────
+# ── Instruments autorisés ───────────────────────────────────────
 instruments:
   - EURUSD
   - GBPUSD
@@ -171,12 +173,12 @@ instruments:
   - AUDUSD
   - XAUUSD
 
-# ── Logging ──────────────────────────────────────────────
+# ── Logging ────────────────────────────────────────────────
 log_dir: logs
 audit_dir: logs/audit
 log_level: INFO
 
-# ── Notifications ────────────────────────────────────────
+# ── Notifications ────────────────────────────────────────────
 telegram_token: ""     # Set via ARABESQUE_TELEGRAM_TOKEN env var
 telegram_chat_id: ""   # Set via ARABESQUE_TELEGRAM_CHAT_ID env var
 ntfy_topic: arabesque

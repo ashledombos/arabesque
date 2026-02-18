@@ -7,7 +7,7 @@ Utilisé par :
 - Le webhook server (signal live)
 - Le paper trading (dry-run avec vrais signaux)
 
-C'est le MÊME flux, que le broker soit réel ou dry-run.
+C'est le MÊMe flux, que le broker soit réel ou dry-run.
 """
 
 from __future__ import annotations
@@ -61,6 +61,7 @@ class Orchestrator:
                 max_daily_dd_pct=config.max_daily_dd_pct,
                 max_total_dd_pct=config.max_total_dd_pct,
                 max_positions=config.max_positions,
+                max_open_risk_pct=getattr(config, "max_open_risk_pct", 2.0),
                 max_daily_trades=config.max_daily_trades,
                 risk_per_trade_pct=config.risk_per_trade_pct,
             ),
@@ -80,7 +81,7 @@ class Orchestrator:
             daily_start_balance=config.start_balance,
         )
 
-        # Position Manager (MÊME code que le backtest)
+        # Position Manager (MÊMe code que le backtest)
         self.manager = PositionManager(ManagerConfig())
 
         # Audit
@@ -192,6 +193,7 @@ class Orchestrator:
 
             # 10. Mettre à jour le compte
             self.account.open_positions += 1
+            self.account.open_risk_cash += risk_cash          # ← NEW : exposition cumulée
             self.account.open_instruments.append(signal.instrument)
             self.account.daily_trades += 1
 
@@ -210,6 +212,8 @@ class Orchestrator:
                     "sl": pos.sl,
                     "tp": pos.tp,
                     "R": pos.R,
+                    "risk_cash": risk_cash,
+                    "open_risk_cash": self.account.open_risk_cash,
                 },
             ))
 
@@ -286,7 +290,7 @@ class Orchestrator:
                     pnl = result * pos.risk_cash
 
                     self._notify(
-                        f"{'🟢' if result > 0 else '🔴'} "
+                        f"{'\U0001f7e2' if result > 0 else '\U0001f534'} "
                         f"{pos.instrument} {pos.side.value} FERMÉ\n"
                         f"   {pos.exit_reason} | {result:+.2f}R | "
                         f"${pnl:+,.0f}\n"
@@ -309,6 +313,7 @@ class Orchestrator:
         """Retourne l'état courant du système."""
         open_pos = self.manager.open_positions
         closed_pos = self.manager.closed_positions
+        max_open_risk = self.account.start_balance * (self.guards.prop.max_open_risk_pct / 100)
 
         return {
             "mode": self.config.mode,
@@ -319,6 +324,8 @@ class Orchestrator:
                 "daily_dd_pct": round(self.account.daily_dd_pct, 2),
                 "total_dd_pct": round(self.account.total_dd_pct, 2),
                 "open_positions": self.account.open_positions,
+                "open_risk_cash": round(self.account.open_risk_cash, 2),
+                "max_open_risk": round(max_open_risk, 2),
                 "daily_trades": self.account.daily_trades,
             },
             "positions": {
@@ -336,7 +343,7 @@ class Orchestrator:
             },
         }
 
-    # ── Internal helpers ─────────────────────────────────────────────
+    # ── Internal helpers ──────────────────────────────────────────
 
     def _select_broker(self, instrument: str) -> BrokerAdapter | None:
         """Sélectionne le broker approprié pour l'instrument."""
@@ -385,6 +392,7 @@ class Orchestrator:
             self.account.balance += pnl
             self.account.daily_pnl += pnl
         self.account.open_positions = max(0, self.account.open_positions - 1)
+        self.account.open_risk_cash = max(0.0, self.account.open_risk_cash - pos.risk_cash)  # ← NEW
         if pos.instrument in self.account.open_instruments:
             self.account.open_instruments.remove(pos.instrument)
 
