@@ -9,6 +9,8 @@ Usage :
     python -m arabesque.live.runner --mode dry_run --source parquet
     python -m arabesque.live.runner --mode dry_run --source parquet \\
         --start 2025-10-01 --end 2026-01-01 --instruments ALGUSD BCHUSD
+    python -m arabesque.live.runner --mode dry_run --source parquet \\
+        --start 2025-10-01 --end 2026-01-01 --strategy mean_reversion
 """
 
 from __future__ import annotations
@@ -23,7 +25,6 @@ from typing import Callable
 import pandas as pd
 
 from arabesque.backtest.data import load_ohlc
-from arabesque.backtest.signal_gen_combined import CombinedSignalGenerator
 from arabesque.live.bar_poller import DEFAULT_INSTRUMENTS, _generate_signals_from_cache
 
 logger = logging.getLogger("arabesque.live.parquet_clock")
@@ -45,6 +46,10 @@ class ParquetClock:
 
     Toutes les barres de tous les instruments sont fusionnées et
     rejouées dans l'ordre chronologique (multi-instrument).
+
+    Le ``signal_generator`` peut être passé explicitement pour
+    sélectionner la stratégie (trend, mean_reversion, combined...).
+    Si omis, ``CombinedSignalGenerator`` est utilisé par défaut.
     """
 
     def __init__(
@@ -55,6 +60,7 @@ class ParquetClock:
         replay_speed: float = 0.0,
         on_bar_closed: Callable | None = None,
         config: ParquetClockConfig | None = None,
+        signal_generator=None,
     ):
         if config:
             self.cfg = config
@@ -66,7 +72,13 @@ class ParquetClock:
                 replay_speed=replay_speed,
             )
         self.on_bar_closed = on_bar_closed
-        self._sig_gen  = CombinedSignalGenerator()
+
+        if signal_generator is not None:
+            self._sig_gen = signal_generator
+        else:
+            from arabesque.backtest.signal_gen_combined import CombinedSignalGenerator
+            self._sig_gen = CombinedSignalGenerator()
+
         self._bar_cache: dict[str, list[dict]] = {}
 
     def run(self, orchestrator, blocking: bool = True):
@@ -78,13 +90,14 @@ class ParquetClock:
                 daemon=True, name="parquet-clock"
             ).start()
 
-    # ── Internals ────────────────────────────────────────────────────────
+    # ── Internals ────────────────────────────────────────────────
 
     def _replay(self, orchestrator):
         logger.info(
             f"ParquetClock starting | {len(self.cfg.instruments)} instruments "
             f"| {self.cfg.start or 'beginning'} → {self.cfg.end or 'end'} "
-            f"| speed={'MAX' if self.cfg.replay_speed == 0 else f'{self.cfg.replay_speed}s/bar'}"
+            f"| speed={'MAX' if self.cfg.replay_speed == 0 else f'{self.cfg.replay_speed}s/bar'} "
+            f"| strategy={type(self._sig_gen).__name__}"
         )
 
         # 1. Charger les DataFrames
@@ -162,7 +175,7 @@ class ParquetClock:
                     f"[{instrument}] {ts.strftime('%Y-%m-%d %H:%M')} "
                     f"{sig_data['side'].upper()} close={bar['close']:.4f} "
                     f"sl={sig_data['sl']:.4f} rr={sig_data.get('rr', 0):.2f} "
-                    f"→ {status} {detail}"
+                    f"\u2192 {status} {detail}"
                 )
 
             # Trailing / exits
