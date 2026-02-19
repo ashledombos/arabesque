@@ -1,7 +1,7 @@
 """
 Arabesque v2 — Backtest Runner (Pass 2).
 
-Utilise le MÊMe PositionManager que le live. Zéro divergence.
+Utilise le MÊME PositionManager que le live. Zéro divergence.
 
 Architecture :
 1. Charge les données OHLC (Yahoo Finance 1H)
@@ -18,6 +18,10 @@ Architecture :
 Spread + slippage simulés :
 - Spread = spread_pct * prix (configurable, réaliste par instrument)
 - Slippage = slippage_r * ATR (ajouté au fill)
+
+Usage CLI :
+    python -m arabesque.backtest.runner XRPUSD --period 730d --strategy trend
+    python -m arabesque.backtest.runner XRPUSD SOLUSD --strategy trend --split 0.7
 """
 
 from __future__ import annotations
@@ -48,30 +52,17 @@ BACKTEST_RUNS_LOG = Path("logs/backtest_runs.jsonl")
 @dataclass
 class BacktestConfig:
     """Configuration du backtest."""
-    # Compte
     start_balance: float = 100_000.0
     risk_per_trade_pct: float = 0.5
-
-    # Spread simulé (en fraction du prix, ex: 0.0001 = 1 pip pour EURUSD)
-    spread_fixed: float = 0.0       # Si > 0, spread fixe en points
-    spread_pct: float = 0.00015     # Sinon, spread = prix * spread_pct
-
-    # Slippage simulé (en multiples d'ATR, ajouté au fill)
-    slippage_r: float = 0.03        # 3% d'un ATR
-
-    # Prop firm
+    spread_fixed: float = 0.0
+    spread_pct: float = 0.00015
+    slippage_r: float = 0.03
     daily_dd_limit_pct: float = 3.0
     total_dd_limit_pct: float = 8.0
-    max_positions: int = 10             # Filet absolu (relevé de 3 → 10)
-    max_open_risk_pct: float = 2.0      # % start_balance max en risque ouvert simultané
-
-    # Cooldown entre signaux sur le même instrument (barres)
+    max_positions: int = 10
+    max_open_risk_pct: float = 2.0
     signal_cooldown_bars: int = 5
-
-    # Chemin vers la matrice de filtres (None = pas de filtrage)
     signal_filter_path: str | None = "config/signal_filters.yaml"
-
-    # Verbose
     verbose: bool = False
     progress_every: int = 500
 
@@ -89,7 +80,7 @@ class BacktestResult:
 class BacktestRunner:
     """Exécute un backtest complet sur données OHLC.
 
-    Utilise le MÊMe PositionManager que le live.
+    Utilise le MÊME PositionManager que le live.
     """
 
     def __init__(
@@ -110,7 +101,7 @@ class BacktestRunner:
         self.prop_cfg = prop_config or PropConfig(
             risk_per_trade_pct=self.bt_cfg.risk_per_trade_pct,
             max_positions=self.bt_cfg.max_positions,
-            max_open_risk_pct=self.bt_cfg.max_open_risk_pct,  # ← NEW
+            max_open_risk_pct=self.bt_cfg.max_open_risk_pct,
             max_daily_dd_pct=self.bt_cfg.daily_dd_limit_pct,
             max_total_dd_pct=self.bt_cfg.total_dd_limit_pct,
         )
@@ -123,9 +114,7 @@ class BacktestRunner:
             daily_start_balance=self.bt_cfg.start_balance,
         )
         if self.bt_cfg.signal_filter_path:
-            self.signal_filter: SignalFilter | None = SignalFilter(
-                self.bt_cfg.signal_filter_path
-            )
+            self.signal_filter: SignalFilter | None = SignalFilter(self.bt_cfg.signal_filter_path)
         else:
             self.signal_filter = None
 
@@ -136,7 +125,6 @@ class BacktestRunner:
         sample_type: str = "",
     ) -> BacktestResult:
         """Exécute le backtest sur un DataFrame OHLC préparé."""
-        # Reset state
         self.manager = PositionManager(self.manager.cfg)
         self.account = AccountState(
             balance=self.bt_cfg.start_balance,
@@ -153,7 +141,6 @@ class BacktestRunner:
         rejection_reasons: dict[str, int] = {}
         current_date = None
         last_signal_bar: dict[str, int] = {}
-
         n_bars = len(df)
         ts_start = datetime.now(timezone.utc)
 
@@ -163,15 +150,12 @@ class BacktestRunner:
             high = row["High"]
             low = row["Low"]
             close = row["Close"]
-            opn = row["Open"]
 
-            # ── Daily reset ──
             row_date = bar_date.date()
             if current_date is not None and row_date != current_date:
                 self.account.new_day()
             current_date = row_date
 
-            # ── Update positions ouvertes ──
             indicators = {
                 "rsi": row.get("rsi", 50),
                 "cmf": row.get("cmf", 0),
@@ -182,7 +166,6 @@ class BacktestRunner:
             for pos in list(self.manager.open_positions):
                 decisions = self.manager.update_position(pos, high, low, close, indicators)
                 all_decisions.extend(decisions)
-
                 if not pos.is_open and pos.result_r is not None:
                     pos.ts_exit = bar_date.to_pydatetime() if hasattr(bar_date, 'to_pydatetime') else bar_date
                     pnl = pos.result_r * pos.risk_cash
@@ -190,14 +173,12 @@ class BacktestRunner:
                     self.account.balance += pnl
                     self.account.daily_pnl += pnl
                     self.account.open_positions -= 1
-                    self.account.open_risk_cash = max(0.0, self.account.open_risk_cash - pos.risk_cash)  # ← NEW
+                    self.account.open_risk_cash = max(0.0, self.account.open_risk_cash - pos.risk_cash)
                     if pos.instrument in self.account.open_instruments:
                         self.account.open_instruments.remove(pos.instrument)
 
-            # ── Update counterfactuals ──
             self.manager.update_counterfactuals(instrument, high, low, close)
 
-            # ── Check signal sur cette bougie ──
             if i in signals_by_bar and i + 1 < len(df):
                 signal = signals_by_bar[i]
                 n_signals += 1
@@ -231,10 +212,8 @@ class BacktestRunner:
 
                 original_tv_close = signal.tv_close
                 signal.tv_close = next_bar["Open"]
-
                 ok, decision = self.guards.check_all(signal, self.account, bid, ask)
                 all_decisions.append(decision)
-
                 signal.tv_close = original_tv_close
 
                 if not ok:
@@ -265,9 +244,8 @@ class BacktestRunner:
 
                 pos = self.manager.open_position(signal, fill_price, risk_cash, volume)
                 pos.ts_entry = next_bar_ts.to_pydatetime() if hasattr(next_bar_ts, 'to_pydatetime') else next_bar_ts
-
                 self.account.open_positions += 1
-                self.account.open_risk_cash += risk_cash   # ← NEW
+                self.account.open_risk_cash += risk_cash
                 self.account.open_instruments.append(instrument)
                 self.account.daily_trades += 1
                 last_signal_bar[instrument] = i
@@ -277,17 +255,14 @@ class BacktestRunner:
                           f"SL={pos.sl:.5f} R={pos.R:.5f}")
 
             if self.bt_cfg.verbose and i > 0 and i % self.bt_cfg.progress_every == 0:
-                n_open = len(self.manager.open_positions)
-                n_closed = len(self.manager.closed_positions)
-                print(f"  Bar {i}/{n_bars} | Open: {n_open} | Closed: {n_closed} | "
-                      f"Equity: {self.account.equity:,.0f}")
+                print(f"  Bar {i}/{n_bars} | Open: {len(self.manager.open_positions)} "
+                      f"| Closed: {len(self.manager.closed_positions)} "
+                      f"| Equity: {self.account.equity:,.0f}")
 
-        # ── Forcer la fermeture des positions restantes ──
         for pos in list(self.manager.open_positions):
             last_close = df.iloc[-1]["Close"]
             d = self.manager._close_position(
-                pos, last_close, DecisionType.EXIT_TIME_STOP,
-                "End of data — forced close"
+                pos, last_close, DecisionType.EXIT_TIME_STOP, "End of data — forced close"
             )
             all_decisions.append(d)
             if pos.result_r is not None:
@@ -295,7 +270,6 @@ class BacktestRunner:
                 self.account.equity += pnl
                 self.account.balance += pnl
 
-        # ── Métriques ──
         closed = self.manager.closed_positions
         metrics = compute_metrics(
             closed,
@@ -318,32 +292,21 @@ class BacktestRunner:
             )
 
         report = format_report(metrics)
-
-        # ── JSONL synthèse run ──
         _write_run_jsonl(
-            instrument=instrument,
-            sample_type=sample_type,
-            config=self.bt_cfg,
-            metrics=metrics,
-            ts_start=ts_start,
+            instrument=instrument, sample_type=sample_type,
+            config=self.bt_cfg, metrics=metrics, ts_start=ts_start,
         )
 
         return BacktestResult(
-            config=self.bt_cfg,
-            metrics=metrics,
-            closed_positions=closed,
-            all_decisions=all_decisions,
-            report=report,
+            config=self.bt_cfg, metrics=metrics,
+            closed_positions=closed, all_decisions=all_decisions, report=report,
         )
 
-    def _precompute_signals(
-        self, df: pd.DataFrame, instrument: str
-    ) -> dict[int, Signal]:
+    def _precompute_signals(self, df: pd.DataFrame, instrument: str) -> dict[int, Signal]:
         signals = self.sig_gen.generate_signals(df, instrument)
         category = _categorize(instrument)
         signal_map: dict[int, Signal] = {}
         n_filtered = 0
-
         for item in signals:
             if isinstance(item, tuple) and len(item) == 2:
                 idx, sig = item
@@ -357,18 +320,12 @@ class BacktestRunner:
                     idx = int(idx)
                 except (KeyError, AttributeError):
                     continue
-
-            if self.signal_filter is not None and not self.signal_filter.is_allowed(
-                sig.sub_type, category
-            ):
+            if self.signal_filter is not None and not self.signal_filter.is_allowed(sig.sub_type, category):
                 n_filtered += 1
                 continue
-
             signal_map[idx] = sig
-
         if n_filtered and self.bt_cfg.verbose:
             print(f"  [{instrument}] SignalFilter: {n_filtered} signal(s) filtrés (sub_type × {category})")
-
         return signal_map
 
     def _compute_spread(self, price: float) -> float:
@@ -381,68 +338,47 @@ class BacktestRunner:
         inst = instrument.upper()
         fx_currencies = {
             "EUR", "GBP", "USD", "CHF", "CAD", "AUD", "NZD", "JPY",
-            "CNH", "CZK", "HKD", "MXN", "NOK", "PLN", "SEK", "SGD",
-            "ZAR", "ILS", "HUF",
+            "CNH", "CZK", "HKD", "MXN", "NOK", "PLN", "SEK", "SGD", "ZAR", "ILS", "HUF",
         }
         if len(inst) == 6 and inst[:3] in fx_currencies and inst[3:] in fx_currencies:
             return 100_000
-        if inst in ("XAUUSD", "GOLD"):
-            return 100
-        if inst in ("XAGUSD", "SILVER"):
-            return 5_000
-        if inst in ("XPTUSD", "PLATINUM", "XPDUSD", "PALLADIUM"):
-            return 100
-        if inst in ("COPPER",):
-            return 25_000
+        if inst in ("XAUUSD", "GOLD"): return 100
+        if inst in ("XAGUSD", "SILVER"): return 5_000
+        if inst in ("XPTUSD", "PLATINUM", "XPDUSD", "PALLADIUM"): return 100
+        if inst in ("COPPER",): return 25_000
         crypto = {"BTC", "ETH", "LTC", "SOL", "BNB", "BCH", "XRP", "DOGE",
                   "ADA", "DOT", "XMR", "DASH", "NEO", "UNI", "XLM", "AAVE",
                   "MANA", "IMX", "GRT", "ETC", "ALGO", "NEAR", "LINK", "AVAX",
                   "XTZ", "FET", "ICP", "SAND", "GAL", "VET"}
-        if inst in crypto:
-            return 1
+        if inst in crypto: return 1
         indices = {"SP500", "NAS100", "US30", "US2000", "GER40", "UK100",
-                   "FRA40", "EU50", "IBEX35", "AEX25", "JPN225", "HK50",
-                   "AUS200", "USTEC", "USDX"}
-        if inst in indices:
-            return 1
-        if inst in ("USOIL", "UKOIL", "BRENT"):
-            return 1_000
-        if inst in ("NATGAS",):
-            return 10_000
+                   "FRA40", "EU50", "IBEX35", "AEX25", "JPN225", "HK50", "AUS200", "USTEC", "USDX"}
+        if inst in indices: return 1
+        if inst in ("USOIL", "UKOIL", "BRENT"): return 1_000
+        if inst in ("NATGAS",): return 10_000
         agri = {"COCOA", "COFFEE", "CORN", "COTTON", "SOYBEAN", "WHEAT", "SUGAR"}
-        if inst in agri:
-            return 100
+        if inst in agri: return 100
         return 1
 
 
-# ── JSONL run summary ─────────────────────────────────────────────────
+# ── JSONL run summary ──────────────────────────────────────────────────
 
 def _write_run_jsonl(
-    instrument: str,
-    sample_type: str,
-    config: BacktestConfig,
-    metrics: BacktestMetrics,
-    ts_start: datetime,
+    instrument: str, sample_type: str,
+    config: BacktestConfig, metrics: BacktestMetrics, ts_start: datetime,
 ) -> None:
-    """Append une ligne JSONL de synthèse dans logs/backtest_runs.jsonl."""
     BACKTEST_RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
     entry = {
-        "ts": ts_start.isoformat(),
-        "instrument": instrument,
-        "sample": sample_type,
-        "n_trades": metrics.n_trades,
-        "win_rate": round(metrics.win_rate, 4),
+        "ts": ts_start.isoformat(), "instrument": instrument, "sample": sample_type,
+        "n_trades": metrics.n_trades, "win_rate": round(metrics.win_rate, 4),
         "expectancy_r": round(metrics.expectancy_r, 4),
         "profit_factor": round(metrics.profit_factor, 3),
         "max_dd_pct": round(metrics.max_dd_pct, 2),
         "n_disq_days": metrics.n_disqualifying_days,
-        "n_signals": metrics.n_signals_generated,
-        "n_rejected": metrics.n_signals_rejected,
+        "n_signals": metrics.n_signals_generated, "n_rejected": metrics.n_signals_rejected,
         "rejection_reasons": metrics.rejection_reasons,
-        "slippage_r": config.slippage_r,
-        "spread_pct": config.spread_pct,
-        "risk_pct": config.risk_per_trade_pct,
-        "max_open_risk_pct": config.max_open_risk_pct,
+        "slippage_r": config.slippage_r, "spread_pct": config.spread_pct,
+        "risk_pct": config.risk_per_trade_pct, "max_open_risk_pct": config.max_open_risk_pct,
     }
     with open(BACKTEST_RUNS_LOG, "a") as f:
         f.write(json.dumps(entry, default=str) + "\n")
@@ -463,7 +399,6 @@ def run_backtest(
     strategy: str = "mean_reversion",
     data_root: str | None = None,
 ) -> tuple[BacktestResult, BacktestResult]:
-    """Lance un backtest complet avec in-sample / out-of-sample."""
     cfg = bt_config or BacktestConfig(verbose=verbose)
     if verbose:
         cfg.verbose = True
@@ -474,13 +409,11 @@ def run_backtest(
     print(f"  ARABESQUE BACKTEST — {instrument} ({symbol})")
     print(f"  Strategy: {strat_label}")
     filter_status = "ON" if cfg.signal_filter_path else "OFF"
-    print(f"  SignalFilter: {filter_status}"
-          + (f" ({cfg.signal_filter_path})" if cfg.signal_filter_path else ""))
+    print(f"  SignalFilter: {filter_status}" + (f" ({cfg.signal_filter_path})" if cfg.signal_filter_path else ""))
     print(f"{'='*60}")
-    print(f"  Loading data...")
+    print("  Loading data...")
 
-    df = load_ohlc(symbol, period=period, start=start, end=end,
-                   instrument=instrument, data_root=data_root)
+    df = load_ohlc(symbol, period=period, start=start, end=end, instrument=instrument, data_root=data_root)
     print(f"  Loaded {len(df)} bars from {df.index[0]} to {df.index[-1]}")
 
     if strategy == "trend":
@@ -493,63 +426,50 @@ def run_backtest(
         sig_gen = BacktestSignalGenerator(signal_config)
 
     df_prepared = sig_gen.prepare(df)
-    print(f"  Indicators computed")
+    print("  Indicators computed")
 
     df_in, df_out = split_in_out_sample(df_prepared, split_pct)
     print(f"  In-sample:  {len(df_in)} bars ({df_in.index[0].date()} → {df_in.index[-1].date()})")
     print(f"  Out-sample: {len(df_out)} bars ({df_out.index[0].date()} → {df_out.index[-1].date()})")
 
-    print(f"\n--- IN-SAMPLE ---")
+    print("\n--- IN-SAMPLE ---")
     runner_in = BacktestRunner(cfg, manager_config, signal_config, signal_generator=sig_gen)
     result_in = runner_in.run(df_in, instrument, "in_sample")
     print(result_in.report)
 
-    print(f"\n--- OUT-OF-SAMPLE ---")
+    print("\n--- OUT-OF-SAMPLE ---")
     runner_out = BacktestRunner(cfg, manager_config, signal_config, signal_generator=sig_gen)
     result_out = runner_out.run(df_out, instrument, "out_of_sample")
     print(result_out.report)
 
     _print_comparison(result_in.metrics, result_out.metrics)
-
     return result_in, result_out
 
 
-def run_multi_instrument(
-    instruments: list[str],
-    **kwargs,
-) -> dict[str, tuple[BacktestResult, BacktestResult]]:
-    """Lance le backtest sur plusieurs instruments."""
+def run_multi_instrument(instruments: list[str], **kwargs) -> dict[str, tuple[BacktestResult, BacktestResult]]:
     results = {}
     for inst in instruments:
         try:
-            result = run_backtest(inst, **kwargs)
-            results[inst] = result
+            results[inst] = run_backtest(inst, **kwargs)
         except Exception as e:
             print(f"\n  ERROR on {inst}: {e}")
-            continue
-
     if results:
         _print_synthesis(results)
-
     return results
 
 
 def _print_comparison(m_in: BacktestMetrics, m_out: BacktestMetrics):
     print(f"\n{'='*60}")
-    print(f"  COMPARISON IN vs OUT")
+    print("  COMPARISON IN vs OUT")
     print(f"{'='*60}")
     print(f"  {'Metric':<25s} {'In-Sample':>12s} {'Out-Sample':>12s} {'Delta':>12s}")
     print(f"  {'-'*61}")
     rows = [
         ("Trades", f"{m_in.n_trades}", f"{m_out.n_trades}", ""),
-        ("Win Rate", f"{m_in.win_rate:.1%}", f"{m_out.win_rate:.1%}",
-         f"{m_out.win_rate - m_in.win_rate:+.1%}"),
-        ("Expectancy (R)", f"{m_in.expectancy_r:+.3f}", f"{m_out.expectancy_r:+.3f}",
-         f"{m_out.expectancy_r - m_in.expectancy_r:+.3f}"),
-        ("Profit Factor", f"{m_in.profit_factor:.2f}", f"{m_out.profit_factor:.2f}",
-         f"{m_out.profit_factor - m_in.profit_factor:+.2f}"),
-        ("Max DD %", f"{m_in.max_dd_pct:.1f}%", f"{m_out.max_dd_pct:.1f}%",
-         f"{m_out.max_dd_pct - m_in.max_dd_pct:+.1f}%"),
+        ("Win Rate", f"{m_in.win_rate:.1%}", f"{m_out.win_rate:.1%}", f"{m_out.win_rate - m_in.win_rate:+.1%}"),
+        ("Expectancy (R)", f"{m_in.expectancy_r:+.3f}", f"{m_out.expectancy_r:+.3f}", f"{m_out.expectancy_r - m_in.expectancy_r:+.3f}"),
+        ("Profit Factor", f"{m_in.profit_factor:.2f}", f"{m_out.profit_factor:.2f}", f"{m_out.profit_factor - m_in.profit_factor:+.2f}"),
+        ("Max DD %", f"{m_in.max_dd_pct:.1f}%", f"{m_out.max_dd_pct:.1f}%", f"{m_out.max_dd_pct - m_in.max_dd_pct:+.1f}%"),
         ("Disqual Days", f"{m_in.n_disqualifying_days}", f"{m_out.n_disqualifying_days}", ""),
     ]
     for name, v_in, v_out, delta in rows:
@@ -559,7 +479,7 @@ def _print_comparison(m_in: BacktestMetrics, m_out: BacktestMetrics):
 
 def _print_synthesis(results: dict[str, tuple[BacktestResult, BacktestResult]]):
     print(f"\n{'='*60}")
-    print(f"  MULTI-INSTRUMENT SYNTHESIS")
+    print("  MULTI-INSTRUMENT SYNTHESIS")
     print(f"{'='*60}")
     print(f"  {'Instrument':<12s} {'Trades':>7s} {'WR':>6s} {'Exp(R)':>8s} {'PF':>6s} {'MaxDD':>7s} {'Disq':>5s}")
     print(f"  {'-'*51}")
@@ -569,3 +489,53 @@ def _print_synthesis(results: dict[str, tuple[BacktestResult, BacktestResult]]):
               f"{m.expectancy_r:>+7.3f} {m.profit_factor:>5.2f} "
               f"{m.max_dd_pct:>6.1f}% {m.n_disqualifying_days:>5d}")
     print(f"{'='*60}")
+
+
+# ── CLI ──────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Arabesque Backtest Runner")
+    parser.add_argument("instruments", nargs="+", help="Instrument(s) ex: XRPUSD SOLUSD")
+    parser.add_argument("--period", default="730d", help="Période Yahoo ex: 730d (défaut)")
+    parser.add_argument("--start", default=None, help="Date début YYYY-MM-DD")
+    parser.add_argument("--end", default=None, help="Date fin YYYY-MM-DD")
+    parser.add_argument("--strategy", default="mean_reversion",
+                        choices=["mean_reversion", "trend", "combined"])
+    parser.add_argument("--split", type=float, default=0.70, help="Ratio in-sample (défaut 0.70)")
+    parser.add_argument("--risk", type=float, default=0.5, help="Risk %% par trade (défaut 0.5)")
+    parser.add_argument("--balance", type=float, default=100_000, help="Capital de départ")
+    parser.add_argument("--no-filter", action="store_true", help="Désactiver le SignalFilter")
+    parser.add_argument("--verbose", action="store_true")
+    args = parser.parse_args()
+
+    cfg = BacktestConfig(
+        start_balance=args.balance,
+        risk_per_trade_pct=args.risk,
+        signal_filter_path=None if args.no_filter else "config/signal_filters.yaml",
+        verbose=args.verbose,
+    )
+
+    if len(args.instruments) == 1:
+        run_backtest(
+            args.instruments[0],
+            period=args.period,
+            start=args.start,
+            end=args.end,
+            bt_config=cfg,
+            split_pct=args.split,
+            verbose=True,
+            strategy=args.strategy,
+        )
+    else:
+        run_multi_instrument(
+            args.instruments,
+            period=args.period,
+            start=args.start,
+            end=args.end,
+            bt_config=cfg,
+            split_pct=args.split,
+            verbose=True,
+            strategy=args.strategy,
+        )
