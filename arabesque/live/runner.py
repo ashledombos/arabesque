@@ -111,7 +111,9 @@ def main():
     # ── Signal generator ─────────────────────────────────────
     if args.strategy == "mean_reversion":
         from arabesque.backtest.signal_gen import BacktestSignalGenerator, SignalGenConfig
-        signal_generator = BacktestSignalGenerator(SignalGenConfig())
+        # live_mode=True : inclut la dernière bougie du cache (index n-1)
+        # et retourne (i, Signal) pour être compatible avec _generate_signals_from_cache
+        signal_generator = BacktestSignalGenerator(SignalGenConfig(), live_mode=True)
     elif args.strategy == "combined":
         from arabesque.backtest.signal_gen_combined import CombinedSignalGenerator
         signal_generator = CombinedSignalGenerator()
