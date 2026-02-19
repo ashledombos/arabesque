@@ -7,7 +7,7 @@ Utilisé par :
 - Le webhook server (signal live)
 - Le paper trading (dry-run avec vrais signaux)
 
-C'est le MÊMe flux, que le broker soit réel ou dry-run.
+C'est le MÊME flux, que le broker soit réel ou dry-run.
 """
 
 from __future__ import annotations
@@ -23,6 +23,9 @@ from arabesque.broker.adapters import BrokerAdapter
 from arabesque.config import ArabesqueConfig
 
 logger = logging.getLogger("arabesque.orchestrator")
+
+EMOJI_GREEN = "\U0001f7e2"  # 🟢
+EMOJI_RED   = "\U0001f534"  # 🔴
 
 
 class Orchestrator:
@@ -55,7 +58,6 @@ class Orchestrator:
         self.config = config
         self.brokers = brokers
 
-        # Guards
         self.guards = Guards(
             PropConfig(
                 max_daily_dd_pct=config.max_daily_dd_pct,
@@ -73,7 +75,6 @@ class Orchestrator:
             ),
         )
 
-        # Account state
         self.account = AccountState(
             balance=config.start_balance,
             equity=config.start_balance,
@@ -81,48 +82,28 @@ class Orchestrator:
             daily_start_balance=config.start_balance,
         )
 
-        # Position Manager (MÊMe code que le backtest)
         self.manager = PositionManager(ManagerConfig())
-
-        # Audit
         self.audit = AuditLogger(log_dir=config.audit_dir)
 
-        # State tracking
         self._last_daily_reset: str = ""
-        self._position_broker_map: dict[str, str] = {}  # position_id → broker_name
-        self._position_broker_id: dict[str, str] = {}   # position_id → broker_order_id
+        self._position_broker_map: dict[str, str] = {}
+        self._position_broker_id: dict[str, str] = {}
 
     def handle_signal(self, data: dict) -> dict:
-        """Traite un signal entrant (depuis le webhook).
-
-        Args:
-            data: JSON du signal TradingView
-
-        Returns:
-            {"status": "accepted"|"rejected"|"error", "details": ...}
-        """
         try:
-            # 1. Parse le signal
             signal = Signal.from_webhook_json(data)
-            logger.info(f"Signal received: {signal.instrument} {signal.side.value} "
-                        f"@ {signal.tv_close}")
+            logger.info(f"Signal received: {signal.instrument} {signal.side.value} @ {signal.tv_close}")
 
-            # 2. Check daily reset
             self._check_daily_reset()
 
-            # 3. Check instrument autorisé
-            if (self.config.instruments and
-                    signal.instrument not in self.config.instruments):
+            if (self.config.instruments and signal.instrument not in self.config.instruments):
                 logger.info(f"Instrument {signal.instrument} not in allowed list")
                 return {"status": "rejected", "reason": "instrument not allowed"}
 
-            # 4. Sélectionner le broker
             broker = self._select_broker(signal.instrument)
             if broker is None:
                 return {"status": "error", "reason": "no broker available"}
 
-            # 5. Obtenir le quote broker
-            # Pour le dry-run, seeder avec le prix du signal
             if hasattr(broker, '_last_prices') and signal.tv_close > 0:
                 broker._last_prices[signal.instrument] = signal.tv_close
 
@@ -134,24 +115,16 @@ class Orchestrator:
                 logger.warning(f"Invalid quote for {signal.instrument}: {quote}")
                 return {"status": "error", "reason": "invalid broker quote"}
 
-            # 6. Guards
             ok, decision = self.guards.check_all(signal, self.account, bid, ask)
             self.audit.log_decision(decision)
 
             if not ok:
-                reason = (decision.reject_reason.value
-                          if decision.reject_reason else decision.reason)
+                reason = (decision.reject_reason.value if decision.reject_reason else decision.reason)
                 logger.info(f"Signal REJECTED: {reason}")
-
-                # Counterfactual pour signaux rejetés
                 self._create_rejection_counterfactual(signal, decision, bid, ask)
-
-                self._notify(
-                    f"❌ {signal.instrument} {signal.side.value} REJETÉ: {reason}"
-                )
+                self._notify(f"\u274c {signal.instrument} {signal.side.value} REJET\u00c9: {reason}")
                 return {"status": "rejected", "reason": reason}
 
-            # 7. Sizing
             sizing = self.guards.compute_sizing(signal, self.account)
             risk_cash = sizing["risk_cash"]
             risk_distance = sizing["risk_distance"]
@@ -159,11 +132,7 @@ class Orchestrator:
             if risk_cash <= 0:
                 return {"status": "rejected", "reason": "sizing=0"}
 
-            # 8. Placer l'ordre
-            order_result = broker.place_order(
-                data,  # Passer le JSON original
-                sizing,
-            )
+            order_result = broker.place_order(data, sizing)
 
             if not order_result.get("success"):
                 msg = order_result.get("message", "unknown error")
@@ -172,32 +141,22 @@ class Orchestrator:
 
             fill_price = order_result.get("fill_price", 0)
             if fill_price <= 0:
-                # Fallback : utiliser le quote
                 fill_price = ask if signal.side == Side.LONG else bid
 
             volume = order_result.get("volume", 0)
             broker_order_id = order_result.get("order_id", "")
 
-            # 9. Ouvrir la position (PositionManager)
-            pos = self.manager.open_position(
-                signal, fill_price, risk_cash, volume
-            )
+            pos = self.manager.open_position(signal, fill_price, risk_cash, volume)
 
-            # Tracker le mapping position → broker
-            broker_name = next(
-                (n for n, b in self.brokers.items() if b is broker),
-                "unknown"
-            )
+            broker_name = next((n for n, b in self.brokers.items() if b is broker), "unknown")
             self._position_broker_map[pos.position_id] = broker_name
             self._position_broker_id[pos.position_id] = broker_order_id
 
-            # 10. Mettre à jour le compte
             self.account.open_positions += 1
-            self.account.open_risk_cash += risk_cash          # ← NEW : exposition cumulée
+            self.account.open_risk_cash += risk_cash
             self.account.open_instruments.append(signal.instrument)
             self.account.daily_trades += 1
 
-            # 11. Log + Notify
             self.audit.log_decision(Decision(
                 decision_type=DecisionType.ORDER_FILLED,
                 signal_id=signal.signal_id,
@@ -218,12 +177,10 @@ class Orchestrator:
             ))
 
             self._notify(
-                f"✅ {signal.instrument} {signal.side.value} OUVERT\n"
-                f"   Fill: {fill_price:.5f} | SL: {pos.sl:.5f} | "
-                f"R: {pos.R:.5f}\n"
+                f"\u2705 {signal.instrument} {signal.side.value} OUVERT\n"
+                f"   Fill: {fill_price:.5f} | SL: {pos.sl:.5f} | R: {pos.R:.5f}\n"
                 f"   Volume: {volume:.2f} lots | Risk: ${risk_cash:.0f}"
             )
-
             logger.info(f"Position opened: {pos.summary()}")
 
             return {
@@ -247,27 +204,17 @@ class Orchestrator:
         close: float,
         indicators: dict | None = None,
     ) -> list[dict]:
-        """Met à jour les positions ouvertes pour un instrument.
-
-        Appelé à chaque nouvelle bougie 1H (via cron ou webhook).
-
-        Returns:
-            Liste des actions effectuées
-        """
         actions = []
 
         for pos in list(self.manager.open_positions):
             if pos.instrument != instrument:
                 continue
 
-            decisions = self.manager.update_position(
-                pos, high, low, close, indicators
-            )
+            decisions = self.manager.update_position(pos, high, low, close, indicators)
 
             for decision in decisions:
                 self.audit.log_decision(decision)
 
-                # SL modifié → envoyer au broker
                 if decision.decision_type in (
                     DecisionType.SL_BREAKEVEN,
                     DecisionType.TRAILING_ACTIVATED,
@@ -281,19 +228,17 @@ class Orchestrator:
                         "reason": decision.reason,
                     })
 
-                # Position fermée
                 if not pos.is_open:
                     self._broker_close_position(pos)
                     self._update_account_on_close(pos)
 
                     result = pos.result_r or 0
                     pnl = result * pos.risk_cash
+                    emoji = EMOJI_GREEN if result > 0 else EMOJI_RED
 
                     self._notify(
-                        f"{'\U0001f7e2' if result > 0 else '\U0001f534'} "
-                        f"{pos.instrument} {pos.side.value} FERMÉ\n"
-                        f"   {pos.exit_reason} | {result:+.2f}R | "
-                        f"${pnl:+,.0f}\n"
+                        f"{emoji} {pos.instrument} {pos.side.value} FERM\u00c9\n"
+                        f"   {pos.exit_reason} | {result:+.2f}R | ${pnl:+,.0f}\n"
                         f"   MFE: {pos.mfe_r:.2f}R | Bars: {pos.bars_open}"
                     )
 
@@ -304,13 +249,10 @@ class Orchestrator:
                         "exit_reason": pos.exit_reason,
                     })
 
-        # Mettre à jour les counterfactuals
         self.manager.update_counterfactuals(instrument, high, low, close)
-
         return actions
 
     def get_status(self) -> dict:
-        """Retourne l'état courant du système."""
         open_pos = self.manager.open_positions
         closed_pos = self.manager.closed_positions
         max_open_risk = self.account.start_balance * (self.guards.prop.max_open_risk_pct / 100)
@@ -337,33 +279,22 @@ class Orchestrator:
                 "total_closed": len(closed_pos),
             },
             "audit": self.audit.summary(),
-            "brokers": {
-                name: {"connected": True}
-                for name, b in self.brokers.items()
-            },
+            "brokers": {name: {"connected": True} for name, b in self.brokers.items()},
         }
 
     # ── Internal helpers ──────────────────────────────────────────
 
     def _select_broker(self, instrument: str) -> BrokerAdapter | None:
-        """Sélectionne le broker approprié pour l'instrument."""
         if not self.brokers:
             return None
-
-        # En mode dry_run, utiliser le dry_run adapter
         if self.config.mode == "dry_run":
             return self.brokers.get("dry_run") or next(iter(self.brokers.values()))
-
-        # Sinon, utiliser le premier broker connecté
-        # (à enrichir : routage par instrument)
         for name, broker in self.brokers.items():
             if name != "dry_run":
                 return broker
-
         return next(iter(self.brokers.values()))
 
     def _broker_modify_sl(self, pos):
-        """Envoie la modification de SL au broker."""
         broker_name = self._position_broker_map.get(pos.position_id)
         broker_id = self._position_broker_id.get(pos.position_id)
         if broker_name and broker_id:
@@ -374,7 +305,6 @@ class Orchestrator:
                     logger.error(f"Failed to modify SL: {result}")
 
     def _broker_close_position(self, pos):
-        """Envoie la fermeture au broker."""
         broker_name = self._position_broker_map.get(pos.position_id)
         broker_id = self._position_broker_id.get(pos.position_id)
         if broker_name and broker_id:
@@ -385,19 +315,17 @@ class Orchestrator:
                     logger.error(f"Failed to close position: {result}")
 
     def _update_account_on_close(self, pos):
-        """Met à jour le compte après fermeture."""
         if pos.result_r is not None:
             pnl = pos.result_r * pos.risk_cash
             self.account.equity += pnl
             self.account.balance += pnl
             self.account.daily_pnl += pnl
         self.account.open_positions = max(0, self.account.open_positions - 1)
-        self.account.open_risk_cash = max(0.0, self.account.open_risk_cash - pos.risk_cash)  # ← NEW
+        self.account.open_risk_cash = max(0.0, self.account.open_risk_cash - pos.risk_cash)
         if pos.instrument in self.account.open_instruments:
             self.account.open_instruments.remove(pos.instrument)
 
     def _create_rejection_counterfactual(self, signal, decision, bid, ask):
-        """Crée un counterfactual pour un signal rejeté."""
         from arabesque.models import Counterfactual
         fill_est = ask if signal.side == Side.LONG else bid
         cf = Counterfactual(
@@ -416,7 +344,6 @@ class Orchestrator:
         self.manager.counterfactuals.append(cf)
 
     def _check_daily_reset(self):
-        """Reset le compte quotidien si on a changé de jour."""
         today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         if today != self._last_daily_reset:
             self.account.new_day()
@@ -424,15 +351,12 @@ class Orchestrator:
             logger.info(f"Daily reset: equity={self.account.equity:.0f}")
 
     def _notify(self, message: str):
-        """Envoie une notification (Telegram + ntfy)."""
         logger.info(f"NOTIFY: {message}")
 
-        # Telegram
         if self.config.telegram_token and self.config.telegram_chat_id:
             try:
                 import requests
-                url = (f"https://api.telegram.org/bot{self.config.telegram_token}"
-                       f"/sendMessage")
+                url = f"https://api.telegram.org/bot{self.config.telegram_token}/sendMessage"
                 requests.post(url, json={
                     "chat_id": self.config.telegram_chat_id,
                     "text": message,
@@ -441,7 +365,6 @@ class Orchestrator:
             except Exception as e:
                 logger.error(f"Telegram notification failed: {e}")
 
-        # ntfy
         if self.config.ntfy_topic:
             try:
                 import requests
