@@ -14,7 +14,7 @@ from enum import Enum
 from typing import Any
 
 
-# ── Enums ────────────────────────────────────────────────────────────
+# ── Enums ───────────────────────────────────────────────────────────────────────
 
 class Side(str, Enum):
     LONG = "LONG"
@@ -71,11 +71,16 @@ class RejectReason(str, Enum):
     BB_SQUEEZE = "bb_squeeze"
 
 
-# ── Signal ───────────────────────────────────────────────────────────
+# ── Signal ───────────────────────────────────────────────────────────────────
 
 @dataclass
 class Signal:
-    """Signal brut émis par TradingView (ou screener interne)."""
+    """Signal émis par le générateur interne (cTrader → OHLCV → indicateurs).
+
+    NB : les champs tv_close / tv_open sont des alias maintenus pour
+    la compatibilité avec l'ancien code backtest. Utiliser `close` / `open_`
+    dans tout nouveau code.
+    """
     signal_id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     instrument: str = ""
@@ -83,12 +88,12 @@ class Signal:
     timeframe: str = "1h"
 
     # Prix au moment du signal (bougie confirmée)
-    tv_close: float = 0.0
-    tv_open: float = 0.0
+    close: float = 0.0        # close de la bougie signal
+    open_: float = 0.0        # open de la bougie signal ("open" est un builtin Python)
 
-    # Niveaux calculés par Pine
+    # Niveaux calculés
     sl: float = 0.0
-    tp_indicative: float = 0.0       # BB mid (retour moyen)
+    tp_indicative: float = 0.0
     atr: float = 0.0
     atr_htf: float = 0.0
 
@@ -107,51 +112,56 @@ class Signal:
     regime: str = "bull_range"
     max_spread_atr: float = 0.3
 
-    # R:R calculé par Pine
+    # R:R
     rr: float = 0.0
 
-    # Type de stratégie ("mean_reversion" ou "trend")
+    # Type de stratégie
     strategy_type: str = "mean_reversion"
 
-    # Phase 1.3 : Sub-type et facteurs de qualité
+    # Sub-type et facteurs de qualité
     sub_type: str = ""
     label_factors: dict = field(default_factory=dict)
 
+    # ── Alias de compatibilité (ancienne interface TradingView) ──────
+    # Ces propriétés permettent au code backtest existant de continuer
+    # à fonctionner sans modification. À supprimer dans une future version.
+
+    @property
+    def tv_close(self) -> float:
+        return self.close
+
+    @tv_close.setter
+    def tv_close(self, v: float):
+        self.close = v
+
+    @property
+    def tv_open(self) -> float:
+        return self.open_
+
+    @tv_open.setter
+    def tv_open(self, v: float):
+        self.open_ = v
+
     @classmethod
-    def from_webhook_json(cls, data: dict) -> Signal:
-        """Crée un Signal depuis le JSON TradingView."""
+    def from_bar(cls, instrument: str, row, df=None, timeframe: str = "1h") -> "Signal":
+        """
+        Construit un Signal minimal depuis une ligne de DataFrame OHLCV.
+        Utilisé principalement pour les tests et le replay parquet.
+        Les signaux complets sont générés par signal_gen via generate_signals().
+        """
         return cls(
-            instrument=data.get("symbol", ""),
-            side=Side.LONG if data.get("side", "buy") == "buy" else Side.SHORT,
-            timeframe=data.get("tf", "60"),
-            tv_close=data.get("tv_close", 0),
-            tv_open=data.get("tv_open", 0),
-            sl=data.get("sl", 0),
-            tp_indicative=data.get("tp_indicative", 0),
-            atr=data.get("atr", 0),
-            atr_htf=data.get("atr_htf", 0),
-            rsi=data.get("rsi", 50),
-            cmf=data.get("cmf", 0),
-            bb_lower=data.get("bb_lower", 0),
-            bb_mid=data.get("bb_mid", 0),
-            bb_upper=data.get("bb_upper", 0),
-            bb_width=data.get("bb_width", 0),
-            wr_14=data.get("wr_14", 0),
-            ema200_ltf=data.get("ema200_ltf", 0),
-            htf_ema_fast=data.get("htf_ema_fast", 0),
-            htf_ema_slow=data.get("htf_ema_slow", 0),
-            htf_adx=data.get("htf_adx", 0),
-            regime=data.get("regime", "bull_range"),
-            max_spread_atr=data.get("max_spread_atr", 0.3),
-            rr=data.get("rr", 0),
+            instrument=instrument,
+            timeframe=timeframe,
+            close=float(row.get("Close", 0)),
+            open_=float(row.get("Open", 0)),
         )
 
 
-# ── Decision (Event) ────────────────────────────────────────────────
+# ── Decision (Event) ────────────────────────────────────────────────────────────────
 
 @dataclass
 class Decision:
-    """Événement atomique dans l'audit trail."""
+    """'Événement atomique dans l'audit trail."""
     decision_id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     decision_type: DecisionType = DecisionType.SIGNAL_RECEIVED
@@ -171,7 +181,7 @@ class Decision:
     metadata: dict = field(default_factory=dict)
 
 
-# ── Position ────────────────────────────────────────────────────────
+# ── Position ──────────────────────────────────────────────────────────────────────
 
 @dataclass
 class Position:
@@ -187,10 +197,10 @@ class Position:
     ts_exit: datetime | None = None
 
     # Prix — FILL RÉEL, pas le signal
-    entry: float = 0.0        # Prix de fill broker (pas tv_close)
-    sl: float = 0.0           # SL courant (peut monter, jamais descendre)
-    sl_initial: float = 0.0   # SL original (fixé au fill, pour calc R)
-    tp: float = 0.0           # TP indicatif
+    entry: float = 0.0
+    sl: float = 0.0
+    sl_initial: float = 0.0
+    tp: float = 0.0
     exit_price: float = 0.0
     exit_reason: str = ""
 
@@ -204,7 +214,7 @@ class Position:
     bars_open: int = 0
     current_price: float = 0.0
 
-    # MFE/MAE — trackés sur high/low, pas close
+    # MFE/MAE
     max_favorable_price: float = 0.0
     max_adverse_price: float = 0.0
 
@@ -213,7 +223,7 @@ class Position:
     trailing_tier: int = 0
     breakeven_set: bool = False
 
-    # Contexte courant (mis à jour à chaque bougie)
+    # Contexte courant
     current_rsi: float = 50.0
     current_cmf: float = 0.0
     current_bb_width: float = 0.01
@@ -224,12 +234,10 @@ class Position:
 
     @property
     def R(self) -> float:
-        """Distance initiale entry→SL_initial en points (toujours positive)."""
         return abs(self.entry - self.sl_initial) if self.sl_initial != 0 else 0
 
     @property
     def current_r(self) -> float:
-        """Profit courant en R."""
         if self.R == 0:
             return 0.0
         if self.side == Side.LONG:
@@ -238,7 +246,6 @@ class Position:
 
     @property
     def mfe_r(self) -> float:
-        """Maximum Favorable Excursion en R."""
         if self.R == 0:
             return 0.0
         if self.side == Side.LONG:
@@ -247,7 +254,6 @@ class Position:
 
     @property
     def mae_r(self) -> float:
-        """Maximum Adverse Excursion en R (négatif)."""
         if self.R == 0:
             return 0.0
         if self.side == Side.LONG:
@@ -256,7 +262,6 @@ class Position:
 
     @property
     def result_r(self) -> float | None:
-        """Résultat final en R (None si encore ouvert)."""
         if self.is_open:
             return None
         if self.R == 0:
@@ -266,7 +271,6 @@ class Position:
         return (self.entry - self.exit_price) / self.R
 
     def update_price(self, high: float, low: float, close: float):
-        """Met à jour prix courant et extremes avec OHLC (pas juste close)."""
         self.current_price = close
         if self.side == Side.LONG:
             self.max_favorable_price = max(self.max_favorable_price, high)
@@ -281,29 +285,17 @@ class Position:
                 self.max_favorable_price = min(self.max_favorable_price, low)
             self.max_adverse_price = max(self.max_adverse_price, high)
 
-    def recalculate_from_fill(self, fill_price: float, signal: Signal):
-        """Recalcule SL/TP à partir du fill réel (pas du tv_close).
-
-        Critique : le fill broker diffère du close TradingView.
-        Le SL doit être ajusté pour maintenir le même risk_distance,
-        le TP doit rester cohérent.
-        """
-        old_entry = self.entry
+    def recalculate_from_fill(self, fill_price: float, signal: "Signal"):
+        """Recalcule SL/TP à partir du fill réel."""
         self.entry = fill_price
-
-        # Recalculer SL pour maintenir la même distance
         if signal.sl != 0:
-            original_sl_dist = abs(signal.tv_close - signal.sl)
+            original_sl_dist = abs(signal.close - signal.sl)
             if self.side == Side.LONG:
                 self.sl = fill_price - original_sl_dist
             else:
                 self.sl = fill_price + original_sl_dist
             self.sl_initial = self.sl
-
-        # TP indicatif : garder BB mid (ne dépend pas du fill)
         self.tp = signal.tp_indicative
-
-        # Réinitialiser MFE/MAE
         self.max_favorable_price = fill_price
         self.max_adverse_price = fill_price
         self.current_price = fill_price
@@ -316,7 +308,7 @@ class Position:
                 f"bars={self.bars_open}")
 
 
-# ── Counterfactual ──────────────────────────────────────────────────
+# ── Counterfactual ──────────────────────────────────────────────────────────────────
 
 @dataclass
 class Counterfactual:
@@ -348,34 +340,24 @@ class Counterfactual:
     bars_tracked: int = 0
 
     def update(self, high: float, low: float, close: float):
-        """Met à jour avec high/low/close (pas juste close)."""
         if self.resolved:
             return
-
         self.bars_tracked += 1
         self.ts_last_update = datetime.now(timezone.utc)
-
         r_dist = abs(self.hypothetical_entry - self.hypothetical_sl)
         if r_dist == 0:
             return
-
         is_long = self.side == Side.LONG
-
-        # Track extremes
         if is_long:
             self.mfe_after = max(self.mfe_after, high)
             self.mae_after = min(self.mae_after, low) if self.mae_after > 0 else low
         else:
             self.mfe_after = min(self.mfe_after, low) if self.mfe_after > 0 else low
             self.mae_after = max(self.mae_after, high)
-
-        # Check SL/TP — CONSERVATEUR : si les deux touchés, prendre SL
         sl_hit = (low <= self.hypothetical_sl) if is_long else (high >= self.hypothetical_sl)
         tp_hit = (high >= self.hypothetical_tp) if is_long and self.hypothetical_tp > 0 else \
                  (low <= self.hypothetical_tp) if not is_long and self.hypothetical_tp > 0 else False
-
         if sl_hit and tp_hit:
-            # Ambiguïté intrabar → pire cas
             self._resolve(-1.0, "sl_hit (ambiguous)", "good_reject"
                           if self.decision_type == DecisionType.SIGNAL_REJECTED else "good_exit")
         elif sl_hit:
