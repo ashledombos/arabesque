@@ -369,7 +369,7 @@ class BarPoller:
                 "volume": tb.volume if hasattr(tb, 'volume') else 0}
 
 
-# ── Fonction partagée BarPoller + ParquetClock ───────────────────────────
+# ── Fonction partagée BarPoller + ParquetClock ───────────────────────
 
 def _generate_signals_from_cache(
     instrument: str,
@@ -380,8 +380,14 @@ def _generate_signals_from_cache(
     Fonction partagée entre BarPoller et ParquetClock.
 
     Construit un DataFrame OHLCV depuis le cache, applique
-    CombinedSignalGenerator, et retourne les signaux de la DERNIÈRE
-    bougie sous forme de dict compatible Orchestrator.handle_signal().
+    CombinedSignalGenerator, et retourne TOUS les signaux générés
+    sous forme de dict compatible Orchestrator.handle_signal().
+
+    CORRECTION 2026-02-19 : retourne TOUS les signaux (pas seulement
+    ceux de la dernière bougie). En live (BarPoller), le cache est
+    stable et on veut uniquement les signaux de la nouvelle bougie.
+    En replay (ParquetClock), le cache change à chaque itération et
+    les signaux sont filtrés par la logique de pending queue.
     """
     try:
         df = pd.DataFrame(bars)
@@ -397,18 +403,13 @@ def _generate_signals_from_cache(
         if not all_signals:
             return []
 
-        last_idx     = len(df) - 1
-        last_signals = [(i, s) for i, s in all_signals if i == last_idx]
-        if not last_signals:
-            return []
-
-        df_row = df.iloc[-1]
-        atr    = float(df["atr"].iloc[-1]) if "atr" in df.columns else 0.0
-
+        # Retourner TOUS les signaux (pas de filtre last_idx)
         result = []
-        for idx, sig in last_signals:
+        for idx, sig in all_signals:
             # close AU MOMENT DU SIGNAL (pas le close courant du cache)
             sig_close = float(df.iloc[idx]["Close"])
+            df_row = df.iloc[idx]
+            atr = float(df["atr"].iloc[idx]) if "atr" in df.columns else 0.0
             d = _signal_to_webhook_dict(sig, instrument, sig_close, atr, df_row=df_row)
             result.append(d)
             logger.info(
