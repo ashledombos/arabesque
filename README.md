@@ -1,14 +1,14 @@
 # Arabesque v2
 
 Système de trading quantitatif pour prop firms (FTMO, Goat Funded Trader).
-Deux stratégies complémentaires sur Bollinger Bands, même PositionManager pour le live et le backtest.
+Trois stratégies complémentaires (Mean-Reversion, Trend, Breakout) avec PositionManager unifié live/backtest.
 
 ## Architecture
 
 ```
-TradingView (Pine 1H)          Python                          Brokers
+TradingView (Pine 1H)          Python Live/Backtest               Brokers
 ┌──────────────────┐  JSON    ┌───────────────────────────┐   ┌─────────┐
-│ BB excess detect │ ───────→ │ Webhook Server            │──→│ cTrader │
+│ BB excess detect │ ───────→ │ Webhook Server (Flask)    │──→│ cTrader │
 │ Regime HTF (4H)  │ webhook  │   └→ Orchestrator         │   │ (FTMO)  │
 │ RSI / CMF / ATR  │          │      ├ Guards (prop+exec) │   ├─────────┤
 │ Anti-lookahead   │          │      ├ Broker adapter      │   │TradeLkr │
@@ -19,9 +19,16 @@ TradingView (Pine 1H)          Python                          Brokers
                               │      │  └ Time-stop        │ │
                               │      └ Audit + Contrefact. │ │
                               ├───────────────────────────┤ │
+                              │ Live Replay (ParquetClock)│ │
+                              │  ├ Parquet 1H data        │ │
+                              │  ├ Bar-by-bar replay      │ │
+                              │  ├ Signal generation      │ │
+                              │  ├ MÊME PositionMgr ──────┼─┤
+                              │  └ Anti-lookahead +1 bar  │ │
+                              ├───────────────────────────┤ │
                               │ Backtest Runner           │ │
                               │  ├ Yahoo Finance 1H       │ │
-                              │  ├ Signal gen (MR/Trend)  │ │
+                              │  ├ Signal gen (Combined)  │ │
                               │  ├ MÊME PositionMgr ──────┼─┘
                               │  └ Métriques + rapport    │
                               ├───────────────────────────┤
@@ -33,22 +40,102 @@ TradingView (Pine 1H)          Python                          Brokers
                               └───────────────────────────┘
 ```
 
-## Deux stratégies complémentaires
+## Trois stratégies complémentaires
 
-### Mean-Reversion (BB Excess)
+### 1. Mean-Reversion (BB Excess)
 Inspirée de BB_RPB_TSL (527 jours live, 48% CAGR, 90.8% WR Freqtrade).
 - **Quand** : BB large, prix sort de la bande (excès)
 - **Entrée** : close < BB lower + RSI < 35 + pas bear_trend (LONG)
 - **TP** : retour au BB mid (mean reversion)
 - **Logique** : le prix est trop loin de la moyenne → retour probable
 
-### Trend (BB Squeeze → Expansion)
+### 2. Trend (BB Squeeze → Expansion)
 - **Quand** : BB se contracte (squeeze) puis s'étend (expansion)
 - **Entrée** : close casse BB upper/lower + ADX > 20 + EMA confirme + CMF confirme
 - **TP** : pas de TP fixe, le trailing gère (ride the trend)
 - **Logique** : un squeeze = accumulation d'énergie → breakout probable
 
-Les deux partagent le même PositionManager (trailing, giveback, deadfish, time-stop).
+### 3. Breakout (Range cassé)
+- **Quand** : Prix consolide dans un range puis casse avec volume
+- **Entrée** : close casse résistance/support + volume > moyenne + CMF > 0.1
+- **TP** : hauteur du range projetée
+- **Logique** : cassure confirmée = continuation probable
+
+**CombinedSignalGenerator** : fusionne les 3 stratégies avec priorité intelligente (max 5 positions, pas de doublons).
+
+Les trois partagent le même PositionManager (trailing, giveback, deadfish, time-stop).
+
+## Système Live Replay (Dry-Run Avancé)
+
+**Problème** : TradingView webhook = signaux live uniquement, pas de backtest avec le code Python de production.
+
+**Solution** : `ParquetClock` rejoue des données historiques H1 bar-by-bar comme si c'était du live.
+
+### Fonctionnement
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ ParquetClock Replay Engine                              │
+├─────────────────────────────────────────────────────────┤
+│ 1. Charger parquets H1 (19 instruments × 2000+ bars)   │
+│ 2. Fusionner en timeline chronologique globale         │
+│ 3. Pour chaque barre i:                                 │
+│    ├─ Ajouter barre i au cache (300 bars glissantes)   │
+│    ├─ Exécuter signaux pending (générés sur i-1)       │
+│    │  └─ Entry price = OPEN de barre i (réaliste)      │
+│    ├─ update_positions(high, low, close de i)          │
+│    └─ Générer nouveaux signaux sur cache complet       │
+│       └─ Enregistrer dans pending queue (exec à i+1)   │
+│                                                          │
+│ Anti-lookahead garanti:                                 │
+│   Signal sur close[i] → Entry au open[i+1]             │
+│   IDENTIQUE au backtest runner                          │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Différences avec le backtest classique
+
+| Aspect | Backtest Runner | ParquetClock Replay |
+|--------|----------------|---------------------|
+| **Code signal** | `BacktestSignalGenerator` | `CombinedSignalGenerator` (LIVE) |
+| **Code exits** | MÊME `PositionManager` | MÊME `PositionManager` |
+| **Orchestrator** | Backtest loop interne | VRAI `Orchestrator` (prod) |
+| **Guards** | Simplifiés | TOUS actifs (prop, exec, counterfactuals) |
+| **Data source** | Yahoo Finance | Parquet locaux (cTrader history) |
+| **Use case** | Validation edge (R, WR, DD) | Test intégration live (guards, broker, audit) |
+
+### Commandes
+
+```bash
+# Replay 2 semaines (résumé auto en fin)
+python -m arabesque.live.runner --mode dry_run --source parquet \
+  --start 2025-10-01 --end 2025-10-15 --strategy combined
+
+# Replay 3 mois
+python -m arabesque.live.runner --mode dry_run --source parquet \
+  --start 2025-10-01 --end 2026-01-01 --strategy combined
+
+# Stream infini (Ctrl+C pour arrêter et voir résumé)
+python -m arabesque.live.runner --mode dry_run --source parquet \
+  --start 2025-10-01 --strategy combined
+```
+
+### Export JSONL
+
+Chaque run génère `dry_run_YYYYMMDD_HHMMSS.jsonl` :
+```json
+{"type": "trade", "instrument": "NEOUSD", "side": "SHORT", "entry": 6.408, 
+ "sl": 6.4647, "result_r": 4.649, "risk_cash": 96.54, "exit_reason": "exit_tp", 
+ "bars_open": 1, "mfe_r": 6.732, "ts_entry": "...", "ts_exit": "..."}
+...
+{"type": "summary", "strategy": "CombinedSignalGenerator", 
+ "period_start": "2025-10-01", "period_end": "2025-10-15", 
+ "start_balance": 10000.0, "final_equity": 11971.47, "pnl_pct": 19.71, 
+ "max_dd_pct": 3.76, "n_trades": 53, "win_rate": 56.6, 
+ "expectancy_r": 0.3815, "total_r": 20.22}
+```
+
+Analysable avec `scripts/analyze.py` comme les logs live.
 
 ## Structure des fichiers
 
@@ -73,11 +160,18 @@ arabesque/
 │   ├── server.py             # Flask : /webhook, /update, /status
 │   └── orchestrator.py       # Signal → Guards → Broker → Manager → Audit
 │
+├── live/
+│   ├── runner.py             # CLI live replay (--mode dry_run --source parquet)
+│   ├── parquet_clock.py      # Moteur replay bar-by-bar
+│   ├── bar_poller.py         # Live cTrader bar subscription (+ signal gen)
+│   └── orchestrator.py       # Orchestrator live (alias webhook.orchestrator)
+│
 ├── backtest/
 │   ├── data.py               # Yahoo Finance + mapping 120+ tickers FTMO
 │   ├── signal_gen.py         # Mean-reversion : BB excess
 │   ├── signal_gen_trend.py   # Trend : squeeze → expansion → breakout
-│   ├── signal_gen_combined.py # Fusionne MR + Trend
+│   ├── signal_gen_breakout.py # Breakout : range cassé avec volume
+│   ├── signal_gen_combined.py # Fusionne MR + Trend + Breakout
 │   ├── metrics.py            # Expectancy, PF, DD, prop, slippage
 │   └── runner.py             # Itération bar-by-bar
 │
@@ -102,15 +196,15 @@ systemd/
 
 ```bash
 cd /home/raphael/dev
-unzip arabesque_v2_complete.zip -d arabesque
+git clone https://github.com/ashledombos/arabesque.git
 cd arabesque
 
-python3 -m venv venv
-source venv/bin/activate
+python3 -m venv .venv
+source .venv/bin/activate
 
-pip install flask pyyaml yfinance numpy pandas requests
+pip install -r requirements.txt
 
-# Optionnel (brokers)
+# Optionnel (brokers live)
 pip install ctrader-open-api    # FTMO
 pip install tradelocker         # GFT
 ```
@@ -120,14 +214,14 @@ pip install tradelocker         # GFT
 ### CLI (recommandé)
 
 ```bash
-# Un instrument, stratégie mean-reversion (défaut)
+# Un instrument, stratégie combined (défaut)
 python scripts/backtest.py EURUSD
 
-# Stratégie trend
+# Stratégie trend seule
 python scripts/backtest.py EURUSD --strategy trend
 
-# Les deux stratégies combinées
-python scripts/backtest.py EURUSD --strategy combined
+# Mean-reversion seule
+python scripts/backtest.py EURUSD --strategy mean_reversion
 
 # Plusieurs instruments
 python scripts/backtest.py EURUSD GBPUSD XAUUSD BTC --period 730d
@@ -150,14 +244,14 @@ Presets disponibles : `fx_majors` (7), `fx_crosses` (21), `fx_exotics` (10),
 ```python
 from arabesque.backtest import run_backtest, run_multi_instrument
 
-# Mean-reversion (défaut)
+# Combined (défaut : MR + Trend + Breakout)
 result_in, result_out = run_backtest("EURUSD", period="730d")
 
-# Trend
+# Trend seule
 run_backtest("XAUUSD", strategy="trend")
 
-# Combined
-run_backtest("BTC", strategy="combined")
+# Mean-reversion seule
+run_backtest("BTC", strategy="mean_reversion")
 
 # Multi-instrument
 run_multi_instrument(
@@ -175,6 +269,94 @@ run_multi_instrument(
 - **Slippage sensitivity** — l'edge survit-il si le slippage double/triple
 - **Exits breakdown** — SL, TP, trailing, giveback, deadfish, time-stop
 - **Comparaison in-sample / out-of-sample** — overfitting check
+
+## Live Replay (Dry-Run Avancé)
+
+### Pourquoi ?
+
+- Tester le **code de production** (Orchestrator, Guards, Broker adapters) sans risque
+- Valider que les **guards** ne bloquent pas trop de signaux
+- Vérifier que le **PositionManager** live se comporte comme en backtest
+- Mesurer les **counterfactuals** (signaux rejetés qui auraient été gagnants/perdants)
+
+### Prérequis : données Parquet
+
+Le replay utilise des fichiers Parquet H1 (format Apache Arrow, rapide).
+
+**Structure attendue** :
+```
+data/parquet/
+├── AAVUSD.parquet
+├── ALGUSD.parquet
+├── BCHUSD.parquet
+├── BNBUSD.parquet
+├── ...
+└── XTZUSD.parquet
+```
+
+**Colonnes requises** : `timestamp` (index), `Open`, `High`, `Low`, `Close`, `Volume`
+
+**Comment générer** :
+```python
+import pandas as pd
+from arabesque.backtest.data import load_ohlc
+
+# Télécharger depuis Yahoo Finance
+df = load_ohlc("EURUSD", start="2025-01-01", end="2026-02-01")
+
+# Sauver en Parquet
+df.to_parquet("data/parquet/EURUSD.parquet")
+```
+
+Ou récupérer depuis cTrader history (API `ProtoOAGetTrendbarsReq`).
+
+### Commandes
+
+```bash
+# Replay 2 semaines
+python -m arabesque.live.runner --mode dry_run --source parquet \
+  --start 2025-10-01 --end 2025-10-15 --strategy combined
+
+# Replay 3 mois
+python -m arabesque.live.runner --mode dry_run --source parquet \
+  --start 2025-10-01 --end 2026-01-01 --strategy combined
+
+# Stream infini (Ctrl+C = résumé)
+python -m arabesque.live.runner --mode dry_run --source parquet \
+  --start 2025-10-01 --strategy combined
+```
+
+### Résumé
+
+```
+============================================================
+DRY-RUN SUMMARY — CombinedSignalGenerator
+2025-10-01 → 2025-10-15
+============================================================
+Balance start  :     10,000
+Equity final   :  11,971.47  (+19.71%)
+P&L cash       :  +1,971.47
+Max DD         :        3.8%
+============================================================
+Trades         : 53
+Win rate       : 56.6%
+Avg win        : +1.317R
+Avg loss       : -0.839R
+Expectancy     : +0.3815R
+Total R        : +20.22R
+============================================================
+P&L par instrument :
+  GRTUSD      +5.38R  (4 trades)
+  NEOUSD      +4.50R  (2 trades)
+  XRPUSD      +4.08R  (2 trades)
+  ...
+============================================================
+Estimation +10%   : ~3 jours (extrapolation linéaire)
+Positions ouvertes : 2 non clôturées au 2025-10-15
+============================================================
+Export JSONL    : dry_run_20260219_151229.jsonl
+============================================================
+```
 
 ## Paper Trading
 
@@ -345,6 +527,7 @@ Le split par défaut est 70/30. L'important : les métriques out-of-sample ne do
 
 - **Mean-reversion** : SL = 0.8×ATR minimum (swing low sinon), TP = BB mid. Le R:R dépend de la distance au BB mid. Typiquement 0.5-2.0 selon la largeur des BB.
 - **Trend** : SL = 1.5×ATR, TP indicatif = 2R. Mais le trailing gère la vraie sortie, donc les gagnants peuvent courir bien au-delà de 2R.
+- **Breakout** : SL = ATR sous le range, TP = hauteur du range × 1.5. R:R typique 1.5-2.5.
 
 ### Instruments supportés
 
@@ -369,7 +552,19 @@ Un trade à +2R = 2× le risque. Indépendant de l'instrument et du sizing.
 **Counterfactuels** : chaque signal rejeté est suivi pour voir ce qui serait
 arrivé → calibrer les guards (trop stricts ? pas assez ?).
 
+**Anti-lookahead garanti** : Signal sur close[i] → Entry au open[i+1] (backtest ET replay).
+
 ## Changelog
+
+### v2.2 — Live Replay System (19 Feb 2026)
+
+**Ajout — Système Live Replay (ParquetClock)** : Rejoue des données historiques H1 bar-by-bar avec le code de production (Orchestrator, Guards, PositionManager). Usage : `python -m arabesque.live.runner --mode dry_run --source parquet --start 2025-10-01 --end 2025-10-15 --strategy combined`. Export JSONL analysable avec `scripts/analyze.py`.
+
+**Fix — Anti-lookahead strict** : Signal généré sur barre i, exécuté au OPEN de barre i+1. Queue pending entre les barres. Tracker de signaux vus (par timestamp) pour éviter doublons. Paramètre `only_last_bar` pour distinguer live (BarPoller) et replay (ParquetClock).
+
+**Fix — Générations répétées de signaux** : Le cache glissant (300 bars) générait les mêmes signaux à chaque itération en replay. Fix : `_seen_signals` set (timestamp) + `only_last_bar=False` en replay (tous signaux générés, queue filtre), `only_last_bar=True` en live (uniquement nouvelle barre).
+
+**Amélioration — Documentation** : README détaillé (architecture, live replay, interprétation rapports). Guide HANDOVER.md pour passer la main (archi, bugs connus, roadmap).
 
 ### v2.1 — Bugfixes backtest (14 Feb 2026)
 
@@ -381,4 +576,10 @@ arrivé → calibrer les guards (trop stricts ? pas assez ?).
 
 **Ajout — Module Trend** : Détection BB squeeze → expansion → breakout avec ADX + EMA + CMF. Complémentaire au mean-reversion. Usage : `--strategy trend` ou `--strategy combined`.
 
+**Ajout — Module Breakout** : Détection range cassé avec volume. Complémentaire aux deux autres. Usage : `--strategy combined`.
+
 **Ajout — Analyse des logs** : `scripts/analyze.py` pour parser les logs JSONL du paper trading. Performance report, calibration guards, daily summary, export CSV.
+
+## License
+
+Proprietary — Raphaël Dombos (@ashledombos)
