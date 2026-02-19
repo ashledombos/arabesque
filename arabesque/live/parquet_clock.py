@@ -88,7 +88,7 @@ class ParquetClock:
             except KeyboardInterrupt:
                 logger.info("\n\nInterrupted by user — generating summary...")
                 self._print_summary(orchestrator)
-                raise  # re-raise pour que runner.py le capte si besoin
+                raise
         else:
             def _run():
                 try:
@@ -98,7 +98,7 @@ class ParquetClock:
                     self._print_summary(orchestrator)
             threading.Thread(target=_run, daemon=True, name="parquet-clock").start()
 
-    # ── Internals ────────────────────────────────────────────────
+    # ── Internals ────────────────────────────────────────────
 
     def _replay(self, orchestrator):
         logger.info(
@@ -170,7 +170,7 @@ class ParquetClock:
                     pct = idx / total_events * 100
                     logger.info(f"Progress: {idx:,}/{total_events:,} ({pct:.1f}%) — {n_signals} signals so far")
                     next_progress_log += 5000
-                    sys.stdout.flush()  # force flush immédiat
+                    sys.stdout.flush()
                 continue
 
             signals = _generate_signals_from_cache(
@@ -215,7 +215,7 @@ class ParquetClock:
         logger.info(f"ParquetClock replay complete | {n_bars:,} bars | {n_signals} signals | {elapsed:.1f}s")
         self._print_summary(orchestrator)
 
-    # ── Summary ────────────────────────────────────────────────
+    # ── Summary ────────────────────────────────────────────
 
     def _print_summary(self, orchestrator):
         closed = list(orchestrator.manager.closed_positions)
@@ -307,7 +307,7 @@ class ParquetClock:
         if open_pos:
             print(f" Positions ouvertes : {len(open_pos)} non clôturées au {self.cfg.end or 'arrêt'}")
             for p in open_pos:
-                print(f"   {p.instrument} {p.side.value} entry={p.entry_price:.4f} sl={p.sl:.4f}")
+                print(f"   {p.instrument} {p.side.value} entry={p.entry:.4f} sl={p.sl:.4f}")
         print(line)
 
         # Export JSONL
@@ -319,7 +319,7 @@ class ParquetClock:
                     "type": "trade",
                     "instrument": p.instrument,
                     "side": p.side.value if hasattr(p.side, "value") else str(p.side),
-                    "entry_price": p.entry_price,
+                    "entry": p.entry,
                     "sl": p.sl,
                     "result_r": p.result_r,
                     "risk_cash": p.risk_cash,
