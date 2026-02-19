@@ -28,6 +28,7 @@ Variables d'environnement :
     ARABESQUE_MAX_POSITIONS    (défaut: 10)
     ARABESQUE_MAX_OPEN_RISK_PCT (défaut: 2.0)
     ARABESQUE_RISK_PCT         (défaut: 1.0)
+    ARABESQUE_MAX_DAILY_TRADES (défaut: 999 en dry_run, 5 en live)
     TELEGRAM_TOKEN / TELEGRAM_CHAT_ID / NTFY_TOPIC  (optionnel)
 """
 
@@ -42,6 +43,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
+    force=True,
 )
 logger = logging.getLogger("arabesque.live.runner")
 
@@ -90,6 +92,12 @@ def main():
     from arabesque.live.parquet_clock import ParquetClock
 
     # ── Config ─────────────────────────────────────────────
+    # max_daily_trades : 999 en dry_run (mean_reversion génère beaucoup), 5 en live
+    if args.mode == "dry_run":
+        default_max_daily = "999"
+    else:
+        default_max_daily = "5"
+
     if args.config:
         cfg = ArabesqueConfig.from_yaml(args.config)
     else:
@@ -101,6 +109,7 @@ def main():
             max_positions=int(os.environ.get("ARABESQUE_MAX_POSITIONS", "10")),
             max_open_risk_pct=float(os.environ.get("ARABESQUE_MAX_OPEN_RISK_PCT", "2.0")),
             risk_per_trade_pct=float(os.environ.get("ARABESQUE_RISK_PCT", "1.0")),
+            max_daily_trades=int(os.environ.get("ARABESQUE_MAX_DAILY_TRADES", default_max_daily)),
             telegram_token=os.environ.get("TELEGRAM_TOKEN", ""),
             telegram_chat_id=os.environ.get("TELEGRAM_CHAT_ID", ""),
             ntfy_topic=os.environ.get("NTFY_TOPIC", ""),
@@ -111,8 +120,6 @@ def main():
     # ── Signal generator ─────────────────────────────────────
     if args.strategy == "mean_reversion":
         from arabesque.backtest.signal_gen import BacktestSignalGenerator, SignalGenConfig
-        # live_mode=True : inclut la dernière bougie du cache (index n-1)
-        # et retourne (i, Signal) pour être compatible avec _generate_signals_from_cache
         signal_generator = BacktestSignalGenerator(SignalGenConfig(), live_mode=True)
     elif args.strategy == "combined":
         from arabesque.backtest.signal_gen_combined import CombinedSignalGenerator
@@ -154,50 +161,52 @@ def main():
     # ── Source de barres ─────────────────────────────────────
     logger.info(f"Source: {args.source} | Instruments: {instruments}")
 
-    try:
-        if args.source == "parquet":
-            clock = ParquetClock(
-                instruments=instruments,
-                start=args.start,
-                end=args.end,
-                replay_speed=args.speed,
-                signal_generator=signal_generator,
-            )
-            logger.info("Starting ParquetClock replay... (Ctrl+C to stop)")
-            clock.run(orchestrator, blocking=True)
+    if args.source == "parquet":
+        clock = ParquetClock(
+            instruments=instruments,
+            start=args.start,
+            end=args.end,
+            replay_speed=args.speed,
+            signal_generator=signal_generator,
+        )
+        logger.info("Starting ParquetClock replay... (Ctrl+C to stop)")
+        # ParquetClock.run() gère déjà KeyboardInterrupt en interne et appelle _print_summary()
+        clock.run(orchestrator, blocking=True)
 
+    else:
+        # BarPoller (ctrader stream)
+        if args.mode == "dry_run":
+            from arabesque.broker.ctrader import CTraderAdapter, CTraderConfig
+            ctrader_cfg = CTraderConfig(
+                host=os.environ.get("CTRADER_HOST", "demo.ctraderapi.com"),
+                port=int(os.environ.get("CTRADER_PORT", "5035")),
+                client_id=os.environ.get("CTRADER_CLIENT_ID", ""),
+                client_secret=os.environ.get("CTRADER_CLIENT_SECRET", ""),
+                access_token=os.environ.get("CTRADER_ACCESS_TOKEN", ""),
+                account_id=int(os.environ.get("CTRADER_ACCOUNT_ID", "0")),
+            )
+            stream_adapter = CTraderAdapter(ctrader_cfg)
         else:
-            if args.mode == "dry_run":
-                from arabesque.broker.ctrader import CTraderAdapter, CTraderConfig
-                ctrader_cfg = CTraderConfig(
-                    host=os.environ.get("CTRADER_HOST", "demo.ctraderapi.com"),
-                    port=int(os.environ.get("CTRADER_PORT", "5035")),
-                    client_id=os.environ.get("CTRADER_CLIENT_ID", ""),
-                    client_secret=os.environ.get("CTRADER_CLIENT_SECRET", ""),
-                    access_token=os.environ.get("CTRADER_ACCESS_TOKEN", ""),
-                    account_id=int(os.environ.get("CTRADER_ACCOUNT_ID", "0")),
-                )
-                stream_adapter = CTraderAdapter(ctrader_cfg)
-            else:
-                stream_adapter = broker
+            stream_adapter = broker
 
-            poller_cfg = BarPollerConfig(
-                instruments=instruments,
-                dry_run=(args.mode == "dry_run"),
-                use_polling_fallback=True,
-                poll_interval_sec=60,
-                signal_generator=signal_generator,
-            )
-            poller = BarPoller(
-                ctrader_adapter=stream_adapter,
-                orchestrator=orchestrator,
-                config=poller_cfg,
-            )
-            logger.info("Starting BarPoller... (Ctrl+C to stop)")
+        poller_cfg = BarPollerConfig(
+            instruments=instruments,
+            dry_run=(args.mode == "dry_run"),
+            use_polling_fallback=True,
+            poll_interval_sec=60,
+            signal_generator=signal_generator,
+        )
+        poller = BarPoller(
+            ctrader_adapter=stream_adapter,
+            orchestrator=orchestrator,
+            config=poller_cfg,
+        )
+        logger.info("Starting BarPoller... (Ctrl+C to stop)")
+        try:
             poller.start(blocking=True)
-
-    except KeyboardInterrupt:
-        logger.info("Interrupted by user")
+        except KeyboardInterrupt:
+            logger.info("Interrupted by user")
+            poller.stop()
 
 
 if __name__ == "__main__":
