@@ -34,6 +34,7 @@ Il trade sur 19 instruments crypto (H1) en utilisant 3 stratégies complémentai
 **Broker** : cTrader (API Open API)
 **Source de données live** : cTrader (barres H1 en temps réel)
 **Source de données backtest/replay** : fichiers Parquet locaux (`~/dev/arabesque/data/parquet/`)
+**Gestionnaire de données** : projet [barres_au_sol](https://github.com/ashledombos/barres_au_sol) (dépôt séparé)
 
 ---
 
@@ -77,15 +78,15 @@ Expectancy     : +0.38R
 │                                                              │
 │  Fichiers Parquet ──► ParquetClock ──► SignalGenerator       │
 │   (~/data/parquet/)    (replay H1)     (Combined/MR/Trend)   │
-│                              │                               │
-│                              ▼                               │
-│                       Orchestrator                           │
-│                    ┌────────────────┐                        │
-│                    │ Guards         │ ← prop limits, DD      │
-│                    │ Sizing         │ ← risk_cash (100$)     │
-│                    │ PositionMgr    │ ← trailing 5 paliers   │
-│                    │ DryRunAdapter  │ ← pas d'ordre réel     │
-│                    └────────────────┘                        │
+│         ▲                    │                               │
+│         │                    ▼                               │
+│  barres_au_sol          Orchestrator                         │
+│  (dépôt séparé)      ┌────────────────┐                     │
+│                       │ Guards         │ ← prop limits, DD   │
+│                       │ Sizing         │ ← risk_cash (100$)  │
+│                       │ PositionMgr    │ ← trailing 5 paliers│
+│                       │ DryRunAdapter  │ ← pas d'ordre réel  │
+│                       └────────────────┘                     │
 │                              │                               │
 │                              ▼                               │
 │                    Résumé + Export JSONL                     │
@@ -176,15 +177,74 @@ pip install pandas numpy pyarrow flask pyyaml yfinance requests
 pip install ctrader-open-api
 ```
 
-### Données Parquet
+### Données Parquet — via `barres_au_sol`
 
 Les fichiers Parquet H1 sont dans `~/dev/arabesque/data/parquet/`.
-Format : `{INSTRUMENT}_H1.parquet` (ex: `XRPUSD_H1.parquet`).
+Ils sont **produits par le projet [barres_au_sol](https://github.com/ashledombos/barres_au_sol)**,
+qui doit être cloné et configuré séparément.
 
-Pour mettre à jour les données depuis Yahoo Finance :
 ```bash
-python -m arabesque.backtest.data --update-all
+# 1. Cloner et installer barres_au_sol
+cd ~/dev
+git clone git@github.com:ashledombos/barres_au_sol.git
+cd barres_au_sol
+python3 -m venv .venv && source .venv/bin/activate
+pip install pandas numpy pyarrow requests ccxt tqdm
+
+# 2. Télécharger les données (18 crypto via CCXT/Binance)
+python data_orchestrator.py \
+  --start 2024-01-01 --end 2026-12-31 \
+  --derive 1h \
+  --filter "^(AAVUSD|ALGUSD|AVAUSD|BCHUSD|BNBUSD|DASHUSD|GRTUSD|ICPUSD|IMXUSD|LNKUSD|NEOUSD|NERUSD|SOLUSD|UNIUSD|VECUSD|XLMUSD|XRPUSD|XTZUSD)$" \
+  --sleep-ms 200 --sleep-between 2
+
+# 3. Télécharger XAUUSD (Dukascopy)
+python data_orchestrator.py \
+  --start 2024-01-01 --end 2026-12-31 \
+  --derive 1h --filter "^XAUUSD$" \
+  --only dukascopy --sleep-ms 200
+
+# 4. Copier les H1 dérivés vers arabesque
+mkdir -p ~/dev/arabesque/data/parquet
+
+# Crypto (clé CCXT = SYMBOL_USDT)
+for pair in "AAVE_USDT:AAVUSD" "BNB_USDT:BNBUSD" "SOL_USDT:SOLUSD" \
+            "XRP_USDT:XRPUSD" "BCH_USDT:BCHUSD" "GRT_USDT:GRTUSD" \
+            "ICP_USDT:ICPUSD" "IMX_USDT:IMXUSD" "LINK_USDT:LNKUSD" \
+            "NEO_USDT:NEOUSD" "NEAR_USDT:NERUSD" "ALGO_USDT:ALGUSD" \
+            "AVAX_USDT:AVAUSD" "UNI_USDT:UNIUSD" "VET_USDT:VECUSD" \
+            "XLM_USDT:XLMUSD" "XTZ_USDT:XTZUSD" "DASH_USDT:DASHUSD"; do
+  src="${pair%%:*}"; dst="${pair##*:}"
+  cp data/ccxt/derived/${src}_1h.parquet ~/dev/arabesque/data/parquet/${dst}_H1.parquet
+done
+
+# Or
+cp data/dukascopy/derived/XAUUSD_1h.parquet ~/dev/arabesque/data/parquet/XAUUSD_H1.parquet
 ```
+
+### Correspondance symboles barres_au_sol ↔ Arabesque
+
+| Arabesque | barres_au_sol (ftmo_symbol) | Source | Clé fichier |
+|-----------|----------------------------|--------|-------------|
+| AAVUSD | AAVUSD | ccxt/binance | AAVE_USDT_1h.parquet |
+| ALGUSD | ALGUSD | ccxt/binance | ALGO_USDT_1h.parquet |
+| AVAUSD | AVAUSD | ccxt/binance | AVAX_USDT_1h.parquet |
+| BCHUSD | BCHUSD | ccxt/binance | BCH_USDT_1h.parquet |
+| BNBUSD | BNBUSD | ccxt/binance | BNB_USDT_1h.parquet |
+| DASHUSD | DASHUSD | ccxt/binance | DASH_USDT_1h.parquet |
+| GRTUSD | GRTUSD | ccxt/binance | GRT_USDT_1h.parquet |
+| ICPUSD | ICPUSD | ccxt/binance | ICP_USDT_1h.parquet |
+| IMXUSD | IMXUSD | ccxt/binance | IMX_USDT_1h.parquet |
+| LNKUSD | LNKUSD | ccxt/binance | LINK_USDT_1h.parquet |
+| NEOUSD | NEOUSD | ccxt/binance | NEO_USDT_1h.parquet |
+| NERUSD | NERUSD | ccxt/binance | NEAR_USDT_1h.parquet |
+| SOLUSD | SOLUSD | ccxt/binance | SOL_USDT_1h.parquet |
+| UNIUSD | UNIUSD | ccxt/binance | UNI_USDT_1h.parquet |
+| VECUSD | VECUSD | ccxt/binance | VET_USDT_1h.parquet |
+| XAUUSD | XAUUSD | dukascopy | XAUUSD_1h.parquet |
+| XLMUSD | XLMUSD | ccxt/binance | XLM_USDT_1h.parquet |
+| XRPUSD | XRPUSD | ccxt/binance | XRP_USDT_1h.parquet |
+| XTZUSD | XTZUSD | ccxt/binance | XTZ_USDT_1h.parquet |
 
 ---
 
@@ -267,15 +327,15 @@ Chaque ligne est un dict JSON :
   "type": "trade",
   "instrument": "XRPUSD",
   "side": "SHORT",
-  "entry": 2.677,           // prix d'entrée (open de la bougie suivante)
-  "sl": 2.722,              // stop loss initial
-  "result_r": 2.083,        // résultat en R (positif = gain)
-  "risk_cash": 100.0,       // montant risqué en dollars
-  "exit_reason": "exit_tp", // raison de sortie
-  "bars_open": 1,           // durée en barres H1
-  "mfe_r": 17.2,            // maximum favorable excursion (jusqu'où le trade est allé)
-  "ts_entry": "...",        // timestamp entrée
-  "ts_exit": "..."          // timestamp sortie
+  "entry": 2.677,
+  "sl": 2.722,
+  "result_r": 2.083,
+  "risk_cash": 100.0,
+  "exit_reason": "exit_tp",
+  "bars_open": 1,
+  "mfe_r": 17.2,
+  "ts_entry": "...",
+  "ts_exit": "..."
 }
 ```
 
@@ -303,10 +363,25 @@ Chaque ligne est un dict JSON :
 | `arabesque/position/manager.py` | Trailing 5 paliers + exits | Modifier le trailing |
 | `arabesque/guards.py` | Guards prop (DD, max pos...) | Modifier les limites prop |
 | `config/settings.yaml` | Configuration broker, risque | Setup initial |
+| *(barres_au_sol)* `instruments.csv` | Mapping symboles FTMO ↔ sources données | Ajouter/modifier des instruments |
 
 ---
 
 ## 9. Décisions de design importantes
+
+### Séparation arabesque / barres_au_sol (intentionnelle)
+
+**Pourquoi deux dépôts séparés ?**
+- `barres_au_sol` est un **data lake générique** : il peut servir Backtrader, vectorbt,
+  n'importe quel autre système de trading. Le coupler à Arabesque le rendrait moins réutilisable.
+- Les dépendances sont différentes (`ccxt`, `tqdm` ne sont pas utiles dans Arabesque).
+- La fréquence de mise à jour est différente : `barres_au_sol` tourne 1×/jour en cron,
+  Arabesque tourne en continu.
+
+**Ce que ça implique** : si tu reprends le projet, il faut cloner **les deux dépôts**
+et gérer le cron `barres_au_sol` séparément (voir §5).
+
+---
 
 ### Anti-lookahead (critique)
 

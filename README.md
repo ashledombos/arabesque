@@ -24,6 +24,73 @@ Pour passer la main ou comprendre l'architecture en détail : lire [HANDOVER.md]
 
 ---
 
+## Source des données Parquet
+
+Les fichiers `data/parquet/*_H1.parquet` sont générés par le projet
+**[barres_au_sol](https://github.com/ashledombos/barres_au_sol)** — data lake local
+(Dukascopy + CCXT/Binance), indépendant d'Arabesque.
+
+> ⚠️ Sans ces fichiers, le mode `--source parquet` ne peut pas fonctionner.
+
+### Mise à jour des données (depuis `barres_au_sol/`)
+
+```bash
+cd ~/dev
+git clone git@github.com:ashledombos/barres_au_sol.git
+cd barres_au_sol
+python3 -m venv .venv && source .venv/bin/activate
+pip install pandas numpy pyarrow requests ccxt tqdm
+
+# Télécharger les 19 instruments utilisés par Arabesque
+# (tous via CCXT/Binance, sauf XAUUSD via Dukascopy)
+python data_orchestrator.py \
+  --start 2024-01-01 --end 2026-12-31 \
+  --derive 1h \
+  --filter "^(AAVUSD|ALGUSD|AVAUSD|BCHUSD|BNBUSD|DASHUSD|GRTUSD|ICPUSD|IMXUSD|LNKUSD|NEOUSD|NERUSD|SOLUSD|UNIUSD|VECUSD|XLMUSD|XRPUSD|XTZUSD)$" \
+  --sleep-ms 200 --sleep-between 2
+
+# XAUUSD séparément (source Dukascopy)
+python data_orchestrator.py \
+  --start 2024-01-01 --end 2026-12-31 \
+  --derive 1h \
+  --filter "^XAUUSD$" \
+  --only dukascopy \
+  --sleep-ms 200
+```
+
+Ensuite, copier les dérivés H1 vers Arabesque :
+
+```bash
+# Les fichiers dérivés sont dans data/ccxt/derived/ et data/dukascopy/derived/
+# Arabesque attend : arabesque/data/parquet/XRPUSD_H1.parquet etc.
+mkdir -p ~/dev/arabesque/data/parquet
+
+# Crypto (ccxt)
+for sym in AAVE/USDT:AAVUSD BNB/USDT:BNBUSD SOL/USDT:SOLUSD XRP/USDT:XRPUSD \
+           BCH/USDT:BCHUSD GRT/USDT:GRTUSD ICP/USDT:ICPUSD IMX/USDT:IMXUSD \
+           LINK/USDT:LNKUSD NEO/USDT:NEOUSD NEAR/USDT:NERUSD ALGO/USDT:ALGUSD \
+           AVAX/USDT:AVAUSD UNI/USDT:UNIUSD VET/USDT:VECUSD XLM/USDT:XLMUSD \
+           XTZ/USDT:XTZUSD DASH/USDT:DASHUSD; do
+  src="${sym%%:*}"; dst="${sym##*:}"
+  key=$(echo "$src" | tr '/' '_')
+  cp data/ccxt/derived/${key}_1h.parquet ~/dev/arabesque/data/parquet/${dst}_H1.parquet
+done
+
+# Or (dukascopy)
+cp data/dukascopy/derived/XAUUSD_1h.parquet ~/dev/arabesque/data/parquet/XAUUSD_H1.parquet
+```
+
+### Cron quotidien (mise à jour automatique)
+
+```bash
+# Ajouter dans crontab -e :
+0 3 * * * cd ~/dev/barres_au_sol && source .venv/bin/activate && \
+  python data_orchestrator.py --start 2024-01-01 --end 2027-12-31 \
+  --derive 1h --sleep-ms 200 --sleep-between 2
+```
+
+---
+
 ## Architecture
 
 ```
@@ -66,7 +133,7 @@ docs/
  └── ARCHITECTURE.md          ← Architecture détaillée et décisions de design
 
 data/
- └── parquet/                 ← Fichiers XRPUSD_H1.parquet, SOLUSD_H1.parquet…
+ └── parquet/                 ← Fichiers XRPUSD_H1.parquet… (générés par barres_au_sol)
 
 config/
  └── settings.yaml            ← Configuration broker, risque, limites
@@ -213,6 +280,18 @@ pip install ctrader-open-api
 # Notifications (optionnel)
 pip install python-telegram-bot
 ```
+
+---
+
+## Projets liés
+
+| Projet | Rôle | Lien |
+|--------|------|------|
+| **barres_au_sol** | Data lake local — télécharge et stocke les barres H1 (Dukascopy + CCXT) | [github.com/ashledombos/barres_au_sol](https://github.com/ashledombos/barres_au_sol) |
+| **arabesque** | Système de trading — signaux, positions, guards, brokers | ce dépôt |
+
+Les deux projets sont **intentionnellement séparés** : `barres_au_sol` est agnostique
+des stratégies de trading et peut servir d'autres projets (backtrader, vectorbt...).
 
 ---
 
