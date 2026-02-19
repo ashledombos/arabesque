@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import sys
 import time
 import threading
 from collections import defaultdict
@@ -85,14 +86,15 @@ class ParquetClock:
             try:
                 self._replay(orchestrator)
             except KeyboardInterrupt:
-                logger.info("Interrupted by user — generating summary...")
+                logger.info("\n\nInterrupted by user — generating summary...")
                 self._print_summary(orchestrator)
+                raise  # re-raise pour que runner.py le capte si besoin
         else:
             def _run():
                 try:
                     self._replay(orchestrator)
                 except KeyboardInterrupt:
-                    logger.info("Interrupted by user — generating summary...")
+                    logger.info("\n\nInterrupted by user — generating summary...")
                     self._print_summary(orchestrator)
             threading.Thread(target=_run, daemon=True, name="parquet-clock").start()
 
@@ -138,14 +140,16 @@ class ParquetClock:
             for ts, row in df.iterrows():
                 events.append((ts, inst, row))
         events.sort(key=lambda e: e[0])
-        logger.info(f"Total events to replay: {len(events):,}")
+        total_events = len(events)
+        logger.info(f"Total events to replay: {total_events:,}")
 
-        # 3. Replay
+        # 3. Replay avec progression
         n_bars    = 0
         n_signals = 0
         t_start   = time.time()
+        next_progress_log = 5000  # log tous les 5k événements
 
-        for ts, instrument, row in events:
+        for idx, (ts, instrument, row) in enumerate(events, start=1):
             bar = {
                 "ts":     int(ts.timestamp()),
                 "open":   float(row["Open"]),
@@ -162,6 +166,11 @@ class ParquetClock:
 
             if len(cache) < self.cfg.min_bars_for_signal:
                 n_bars += 1
+                if idx >= next_progress_log:
+                    pct = idx / total_events * 100
+                    logger.info(f"Progress: {idx:,}/{total_events:,} ({pct:.1f}%) — {n_signals} signals so far")
+                    next_progress_log += 5000
+                    sys.stdout.flush()  # force flush immédiat
                 continue
 
             signals = _generate_signals_from_cache(
@@ -190,6 +199,12 @@ class ParquetClock:
             )
 
             n_bars += 1
+            if idx >= next_progress_log:
+                pct = idx / total_events * 100
+                logger.info(f"Progress: {idx:,}/{total_events:,} ({pct:.1f}%) — {n_signals} signals")
+                next_progress_log += 5000
+                sys.stdout.flush()
+
             if self.on_bar_closed:
                 self.on_bar_closed(instrument, bar)
 
