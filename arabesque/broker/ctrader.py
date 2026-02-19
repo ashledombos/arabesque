@@ -1,490 +1,730 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Arabesque v2 — cTrader Open API Adapter (FTMO).
-
-Connexion async + protobuf via ctrader-open-api.
-Référence : envolees-auto/brokers/ctrader.py
-
-Dépendances :
-    pip install ctrader-open-api twisted
-
-Architecture cTrader Open API :
-    - Connexion TCP/TLS (port 5035)
-    - Auth OAuth2 (client_id + client_secret + access_token)
-    - Messages protobuf (ProtoOA*)
-    - Async via Twisted reactor (mais on wrappe en sync pour Arabesque)
-
-Symboles cTrader :
-    - Chaque symbole a un symbolId (int) qu'on doit résoudre
-    - Volume en unités (100_000 = 1 lot standard FX)
-    - Prix en pipettes (multiply par pipPosition pour le vrai prix)
+cTrader Open API broker implementation.
+Basé sur Envolees-auto/brokers/ctrader.py, avec ajout du price feed
+(souscription aux ticks via ProtoOASubscribeSpotsReq / ProtoOASpotEvent).
 """
-
-from __future__ import annotations
 
 import asyncio
-import logging
-import math
 import time
+import requests
+from datetime import datetime, timezone
+from typing import Optional, List, Dict, Any, Callable
+from concurrent.futures import Future
 import threading
-from dataclasses import dataclass, field
 
-from arabesque.broker.adapters import BrokerAdapter, OrderResult
+from .base import (
+    BaseBroker, OrderRequest, OrderResult, OrderSide, OrderType, OrderStatus,
+    Position, PendingOrder, AccountInfo, SymbolInfo, PriceTick,
+)
 
-logger = logging.getLogger("arabesque.broker.ctrader")
+try:
+    from twisted.internet import reactor, threads
+    from twisted.internet.defer import Deferred
+    from ctrader_open_api import Client, TcpProtocol, EndPoints, Protobuf
+    from ctrader_open_api.messages.OpenApiMessages_pb2 import (
+        ProtoOAApplicationAuthReq,
+        ProtoOAAccountAuthReq,
+        ProtoOAGetAccountListByAccessTokenReq,
+        ProtoOASymbolsListReq,
+        ProtoOANewOrderReq,
+        ProtoOACancelOrderReq,
+        ProtoOAReconcileReq,
+        ProtoOATraderReq,
+        ProtoOAErrorRes,
+        ProtoOAAssetListReq,
+        ProtoOASubscribeSpotsReq,
+        ProtoOAUnsubscribeSpotsReq,
+    )
+    CTRADER_AVAILABLE = True
+except ImportError:
+    CTRADER_AVAILABLE = False
+    print("⚠️  ctrader-open-api not installed. cTrader support disabled.")
 
 
-@dataclass
-class CTraderConfig:
-    """Configuration cTrader Open API."""
-    host: str = "demo.ctraderapi.com"
-    port: int = 5035
-    client_id: str = ""
-    client_secret: str = ""
-    access_token: str = ""
-    account_id: int = 0                # ctidTraderAccountId
-    name: str = "ctrader_ftmo"
+class CTraderBroker(BaseBroker):
+    """cTrader Open API broker implementation with price feed support."""
 
-    # Timeouts
-    connect_timeout: float = 10.0
-    order_timeout: float = 15.0
+    def __init__(self, broker_id: str, config: dict):
+        super().__init__(broker_id, config)
 
-    # Retry
-    max_retries: int = 3
-    retry_delay: float = 2.0
+        if not CTRADER_AVAILABLE:
+            raise ImportError("ctrader-open-api is required for cTrader support")
 
+        self.client_id = config.get("client_id", "")
+        self.client_secret = config.get("client_secret", "")
+        self.access_token = config.get("access_token", "")
+        self.refresh_token = config.get("refresh_token", "")
 
-class CTraderAdapter(BrokerAdapter):
-    """Adapter cTrader Open API pour FTMO.
+        acc_id = config.get("account_id")
+        self.account_id = int(acc_id) if acc_id else None
 
-    Utilise le package ctrader-open-api (protobuf + Twisted).
-    En interne, tourne un thread Twisted pour l'async.
+        self.is_demo = config.get("is_demo", True)
+        self.host = EndPoints.PROTOBUF_DEMO_HOST if self.is_demo else EndPoints.PROTOBUF_LIVE_HOST
+        self.port = EndPoints.PROTOBUF_PORT
 
-    Usage :
-        config = CTraderConfig(
-            client_id="...", client_secret="...",
-            access_token="...", account_id=12345,
-        )
-        adapter = CTraderAdapter(config)
-        adapter.connect()
-        quote = adapter.get_quote("EURUSD")
-    """
+        self._client: Optional[Client] = None
+        self._pending_requests: Dict[str, Future] = {}
+        self._symbols: Dict[int, SymbolInfo] = {}
+        self._message_handlers: Dict[str, Callable] = {}
 
-    def __init__(self, config: CTraderConfig | dict):
-        if isinstance(config, dict):
-            config = CTraderConfig(**{k: v for k, v in config.items()
-                                      if k in CTraderConfig.__dataclass_fields__})
-        self.cfg = config
-        self.name = config.name
-        self._connected = False
-        self._client = None
-        self._symbols: dict[str, dict] = {}   # name → symbol info
-        self._symbol_ids: dict[int, dict] = {} # id → symbol info
-        self._reactor_thread = None
+        # Thread management for Twisted reactor
+        self._reactor_thread: Optional[threading.Thread] = None
+        self._reactor_running = False
+        self._token_refreshed = False
 
-    def connect(self) -> bool:
-        """Établit la connexion cTrader Open API.
+        # Price feed
+        # symbol_id (int) -> last PriceTick
+        self._price_ticks: Dict[int, PriceTick] = {}
+        # symbol_id -> list of callbacks(PriceTick)
+        self._spot_callbacks: Dict[int, List[Callable]] = {}
+        self._subscribed_symbol_ids: set = set()
 
-        1. Import ctrader-open-api
-        2. Démarre le reactor Twisted dans un thread
-        3. Auth OAuth2
-        4. Charge la liste des symboles du compte
-        """
-        try:
-            from ctrader_open_api import Client, Protobuf, TcpProtocol, EndPoints
-            from ctrader_open_api.messages.OpenApiCommonMessages_pb2 import (
-                ProtoOAApplicationAuthReq,
-                ProtoOAAccountAuthReq,
-            )
-            from ctrader_open_api.messages.OpenApiMessages_pb2 import (
-                ProtoOASymbolsListReq,
-                ProtoOASubscribeSpotsReq,
-            )
-        except ImportError:
-            logger.error("ctrader-open-api not installed. "
-                         "Run: pip install ctrader-open-api")
+    # ------------------------------------------------------------------
+    # Token management
+    # ------------------------------------------------------------------
+
+    def _should_refresh_token(self) -> bool:
+        if not self.refresh_token:
             return False
-
-        try:
-            # Créer le client
-            self._client = Client(
-                self.cfg.host, self.cfg.port,
-                TcpProtocol,
-            )
-
-            # Démarrer le reactor dans un thread background
-            self._reactor_thread = threading.Thread(
-                target=self._run_reactor, daemon=True
-            )
-            self._reactor_thread.start()
-            time.sleep(1)  # Laisser le reactor démarrer
-
-            # Auth application
-            app_auth = Protobuf.extract(
-                ProtoOAApplicationAuthReq(
-                    clientId=self.cfg.client_id,
-                    clientSecret=self.cfg.client_secret,
-                )
-            )
-            self._send_and_wait(app_auth)
-
-            # Auth compte
-            account_auth = Protobuf.extract(
-                ProtoOAAccountAuthReq(
-                    ctidTraderAccountId=self.cfg.account_id,
-                    accessToken=self.cfg.access_token,
-                )
-            )
-            self._send_and_wait(account_auth)
-
-            # Charger la liste des symboles
-            self._load_symbols()
-
-            self._connected = True
-            logger.info(f"[{self.name}] Connected. {len(self._symbols)} symbols loaded.")
-            return True
-
-        except Exception as e:
-            logger.error(f"[{self.name}] Connection failed: {e}")
+        if not self.config.get("auto_refresh_token", True):
             return False
+        if self._token_refreshed:
+            return False
+        return True
 
-    def get_quote(self, symbol: str) -> dict:
-        """Obtient bid/ask via spot subscription ou snapshot."""
-        if not self._connected:
-            return {"bid": 0, "ask": 0, "spread": 0, "error": "not connected"}
+    def _ensure_reactor_running(self):
+        if self._reactor_running:
+            return
 
-        try:
-            from ctrader_open_api import Protobuf
-            from ctrader_open_api.messages.OpenApiMessages_pb2 import (
-                ProtoOASubscribeSpotsReq,
-            )
-
-            sym_info = self._symbols.get(symbol)
-            if not sym_info:
-                return {"bid": 0, "ask": 0, "spread": 0,
-                        "error": f"symbol {symbol} not found"}
-
-            symbol_id = sym_info["symbolId"]
-            pip_pos = sym_info.get("pipPosition", 4)
-            divisor = 10 ** pip_pos
-
-            # Subscribe spots (si pas déjà fait)
-            req = Protobuf.extract(
-                ProtoOASubscribeSpotsReq(
-                    ctidTraderAccountId=self.cfg.account_id,
-                    symbolId=[symbol_id],
-                )
-            )
-            resp = self._send_and_wait(req, timeout=5.0)
-
-            if resp and hasattr(resp, "bid") and hasattr(resp, "ask"):
-                bid = resp.bid / divisor
-                ask = resp.ask / divisor
-                return {"bid": bid, "ask": ask, "spread": ask - bid}
-
-            # Fallback : pas de spot data, retourner vide
-            return {"bid": 0, "ask": 0, "spread": 0,
-                    "error": "no spot data received"}
-
-        except Exception as e:
-            logger.error(f"[{self.name}] get_quote error: {e}")
-            return {"bid": 0, "ask": 0, "spread": 0, "error": str(e)}
-
-    def get_account_info(self) -> dict:
-        """Obtient balance, equity, marge."""
-        if not self._connected:
-            return {"balance": 0, "equity": 0, "margin_used": 0,
-                    "error": "not connected"}
-
-        try:
-            from ctrader_open_api import Protobuf
-            from ctrader_open_api.messages.OpenApiMessages_pb2 import (
-                ProtoOATraderReq,
-            )
-
-            req = Protobuf.extract(
-                ProtoOATraderReq(
-                    ctidTraderAccountId=self.cfg.account_id,
-                )
-            )
-            resp = self._send_and_wait(req)
-
-            if resp and hasattr(resp, "trader"):
-                trader = resp.trader
-                # cTrader retourne les montants en centièmes
-                balance = trader.balance / 100
-                return {
-                    "balance": balance,
-                    "equity": balance,  # equity = balance + floating P&L
-                    "margin_used": 0,
-                }
-
-            return {"balance": 0, "equity": 0, "margin_used": 0}
-
-        except Exception as e:
-            logger.error(f"[{self.name}] get_account_info error: {e}")
-            return {"balance": 0, "equity": 0, "margin_used": 0, "error": str(e)}
-
-    def compute_volume(self, symbol: str, risk_cash: float,
-                       risk_distance: float) -> float:
-        """Calcule le volume en lots pour cTrader.
-
-        cTrader utilise le volume en unités (100_000 = 1 lot standard).
-        Le volume minimum et le step dépendent du symbole.
-
-        Formule :
-            volume_units = risk_cash / (risk_distance_pips * pip_value_per_unit)
-            lots = volume_units / 100_000
-
-        Pour les paires XXX/USD : pip_value = 0.0001 * volume_units = 10$/lot
-        Pour les paires XXX/YYY : pip_value dépend du taux YYY/USD
-        """
-        if risk_distance <= 0 or risk_cash <= 0:
-            return 0.0
-
-        sym_info = self._symbols.get(symbol, {})
-        pip_position = sym_info.get("pipPosition", 4)
-        pip_size = 10 ** (-pip_position)
-        step_volume = sym_info.get("stepVolume", 1000)  # min step en unités
-        min_volume = sym_info.get("minVolume", 1000)
-
-        # Risk distance en pips
-        risk_pips = risk_distance / pip_size
-
-        # Pip value approximation (pour USD-denominated accounts)
-        # Pour XXX/USD : pip_value = pip_size * lot_size
-        # Pour USD/XXX : pip_value = pip_size * lot_size / rate
-        # Simplification : pip_value ≈ 10 USD/lot pour majeures
-        pip_value_per_lot = 10.0  # USD par pip par lot standard
-
-        # Volume en lots
-        lots = risk_cash / (risk_pips * pip_value_per_lot)
-
-        # Convertir en unités cTrader
-        volume_units = lots * 100_000
-
-        # Arrondir au step_volume, toujours vers le bas
-        volume_units = math.floor(volume_units / step_volume) * step_volume
-
-        # Minimum
-        if volume_units < min_volume:
-            volume_units = min_volume
-
-        # Retourner en lots
-        return volume_units / 100_000
-
-    def place_order(self, signal: dict, sizing: dict) -> dict:
-        """Place un ordre market via cTrader Open API.
-
-        Args:
-            signal: JSON du signal TradingView
-            sizing: {"risk_cash": float, "risk_distance": float}
-
-        Returns:
-            OrderResult.to_dict()
-        """
-        if not self._connected:
-            return OrderResult(False, message="not connected").to_dict()
-
-        symbol = signal.get("symbol", "")
-        side = signal.get("side", "buy")
-        sl = signal.get("sl", 0)
-
-        volume = self.compute_volume(
-            symbol, sizing.get("risk_cash", 0),
-            sizing.get("risk_distance", 0),
-        )
-        if volume <= 0:
-            return OrderResult(False, message="volume=0").to_dict()
-
-        volume_units = int(volume * 100_000)
-
-        try:
-            from ctrader_open_api import Protobuf
-            from ctrader_open_api.messages.OpenApiMessages_pb2 import (
-                ProtoOANewOrderReq,
-            )
-            from ctrader_open_api.messages.OpenApiCommonMessages_pb2 import (
-                ProtoOAOrderType,
-                ProtoOATradeSide,
-            )
-
-            sym_info = self._symbols.get(symbol, {})
-            symbol_id = sym_info.get("symbolId", 0)
-            if symbol_id == 0:
-                return OrderResult(False, message=f"symbol {symbol} not found").to_dict()
-
-            # Construire l'ordre
-            trade_side = (ProtoOATradeSide.BUY if side.lower() == "buy"
-                          else ProtoOATradeSide.SELL)
-
-            # SL en prix absolu (cTrader accepte les deux)
-            pip_pos = sym_info.get("pipPosition", 4)
-            divisor = 10 ** pip_pos
-
-            order_req = ProtoOANewOrderReq(
-                ctidTraderAccountId=self.cfg.account_id,
-                symbolId=symbol_id,
-                orderType=ProtoOAOrderType.MARKET,
-                tradeSide=trade_side,
-                volume=volume_units,
-            )
-
-            # Ajouter SL si fourni
-            if sl > 0:
-                order_req.stopLoss = sl
-                order_req.stopLossInPips = False  # Prix absolu
-
-            logger.info(f"[{self.name}] Placing {side.upper()} {symbol} "
-                        f"vol={volume:.2f} lots SL={sl}")
-
-            resp = self._send_and_wait(
-                Protobuf.extract(order_req),
-                timeout=self.cfg.order_timeout,
-            )
-
-            if resp and hasattr(resp, "order"):
-                order = resp.order
-                fill_price = (order.executionPrice / divisor
-                              if hasattr(order, "executionPrice") else 0)
-                return OrderResult(
-                    success=True,
-                    order_id=str(order.orderId) if hasattr(order, "orderId") else "",
-                    volume=volume,
-                    fill_price=fill_price,
-                    message="order placed",
-                ).to_dict()
-
-            return OrderResult(
-                False, volume=volume,
-                message="no response from cTrader",
-            ).to_dict()
-
-        except Exception as e:
-            logger.error(f"[{self.name}] place_order error: {e}")
-            return OrderResult(False, message=str(e)).to_dict()
-
-    def close_position(self, position_id: str, symbol: str) -> dict:
-        """Ferme une position via close market order."""
-        if not self._connected:
-            return {"success": False, "message": "not connected"}
-
-        try:
-            from ctrader_open_api import Protobuf
-            from ctrader_open_api.messages.OpenApiMessages_pb2 import (
-                ProtoOAClosePositionReq,
-            )
-
-            req = Protobuf.extract(
-                ProtoOAClosePositionReq(
-                    ctidTraderAccountId=self.cfg.account_id,
-                    positionId=int(position_id),
-                    volume=0,  # 0 = close all
-                )
-            )
-            resp = self._send_and_wait(req, timeout=self.cfg.order_timeout)
-
-            if resp:
-                return {"success": True, "message": f"position {position_id} closed"}
-            return {"success": False, "message": "no response"}
-
-        except Exception as e:
-            logger.error(f"[{self.name}] close_position error: {e}")
-            return {"success": False, "message": str(e)}
-
-    def modify_sl(self, position_id: str, symbol: str, new_sl: float) -> dict:
-        """Modifie le SL d'une position ouverte."""
-        if not self._connected:
-            return {"success": False, "message": "not connected"}
-
-        try:
-            from ctrader_open_api import Protobuf
-            from ctrader_open_api.messages.OpenApiMessages_pb2 import (
-                ProtoOAAmendPositionSLTPReq,
-            )
-
-            req = Protobuf.extract(
-                ProtoOAAmendPositionSLTPReq(
-                    ctidTraderAccountId=self.cfg.account_id,
-                    positionId=int(position_id),
-                    stopLoss=new_sl,
-                    stopLossInPips=False,
-                )
-            )
-            resp = self._send_and_wait(req, timeout=self.cfg.order_timeout)
-
-            if resp:
-                logger.info(f"[{self.name}] SL modified: pos={position_id} → {new_sl}")
-                return {"success": True, "message": f"SL → {new_sl}"}
-            return {"success": False, "message": "no response"}
-
-        except Exception as e:
-            logger.error(f"[{self.name}] modify_sl error: {e}")
-            return {"success": False, "message": str(e)}
-
-    # ── Internal helpers ─────────────────────────────────────────────
-
-    def _load_symbols(self):
-        """Charge la liste des symboles disponibles."""
-        try:
-            from ctrader_open_api import Protobuf
-            from ctrader_open_api.messages.OpenApiMessages_pb2 import (
-                ProtoOASymbolsListReq,
-            )
-
-            req = Protobuf.extract(
-                ProtoOASymbolsListReq(
-                    ctidTraderAccountId=self.cfg.account_id,
-                )
-            )
-            resp = self._send_and_wait(req, timeout=10.0)
-
-            if resp and hasattr(resp, "symbol"):
-                for sym in resp.symbol:
-                    info = {
-                        "symbolId": sym.symbolId,
-                        "symbolName": sym.symbolName if hasattr(sym, "symbolName") else "",
-                        "pipPosition": sym.pipPosition if hasattr(sym, "pipPosition") else 4,
-                        "stepVolume": sym.stepVolume if hasattr(sym, "stepVolume") else 1000,
-                        "minVolume": sym.minVolume if hasattr(sym, "minVolume") else 1000,
-                        "maxVolume": sym.maxVolume if hasattr(sym, "maxVolume") else 50_000_000,
-                    }
-                    name = info["symbolName"]
-                    self._symbols[name] = info
-                    self._symbol_ids[sym.symbolId] = info
-
-        except Exception as e:
-            logger.error(f"[{self.name}] _load_symbols error: {e}")
-
-    def _send_and_wait(self, message, timeout: float = 10.0):
-        """Envoie un message protobuf et attend la réponse.
-
-        NOTE : wrapping simplifié. En production, utiliser le pattern
-        callback du client ctrader-open-api ou asyncio.
-        """
-        if self._client is None:
-            return None
-        try:
-            # Le client ctrader-open-api utilise Twisted deferreds
-            # On wrappe avec un Event pour sync
-            result = [None]
-            event = threading.Event()
-
-            def callback(response):
-                result[0] = response
-                event.set()
-
-            self._client.send(message, callback=callback)
-            event.wait(timeout=timeout)
-            return result[0]
-        except Exception as e:
-            logger.error(f"[{self.name}] _send_and_wait error: {e}")
-            return None
-
-    def _run_reactor(self):
-        """Démarre le reactor Twisted dans un thread."""
-        try:
+        def run_reactor():
             from twisted.internet import reactor
             if not reactor.running:
                 reactor.run(installSignalHandlers=False)
+
+        self._reactor_thread = threading.Thread(target=run_reactor, daemon=True)
+        self._reactor_thread.start()
+        self._reactor_running = True
+        time.sleep(0.5)
+
+    def _refresh_access_token(self) -> bool:
+        if not self.refresh_token:
+            print("[cTrader] ⚠️  No refresh token available")
+            return False
+
+        old_access_token = self.access_token
+        old_refresh_token = self.refresh_token
+        token_url = "https://openapi.ctrader.com/apps/token"
+        payload = {
+            "grant_type": "refresh_token",
+            "refresh_token": self.refresh_token,
+            "client_id": self.client_id,
+            "client_secret": self.client_secret
+        }
+
+        try:
+            print("[cTrader] Refreshing access token...")
+            response = requests.post(token_url, data=payload, timeout=15)
+            if response.status_code == 200:
+                data = response.json()
+                if not data:
+                    print("[cTrader] ❌ Empty response from token endpoint")
+                    return False
+                new_access = data.get("accessToken") or data.get("access_token")
+                new_refresh = data.get("refreshToken") or data.get("refresh_token")
+                if not new_access:
+                    print("[cTrader] ❌ No access token in response")
+                    return False
+                self.access_token = new_access
+                if new_refresh:
+                    self.refresh_token = new_refresh
+                print(f"[cTrader] ✅ Token refreshed successfully")
+                self._save_tokens_to_config()
+                return True
+            else:
+                print(f"[cTrader] ❌ Token refresh failed: {response.status_code}")
+                return False
         except Exception as e:
-            logger.error(f"[{self.name}] reactor error: {e}")
+            print(f"[cTrader] ❌ Token refresh error: {e}")
+            self.access_token = old_access_token
+            self.refresh_token = old_refresh_token
+            return False
+
+    def _save_tokens_to_config(self):
+        try:
+            from arabesque.config import update_broker_tokens
+            update_broker_tokens(
+                broker_id=self.broker_id,
+                access_token=self.access_token,
+                refresh_token=self.refresh_token
+            )
+            print(f"[cTrader] 💾 Tokens saved to config")
+        except Exception as e:
+            print(f"[cTrader] ⚠️  Could not save tokens: {e}")
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _enum_value(self, message_obj, field_name: str, wanted: str) -> int:
+        field = message_obj.DESCRIPTOR.fields_by_name[field_name]
+        if field.enum_type is None:
+            raise ValueError(f"Field {field_name} is not an enum")
+        wanted_u = wanted.upper()
+        values = list(field.enum_type.values)
+        for v in values:
+            if v.name.upper() == wanted_u:
+                return v.number
+        for v in values:
+            name_u = v.name.upper()
+            if name_u.endswith("_" + wanted_u) or name_u.endswith(wanted_u) or wanted_u in name_u:
+                return v.number
+        available = ", ".join([f"{v.name}={v.number}" for v in values])
+        raise ValueError(f"Enum not found for {field_name}={wanted}. Available: {available}")
+
+    def _symbol_id_for_name(self, name: str) -> Optional[int]:
+        """Retourne le symbolId cTrader pour un nom de symbole."""
+        for sid, sinfo in self._symbols.items():
+            if sinfo.symbol == name or sinfo.broker_symbol == str(sid):
+                return sid
+        return None
+
+    # ------------------------------------------------------------------
+    # Connection
+    # ------------------------------------------------------------------
+
+    async def connect(self) -> bool:
+        if self._should_refresh_token():
+            if self._refresh_access_token():
+                self._token_refreshed = True
+
+        self._ensure_reactor_running()
+        self._client = Client(self.host, self.port, TcpProtocol)
+
+        connect_future = asyncio.get_event_loop().create_future()
+
+        def on_connected(client):
+            print(f"[cTrader] Connected to {self.host}:{self.port}")
+            req = ProtoOAApplicationAuthReq()
+            req.clientId = self.client_id
+            req.clientSecret = self.client_secret
+            client.send(req)
+
+        def on_message(client, message):
+            payload = Protobuf.extract(message)
+            ptype = payload.DESCRIPTOR.name
+
+            if isinstance(payload, ProtoOAErrorRes):
+                error_msg = f"cTrader Error: {payload.errorCode} - {payload.description}"
+                print(f"[cTrader] ❌ {error_msg}")
+                if not connect_future.done():
+                    connect_future.set_exception(Exception(error_msg))
+                return
+
+            if ptype == "ProtoOAApplicationAuthRes":
+                print("[cTrader] ✅ Application authenticated")
+                if self.account_id:
+                    req = ProtoOAAccountAuthReq()
+                    req.ctidTraderAccountId = self.account_id
+                    req.accessToken = self.access_token
+                    client.send(req)
+                else:
+                    req = ProtoOAGetAccountListByAccessTokenReq()
+                    req.accessToken = self.access_token
+                    client.send(req)
+
+            elif ptype == "ProtoOAGetAccountListByAccessTokenRes":
+                accounts = list(payload.ctidTraderAccount)
+                if not accounts:
+                    if not connect_future.done():
+                        connect_future.set_exception(Exception("No accounts found"))
+                    return
+                self.account_id = accounts[0].ctidTraderAccountId
+                print(f"[cTrader] Found {len(accounts)} account(s), using: {self.account_id}")
+                req = ProtoOAAccountAuthReq()
+                req.ctidTraderAccountId = self.account_id
+                req.accessToken = self.access_token
+                client.send(req)
+
+            elif ptype == "ProtoOAAccountAuthRes":
+                print(f"[cTrader] ✅ Account {self.account_id} authenticated")
+                self._connected = True
+                if not connect_future.done():
+                    connect_future.set_result(True)
+
+            elif ptype == "ProtoOASymbolsListRes":
+                self._process_symbols_response(payload)
+                if "symbols" in self._pending_requests:
+                    self._pending_requests["symbols"].set_result(list(self._symbols.values()))
+
+            elif ptype == "ProtoOATraderRes":
+                self._process_trader_response(payload)
+                if "account_info" in self._pending_requests:
+                    self._pending_requests["account_info"].set_result(self._account_info)
+
+            elif ptype == "ProtoOAReconcileRes":
+                self._process_reconcile_response(payload)
+                if "reconcile" in self._pending_requests:
+                    self._pending_requests["reconcile"].set_result(payload)
+
+            elif ptype == "ProtoOASpotEvent":
+                # -------------------------------------------------------
+                # Price feed: tick reçu
+                # -------------------------------------------------------
+                self._process_spot_event(payload)
+
+            elif "Order" in ptype or "Execution" in ptype:
+                self._process_order_response(payload, ptype)
+
+        self._client.setConnectedCallback(on_connected)
+        self._client.setMessageReceivedCallback(on_message)
+
+        from twisted.internet import reactor
+        reactor.callFromThread(self._client.startService)
+
+        try:
+            await asyncio.wait_for(connect_future, timeout=30)
+            return True
+        except asyncio.TimeoutError:
+            print("[cTrader] ❌ Connection timeout")
+            return False
+        except Exception as e:
+            print(f"[cTrader] ❌ Connection error: {e}")
+            return False
+
+    async def disconnect(self):
+        # Se désabonner de tous les spots avant de couper
+        if self._subscribed_symbol_ids and self._client:
+            req = ProtoOAUnsubscribeSpotsReq()
+            req.ctidTraderAccountId = self.account_id
+            for sid in list(self._subscribed_symbol_ids):
+                req.symbolId.append(sid)
+            from twisted.internet import reactor
+            reactor.callFromThread(self._client.send, req)
+            await asyncio.sleep(0.3)
+        if self._client:
+            from twisted.internet import reactor
+            reactor.callFromThread(self._client.stopService)
+        self._connected = False
+
+    # ------------------------------------------------------------------
+    # Price feed (spots)
+    # ------------------------------------------------------------------
+
+    async def subscribe_spots(self, symbol: str, callback: Callable) -> bool:
+        """
+        Souscrire aux ticks de prix pour un symbole.
+
+        Le callback reçoit un objet PriceTick à chaque tick.
+        symbol: nom unifié (ex: 'EURUSD')
+        """
+        if not self._connected:
+            return False
+
+        # S'assurer que les symboles sont chargés
+        if not self._symbols:
+            await self.get_symbols()
+
+        symbol_id = self._symbol_id_for_name(symbol)
+        broker_sym = self.map_symbol(symbol)
+        if symbol_id is None and broker_sym:
+            symbol_id = self._symbol_id_for_name(broker_sym)
+        if symbol_id is None:
+            print(f"[cTrader] ⚠️ subscribe_spots: symbol {symbol} not found")
+            return False
+
+        if symbol_id not in self._spot_callbacks:
+            self._spot_callbacks[symbol_id] = []
+        self._spot_callbacks[symbol_id].append(callback)
+
+        if symbol_id not in self._subscribed_symbol_ids:
+            req = ProtoOASubscribeSpotsReq()
+            req.ctidTraderAccountId = self.account_id
+            req.symbolId.append(symbol_id)
+            from twisted.internet import reactor
+            reactor.callFromThread(self._client.send, req)
+            self._subscribed_symbol_ids.add(symbol_id)
+            print(f"[cTrader] 📡 Subscribed to spots: {symbol} (ID {symbol_id})")
+
+        return True
+
+    async def unsubscribe_spots(self, symbol: str):
+        """Se désabonner des ticks d'un symbole."""
+        if not self._connected or not self._client:
+            return
+        symbol_id = self._symbol_id_for_name(symbol)
+        if symbol_id is None:
+            return
+        self._spot_callbacks.pop(symbol_id, None)
+        if symbol_id in self._subscribed_symbol_ids:
+            req = ProtoOAUnsubscribeSpotsReq()
+            req.ctidTraderAccountId = self.account_id
+            req.symbolId.append(symbol_id)
+            from twisted.internet import reactor
+            reactor.callFromThread(self._client.send, req)
+            self._subscribed_symbol_ids.discard(symbol_id)
+            print(f"[cTrader] 🔕 Unsubscribed from spots: {symbol}")
+
+    def get_last_tick(self, symbol: str) -> Optional[PriceTick]:
+        """Retourne le dernier tick connu pour un symbole (ou None)."""
+        symbol_id = self._symbol_id_for_name(symbol)
+        if symbol_id is None:
+            return None
+        return self._price_ticks.get(symbol_id)
+
+    def _process_spot_event(self, payload):
+        """Traite un ProtoOASpotEvent reçu du serveur."""
+        symbol_id = payload.symbolId
+
+        # Les prix sont en format entier avec 5 décimales (× 100000)
+        # selon les specs cTrader Open API
+        divisor = 100000
+
+        bid = getattr(payload, 'bid', None)
+        ask = getattr(payload, 'ask', None)
+
+        if bid is None or ask is None:
+            return
+
+        bid_f = bid / divisor
+        ask_f = ask / divisor
+
+        # Récupérer le nom du symbole depuis le cache
+        sym_info = self._symbols.get(symbol_id)
+        sym_name = sym_info.symbol if sym_info else str(symbol_id)
+
+        tick = PriceTick(
+            symbol=sym_name,
+            bid=bid_f,
+            ask=ask_f,
+            timestamp=datetime.now(timezone.utc),
+        )
+        self._price_ticks[symbol_id] = tick
+
+        # Appeler les callbacks enregistrés
+        loop = asyncio.get_event_loop()
+        for cb in self._spot_callbacks.get(symbol_id, []):
+            try:
+                if asyncio.iscoroutinefunction(cb):
+                    loop.call_soon_threadsafe(lambda c=cb, t=tick: asyncio.ensure_future(c(t)))
+                else:
+                    loop.call_soon_threadsafe(cb, tick)
+            except Exception as e:
+                print(f"[cTrader] ⚠️ Spot callback error: {e}")
+
+    # ------------------------------------------------------------------
+    # Symbols processing
+    # ------------------------------------------------------------------
+
+    def _process_symbols_response(self, payload):
+        for s in payload.symbol:
+            symbol_id = s.symbolId
+            symbol_name = getattr(s, "symbolName", f"ID:{symbol_id}")
+            digits = getattr(s, "digits", 5)
+            pip_position = getattr(s, "pipPosition", digits - 1)
+            tick_size = 10 ** (-digits)
+            pip_size = 10 ** (-pip_position) if pip_position > 0 else tick_size
+            min_volume = getattr(s, "minVolume", 1000) / 100
+            max_volume = getattr(s, "maxVolume", 10000000) / 100
+            step_volume = getattr(s, "stepVolume", 1000) / 100
+            self._symbols[symbol_id] = SymbolInfo(
+                symbol=symbol_name,
+                broker_symbol=str(symbol_id),
+                description=getattr(s, "description", ""),
+                digits=digits,
+                tick_size=tick_size,
+                pip_size=pip_size,
+                min_volume=min_volume,
+                max_volume=max_volume,
+                volume_step=step_volume,
+                lot_size=100000,
+                is_tradable=True
+            )
+
+    def _process_trader_response(self, payload):
+        trader = payload.trader
+        self._account_info = AccountInfo(
+            account_id=str(self.account_id),
+            broker_name=self.name,
+            balance=trader.balance / 100,
+            equity=trader.balance / 100,
+            margin_used=getattr(trader, "usedMargin", 0) / 100,
+            currency=getattr(trader, "depositAssetId", "USD"),
+            leverage=getattr(trader, "leverageInCents", 10000) // 100,
+            is_demo=self.is_demo
+        )
+
+    def _process_reconcile_response(self, payload):
+        self._positions = []
+        self._pending_orders = []
+        for pos in payload.position:
+            side = OrderSide.BUY if pos.tradeData.tradeSide == 1 else OrderSide.SELL
+            self._positions.append(Position(
+                position_id=str(pos.positionId),
+                symbol=self.reverse_map_symbol(pos.tradeData.symbolId) or str(pos.tradeData.symbolId),
+                side=side,
+                volume=pos.tradeData.volume / 100,
+                entry_price=pos.price,
+                stop_loss=getattr(pos, "stopLoss", None),
+                take_profit=getattr(pos, "takeProfit", None),
+            ))
+        for order in payload.order:
+            side = OrderSide.BUY if order.tradeData.tradeSide == 1 else OrderSide.SELL
+            order_type = OrderType.LIMIT if order.orderType == 1 else OrderType.STOP
+            self._pending_orders.append(PendingOrder(
+                order_id=str(order.orderId),
+                symbol=self.reverse_map_symbol(order.tradeData.symbolId) or str(order.tradeData.symbolId),
+                side=side,
+                order_type=order_type,
+                volume=order.tradeData.volume / 100,
+                entry_price=getattr(order, "limitPrice", getattr(order, "stopPrice", 0)),
+                stop_loss=getattr(order, "stopLoss", None),
+                take_profit=getattr(order, "takeProfit", None),
+                created_time=datetime.fromtimestamp(order.tradeData.openTimestamp / 1000, tz=timezone.utc),
+                label=getattr(order, "label", ""),
+                comment=getattr(order, "comment", ""),
+                broker_id=self.broker_id,
+            ))
+
+    def _process_order_response(self, payload, ptype: str):
+        print(f"[cTrader] DEBUG: Received {ptype}")
+        if "order_place" in self._pending_requests:
+            future = self._pending_requests.pop("order_place")
+            if ptype == "ProtoOAOrderErrorEvent" or "Error" in ptype:
+                error_code = getattr(payload, "errorCode", "UNKNOWN")
+                description = getattr(payload, "description", "No description")
+                future.set_result(OrderResult(
+                    success=False,
+                    message=f"Order rejected: {error_code} - {description}",
+                    broker_response=payload
+                ))
+                return
+            order_id = None
+            if hasattr(payload, "order") and hasattr(payload.order, "orderId"):
+                order_id = payload.order.orderId
+            if not order_id and hasattr(payload, "orderId"):
+                order_id = payload.orderId
+            if not order_id and hasattr(payload, "position"):
+                if hasattr(payload.position, "positionId"):
+                    order_id = payload.position.positionId
+            if order_id and order_id != 0:
+                future.set_result(OrderResult(
+                    success=True,
+                    order_id=str(order_id),
+                    message="Order placed successfully",
+                    broker_response=payload
+                ))
+            else:
+                future.set_result(OrderResult(
+                    success=True,
+                    order_id="unknown",
+                    message=f"Response: {ptype}",
+                    broker_response=payload
+                ))
+        if "order_cancel" in self._pending_requests:
+            future = self._pending_requests.pop("order_cancel")
+            future.set_result(OrderResult(
+                success=True,
+                message="Order cancelled",
+                broker_response=payload
+            ))
+
+    # ------------------------------------------------------------------
+    # Account & symbols
+    # ------------------------------------------------------------------
+
+    async def get_account_info(self) -> Optional[AccountInfo]:
+        if not self._connected:
+            return None
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        self._pending_requests["account_info"] = future
+        req = ProtoOATraderReq()
+        req.ctidTraderAccountId = self.account_id
+        from twisted.internet import reactor
+        reactor.callFromThread(self._client.send, req)
+        try:
+            return await asyncio.wait_for(future, timeout=10)
+        except asyncio.TimeoutError:
+            return None
+
+    async def get_symbols(self) -> List[SymbolInfo]:
+        if not self._connected:
+            return []
+        if self._symbols:
+            return list(self._symbols.values())
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        self._pending_requests["symbols"] = future
+        req = ProtoOASymbolsListReq()
+        req.ctidTraderAccountId = self.account_id
+        from twisted.internet import reactor
+        reactor.callFromThread(self._client.send, req)
+        try:
+            return await asyncio.wait_for(future, timeout=15)
+        except asyncio.TimeoutError:
+            return []
+
+    async def get_symbol_info(self, symbol: str) -> Optional[SymbolInfo]:
+        if not self._symbols:
+            await self.get_symbols()
+        for s in self._symbols.values():
+            if s.symbol == symbol or s.broker_symbol == symbol:
+                return s
+        broker_symbol = self.map_symbol(symbol)
+        if broker_symbol and int(broker_symbol) in self._symbols:
+            return self._symbols[int(broker_symbol)]
+        return None
+
+    # ------------------------------------------------------------------
+    # Orders
+    # ------------------------------------------------------------------
+
+    async def place_order(self, order: OrderRequest) -> OrderResult:
+        if not self._connected:
+            return OrderResult(success=False, message="Not connected")
+
+        broker_symbol = order.broker_symbol or self.map_symbol(order.symbol)
+        if not broker_symbol:
+            return OrderResult(success=False, message=f"Symbol {order.symbol} not mapped for cTrader")
+
+        symbol_id = None
+        try:
+            symbol_id = int(broker_symbol)
+        except ValueError:
+            symbol_info = await self.get_symbol_info(broker_symbol)
+            if symbol_info:
+                symbol_id = int(symbol_info.broker_symbol)
+            else:
+                return OrderResult(success=False, message=f"Symbol {broker_symbol} not found in cTrader")
+
+        if not symbol_id:
+            return OrderResult(success=False, message=f"Could not resolve symbol ID for {broker_symbol}")
+
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        self._pending_requests["order_place"] = future
+
+        try:
+            req = ProtoOANewOrderReq()
+            req.ctidTraderAccountId = self.account_id
+            req.symbolId = symbol_id
+            if order.order_type == OrderType.MARKET:
+                req.orderType = self._enum_value(req, "orderType", "MARKET")
+            elif order.order_type == OrderType.LIMIT:
+                req.orderType = self._enum_value(req, "orderType", "LIMIT")
+                if order.entry_price:
+                    req.limitPrice = order.entry_price
+            elif order.order_type == OrderType.STOP:
+                req.orderType = self._enum_value(req, "orderType", "STOP")
+                if order.entry_price:
+                    req.stopPrice = order.entry_price
+            req.tradeSide = self._enum_value(req, "tradeSide", order.side.value)
+            volume_multiplier = 10000000
+            broker_volume = order.broker_volume or int(order.volume * volume_multiplier)
+            req.volume = broker_volume
+            if order.stop_loss:
+                req.stopLoss = order.stop_loss
+            if order.take_profit:
+                req.takeProfit = order.take_profit
+            if order.expiry_timestamp_ms:
+                req.timeInForce = self._enum_value(req, "timeInForce", "GOOD_TILL_DATE")
+                req.expirationTimestamp = order.expiry_timestamp_ms
+            else:
+                req.timeInForce = self._enum_value(req, "timeInForce", "GTC")
+            if order.label:
+                req.label = order.label[:50]
+            if order.comment:
+                req.comment = order.comment[:100]
+            print(f"[cTrader] Placing {order.order_type.value} {order.side.value} "
+                  f"{order.volume} lots on {order.symbol} @ {order.entry_price}")
+            from twisted.internet import reactor
+            reactor.callFromThread(self._client.send, req)
+            result = await asyncio.wait_for(future, timeout=30)
+            return result
+        except asyncio.TimeoutError:
+            return OrderResult(success=False, message="Order timeout")
+        except Exception as e:
+            return OrderResult(success=False, message=str(e))
+
+    async def cancel_order(self, order_id: str) -> OrderResult:
+        if not self._connected:
+            return OrderResult(success=False, message="Not connected")
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        self._pending_requests["order_cancel"] = future
+        req = ProtoOACancelOrderReq()
+        req.ctidTraderAccountId = self.account_id
+        req.orderId = int(order_id)
+        from twisted.internet import reactor
+        reactor.callFromThread(self._client.send, req)
+        try:
+            return await asyncio.wait_for(future, timeout=15)
+        except asyncio.TimeoutError:
+            return OrderResult(success=False, message="Cancel timeout")
+
+    async def get_pending_orders(self) -> List[PendingOrder]:
+        if not self._connected:
+            return []
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        self._pending_requests["reconcile"] = future
+        req = ProtoOAReconcileReq()
+        req.ctidTraderAccountId = self.account_id
+        from twisted.internet import reactor
+        reactor.callFromThread(self._client.send, req)
+        try:
+            await asyncio.wait_for(future, timeout=15)
+            return self._pending_orders
+        except asyncio.TimeoutError:
+            return []
+
+    async def get_positions(self) -> List[Position]:
+        await self.get_pending_orders()
+        return self._positions
+
+
+# =============================================================================
+# Synchronous wrapper
+# =============================================================================
+
+class CTraderBrokerSync:
+    """Wrapper synchrone pour CTraderBroker (usage CLI/scripts)."""
+
+    def __init__(self, broker_id: str, config: dict):
+        self.broker = CTraderBroker(broker_id, config)
+        self._loop = None
+
+    def _get_loop(self):
+        if self._loop is None or self._loop.is_closed():
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+        return self._loop
+
+    def connect(self) -> bool:
+        return self._get_loop().run_until_complete(self.broker.connect())
+
+    def disconnect(self):
+        self._get_loop().run_until_complete(self.broker.disconnect())
+
+    def get_account_info(self) -> Optional[AccountInfo]:
+        return self._get_loop().run_until_complete(self.broker.get_account_info())
+
+    def get_symbols(self) -> List[SymbolInfo]:
+        return self._get_loop().run_until_complete(self.broker.get_symbols())
+
+    def place_order(self, order: OrderRequest) -> OrderResult:
+        return self._get_loop().run_until_complete(self.broker.place_order(order))
+
+    def cancel_order(self, order_id: str) -> OrderResult:
+        return self._get_loop().run_until_complete(self.broker.cancel_order(order_id))
+
+    def get_pending_orders(self) -> List[PendingOrder]:
+        return self._get_loop().run_until_complete(self.broker.get_pending_orders())
+
+    def get_positions(self) -> List[Position]:
+        return self._get_loop().run_until_complete(self.broker.get_positions())
+
+    def get_last_tick(self, symbol: str) -> Optional[PriceTick]:
+        return self.broker.get_last_tick(symbol)

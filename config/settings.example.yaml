@@ -1,0 +1,97 @@
+# =============================================================================
+# Arabesque - Configuration principale
+# =============================================================================
+# Les credentials sont dans config/secrets.yaml (séparé, non commité)
+# Les instruments sont dans config/instruments.yaml (optionnel)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# PARAMÈTRES GÉNÉRAUX
+# -----------------------------------------------------------------------------
+general:
+  risk_percent: 0.5          # Risque par trade (% du capital)
+  use_equity: true           # Utiliser l'équité (true) ou la balance (false)
+  default_rr_ratio: 2.5      # R/R par défaut si non fourni dans le signal
+  order_timeout_candles: 4   # Expiration des ordres limites (en bougies)
+  candle_timeframe_minutes: 240  # Timeframe des bougies (240 = H4)
+
+# -----------------------------------------------------------------------------
+# EXÉCUTION
+# -----------------------------------------------------------------------------
+execution:
+  delay_between_brokers:
+    enabled: true
+    min_ms: 500
+    max_ms: 3000
+
+# -----------------------------------------------------------------------------
+# PRICE FEED (surveillance prix cTrader)
+# -----------------------------------------------------------------------------
+price_feed:
+  # Broker utilisé comme source de prix (doit être de type ctrader)
+  source_broker: "ftmo_ctrader"
+  # Symboles à surveiller en continu (noms unifiés)
+  symbols: []
+    # - EURUSD
+    # - GBPUSD
+    # - XAUUSD
+
+# -----------------------------------------------------------------------------
+# FILTRES PRÉ-PLACEMENT
+# -----------------------------------------------------------------------------
+filters:
+  min_margin_percent: 30
+  max_daily_drawdown_percent: 4.0
+  max_total_drawdown_percent: 9.0
+  max_open_positions: 5
+  max_pending_orders: 10
+  prevent_duplicate_orders: true
+
+# -----------------------------------------------------------------------------
+# BROKERS
+# -----------------------------------------------------------------------------
+brokers:
+  # ---- FTMO (cTrader) ----
+  ftmo_ctrader:
+    enabled: true
+    type: ctrader
+    name: "FTMO Challenge"
+    is_demo: true
+    auto_refresh_token: true
+    account_id: null   # null = auto-détection
+
+  # ---- GFT Compte 1 (TradeLocker) ----
+  gft_compte1:
+    enabled: true
+    type: tradelocker
+    name: "GFT Funded #1"
+    is_demo: false
+    base_url: "https://bsb.tradelocker.com"
+    server: "GFTTL"
+    account_id: null   # null = premier compte actif
+
+  # ---- GFT Compte 2 (TradeLocker) - décommenter si nécessaire ----
+  # gft_compte2:
+  #   enabled: true
+  #   type: tradelocker
+  #   name: "GFT Funded #2"
+  #   is_demo: false
+  #   base_url: "https://bsb.tradelocker.com"
+  #   server: "GFTTL"
+  #   account_id: null
+
+# -----------------------------------------------------------------------------
+# INSTRUMENTS
+# -----------------------------------------------------------------------------
+# Peuvent aussi être dans config/instruments.yaml (fichier dédié recommandé)
+instruments: {}
+
+# -----------------------------------------------------------------------------
+# NOTIFICATIONS (optionnel)
+# -----------------------------------------------------------------------------
+notifications:
+  enabled: false
+  on_order_placed: true
+  on_order_error: true
+  channels: []
+    # - "tgram://BOT_TOKEN/CHAT_ID"

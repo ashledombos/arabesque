@@ -1,71 +1,81 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Arabesque v2 — Broker Factory.
-
-Crée le bon adapter depuis la configuration.
+Broker factory: instancie le bon connecteur selon le type déclaré
+dans config/settings.yaml (section brokers).
 """
 
-from __future__ import annotations
-
-import logging
-from arabesque.broker.adapters import BrokerAdapter, DryRunAdapter
-
-logger = logging.getLogger("arabesque.broker")
+from typing import Dict, Optional
+from .base import BaseBroker
 
 
-def create_broker(config: dict) -> BrokerAdapter:
-    """Crée un adapter broker selon le type spécifié dans la config.
-
-    Config attendue :
-        {"type": "ctrader", "host": "...", "client_id": "...", ...}
-        {"type": "tradelocker", "email": "...", "password": "...", ...}
-        {"type": "dry_run"}
-
-    Returns:
-        BrokerAdapter connecté (ou prêt à connecter)
+def create_broker(broker_id: str, config: dict) -> BaseBroker:
     """
-    broker_type = config.get("type", "dry_run").lower()
+    Crée un broker depuis sa config.
+
+    config doit contenir au moins:
+      type: ctrader | tradelocker
+      enabled: true/false
+      + les champs spécifiques au type
+
+    Les credentials (email, password, access_token, etc.) doivent
+    avoir été mergés depuis secrets.yaml avant appel.
+    """
+    broker_type = config.get("type", "").lower()
 
     if broker_type == "ctrader":
-        from arabesque.broker.ctrader import CTraderAdapter, CTraderConfig
-        ct_config = CTraderConfig(**{
-            k: v for k, v in config.items()
-            if k in CTraderConfig.__dataclass_fields__
-        })
-        return CTraderAdapter(ct_config)
+        from .ctrader import CTraderBroker
+        return CTraderBroker(broker_id, config)
 
     elif broker_type == "tradelocker":
-        from arabesque.broker.tradelocker import TradeLockerAdapter, TradeLockerConfig
-        tl_config = TradeLockerConfig(**{
-            k: v for k, v in config.items()
-            if k in TradeLockerConfig.__dataclass_fields__
-        })
-        return TradeLockerAdapter(tl_config)
-
-    elif broker_type == "dry_run":
-        return DryRunAdapter(config)
+        from .tradelocker import TradeLockerBroker
+        return TradeLockerBroker(broker_id, config)
 
     else:
-        logger.warning(f"Unknown broker type '{broker_type}', defaulting to dry_run")
-        return DryRunAdapter(config)
+        raise ValueError(
+            f"Unknown broker type '{broker_type}' for broker '{broker_id}'. "
+            f"Supported: ctrader, tradelocker"
+        )
 
 
-def create_all_brokers(configs: list[dict]) -> dict[str, BrokerAdapter]:
-    """Crée et connecte plusieurs brokers.
-
-    Returns:
-        Dict {name: BrokerAdapter}
+def create_all_brokers(settings: dict, secrets: dict) -> Dict[str, BaseBroker]:
     """
-    brokers = {}
-    for cfg in configs:
-        name = cfg.get("name", cfg.get("type", "unknown"))
-        try:
-            broker = create_broker(cfg)
-            if broker.connect():
-                brokers[name] = broker
-                logger.info(f"Broker '{name}' connected")
-            else:
-                logger.error(f"Broker '{name}' failed to connect")
-        except Exception as e:
-            logger.error(f"Broker '{name}' creation error: {e}")
+    Instancie tous les brokers activés depuis settings + secrets.
 
-    return brokers
+    settings: contenu de config/settings.yaml
+    secrets:  contenu de config/secrets.yaml
+
+    Retourne un dict broker_id -> instance.
+    """
+    brokers_cfg = settings.get("brokers", {})
+    brokers_secrets = secrets  # secrets.yaml est au même niveau que les broker_ids
+
+    result: Dict[str, BaseBroker] = {}
+
+    for broker_id, broker_cfg in brokers_cfg.items():
+        if not broker_cfg.get("enabled", True):
+            continue
+
+        # Merger les secrets dans la config du broker
+        merged = dict(broker_cfg)
+        if broker_id in brokers_secrets:
+            merged.update(brokers_secrets[broker_id])
+
+        # Ajouter le mapping instruments si disponible
+        # (instruments[symbol][broker_id] -> nom broker)
+        instruments_cfg = settings.get("instruments", {})
+        instruments_mapping = {}
+        for symbol, inst_data in instruments_cfg.items():
+            if isinstance(inst_data, dict) and broker_id in inst_data:
+                instruments_mapping[symbol] = inst_data[broker_id]
+        if instruments_mapping:
+            merged["instruments_mapping"] = instruments_mapping
+
+        try:
+            broker = create_broker(broker_id, merged)
+            result[broker_id] = broker
+            print(f"[factory] ✅ Broker créé: {broker_id} ({broker_cfg.get('type')})")
+        except Exception as e:
+            print(f"[factory] ❌ Échec création broker {broker_id}: {e}")
+
+    return result

@@ -1,0 +1,224 @@
+# =============================================================================
+# INSTRUMENTS - Configuration des paires de trading
+# =============================================================================
+# Mapping: nom unifié → nom par broker
+# Si un broker n'est pas listé pour un instrument, celui-ci est ignoré
+# pour ce broker.
+#
+# RÈGLES DE CONFIGURATION:
+# - XXX/USD (quote=USD): pip_value_per_lot: 10 (fixe)
+# - USD/XXX (base=USD): pip_value_per_lot: null + quote_currency: "XXX"
+# - XXX/YYY (cross):    pip_value_per_lot: null + quote_currency: "YYY"
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# MAJORS - Quote currency = USD
+# ---------------------------------------------------------------------------
+EURUSD:
+  ftmo_ctrader: "EURUSD"
+  gft_compte1: "EURUSD.X"
+  gft_compte2: "EURUSD.X"
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+
+GBPUSD:
+  ftmo_ctrader: "GBPUSD"
+  gft_compte1: "GBPUSD.X"
+  gft_compte2: "GBPUSD.X"
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+
+AUDUSD:
+  ftmo_ctrader: "AUDUSD"
+  gft_compte1: "AUDUSD.X"
+  gft_compte2: "AUDUSD.X"
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+
+NZDUSD:
+  ftmo_ctrader: "NZDUSD"
+  gft_compte1: "NZDUSD.X"
+  gft_compte2: "NZDUSD.X"
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+
+# ---------------------------------------------------------------------------
+# USD/XXX - Base = USD, calcul dynamique
+# ---------------------------------------------------------------------------
+USDJPY:
+  ftmo_ctrader: "USDJPY"
+  gft_compte1: "USDJPY.X"
+  gft_compte2: "USDJPY.X"
+  pip_size: 0.01
+  pip_value_per_lot: null
+  quote_currency: "JPY"
+
+USDCAD:
+  ftmo_ctrader: "USDCAD"
+  gft_compte1: "USDCAD.X"
+  gft_compte2: "USDCAD.X"
+  pip_size: 0.0001
+  pip_value_per_lot: null
+  quote_currency: "CAD"
+
+USDCHF:
+  ftmo_ctrader: "USDCHF"
+  gft_compte1: "USDCHF.X"
+  gft_compte2: "USDCHF.X"
+  pip_size: 0.0001
+  pip_value_per_lot: null
+  quote_currency: "CHF"
+
+USDMXN:
+  ftmo_ctrader: "USDMXN"
+  gft_compte1: "USDMXN.X"
+  gft_compte2: "USDMXN.X"
+  pip_size: 0.0001
+  pip_value_per_lot: null
+  quote_currency: "MXN"
+
+USDCNH:
+  ftmo_ctrader: "USDCNH"
+  gft_compte1: "USDCNH.X"
+  gft_compte2: "USDCNH.X"
+  pip_size: 0.0001
+  pip_value_per_lot: null
+  quote_currency: "CNH"
+
+# ---------------------------------------------------------------------------
+# JPY CROSSES
+# ---------------------------------------------------------------------------
+EURJPY:
+  ftmo_ctrader: "EURJPY"
+  gft_compte1: "EURJPY.X"
+  gft_compte2: "EURJPY.X"
+  pip_size: 0.01
+  pip_value_per_lot: null
+  quote_currency: "JPY"
+
+GBPJPY:
+  ftmo_ctrader: "GBPJPY"
+  gft_compte1: "GBPJPY.X"
+  gft_compte2: "GBPJPY.X"
+  pip_size: 0.01
+  pip_value_per_lot: null
+  quote_currency: "JPY"
+
+AUDJPY:
+  ftmo_ctrader: "AUDJPY"
+  gft_compte1: "AUDJPY.X"
+  gft_compte2: "AUDJPY.X"
+  pip_size: 0.01
+  pip_value_per_lot: null
+  quote_currency: "JPY"
+
+NZDJPY:
+  ftmo_ctrader: "NZDJPY"
+  gft_compte1: "NZDJPY.X"
+  gft_compte2: "NZDJPY.X"
+  pip_size: 0.01
+  pip_value_per_lot: null
+  quote_currency: "JPY"
+
+# ---------------------------------------------------------------------------
+# EUR CROSSES
+# ---------------------------------------------------------------------------
+EURGBP:
+  ftmo_ctrader: "EURGBP"
+  gft_compte1: "EURGBP.X"
+  gft_compte2: "EURGBP.X"
+  pip_size: 0.0001
+  pip_value_per_lot: null
+  quote_currency: "GBP"
+
+EURNZD:
+  ftmo_ctrader: "EURNZD"
+  gft_compte1: "EURNZD.X"
+  gft_compte2: "EURNZD.X"
+  pip_size: 0.0001
+  pip_value_per_lot: null
+  quote_currency: "NZD"
+
+EURCHF:
+  ftmo_ctrader: "EURCHF"
+  gft_compte1: "EURCHF.X"
+  gft_compte2: "EURCHF.X"
+  pip_size: 0.0001
+  pip_value_per_lot: null
+  quote_currency: "CHF"
+
+EURAUD:
+  ftmo_ctrader: "EURAUD"
+  gft_compte1: "EURAUD.X"
+  gft_compte2: "EURAUD.X"
+  pip_size: 0.0001
+  pip_value_per_lot: null
+  quote_currency: "AUD"
+
+# ---------------------------------------------------------------------------
+# MÉTAUX
+# ---------------------------------------------------------------------------
+XAUUSD:
+  ftmo_ctrader: "XAUUSD"
+  gft_compte1: "XAUUSD.X"
+  gft_compte2: "XAUUSD.X"
+  pip_size: 0.01
+  pip_value_per_lot: 1
+  contract_size: 100
+
+XAGUSD:
+  ftmo_ctrader: "XAGUSD"
+  gft_compte1: "XAGUSD.X"
+  gft_compte2: "XAGUSD.X"
+  pip_size: 0.001
+  pip_value_per_lot: 5
+  contract_size: 5000
+
+# ---------------------------------------------------------------------------
+# INDICES
+# ---------------------------------------------------------------------------
+US30:
+  ftmo_ctrader: "US30"
+  gft_compte1: "US30.X"
+  gft_compte2: "US30.X"
+  pip_size: 1
+  pip_value_per_lot: 1
+
+US100:
+  ftmo_ctrader: "USTEC"
+  gft_compte1: "US100.X"
+  gft_compte2: "US100.X"
+  pip_size: 1
+  pip_value_per_lot: 1
+
+US500:
+  ftmo_ctrader: "US500"
+  gft_compte1: "US500.X"
+  gft_compte2: "US500.X"
+  pip_size: 0.1
+  pip_value_per_lot: 1
+
+GER40:
+  ftmo_ctrader: "DE40"
+  gft_compte1: "GER40.X"
+  gft_compte2: "GER40.X"
+  pip_size: 1
+  pip_value_per_lot: null
+  quote_currency: "EUR"
+
+# ---------------------------------------------------------------------------
+# CRYPTO
+# ---------------------------------------------------------------------------
+BTCUSD:
+  ftmo_ctrader: "BTCUSD"
+  gft_compte1: "BTCUSD.X"
+  gft_compte2: "BTCUSD.X"
+  pip_size: 1
+  pip_value_per_lot: 1
+
+ETHUSD:
+  ftmo_ctrader: "ETHUSD"
+  gft_compte1: "ETHUSD.X"
+  gft_compte2: "ETHUSD.X"
+  pip_size: 0.1
+  pip_value_per_lot: 1

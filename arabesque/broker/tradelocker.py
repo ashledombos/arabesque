@@ -1,365 +1,483 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
-Arabesque v2 — TradeLocker REST API Adapter (Goat Funded Trader).
-
-REST API via la lib tradelocker.
-Référence : envolees-auto/brokers/tradelocker.py
-
-Dépendances :
-    pip install tradelocker
-
-Architecture TradeLocker :
-    - REST API (HTTPS)
-    - Auth : email + password + serveur
-    - Endpoints : /auth, /trade/accounts, /trade/positions, ...
-    - La lib tradelocker wrappe tout en méthodes sync
+TradeLocker broker implementation using official tradelocker library.
+Basé sur Envolees-auto/brokers/tradelocker.py
+https://pypi.org/project/tradelocker/
 """
 
-from __future__ import annotations
+import os
+import asyncio
+from datetime import datetime, timezone
+from typing import Optional, List, Dict, Any
 
-import logging
-import math
-from dataclasses import dataclass
+from .base import (
+    BaseBroker, OrderRequest, OrderResult, OrderSide, OrderType, OrderStatus,
+    Position, PendingOrder, AccountInfo, SymbolInfo,
+)
 
-from arabesque.broker.adapters import BrokerAdapter, OrderResult
+os.environ.setdefault('TRADELOCKER_LOG_LEVEL', 'WARNING')
 
-logger = logging.getLogger("arabesque.broker.tradelocker")
-
-
-@dataclass
-class TradeLockerConfig:
-    """Configuration TradeLocker."""
-    email: str = ""
-    password: str = ""
-    server: str = "live"
-    base_url: str = "https://bsb.tradelocker.com"
-    account_id: int = 0
-    name: str = "tradelocker_gft"
-
-    # Timeouts
-    request_timeout: float = 15.0
-
-    # Retry
-    max_retries: int = 3
-    retry_delay: float = 2.0
+try:
+    from tradelocker import TLAPI
+    TRADELOCKER_AVAILABLE = True
+except ImportError:
+    TRADELOCKER_AVAILABLE = False
+    print("⚠️  tradelocker library not installed. Install with: pip install tradelocker")
 
 
-class TradeLockerAdapter(BrokerAdapter):
-    """Adapter TradeLocker REST API pour Goat Funded Trader.
+class TradeLockerBroker(BaseBroker):
+    """
+    TradeLocker broker implementation using official library.
 
-    Utilise le package tradelocker (pip install tradelocker).
-    API synchrone, pas besoin de thread séparé.
-
-    Usage :
-        config = TradeLockerConfig(
-            email="...", password="...", server="live",
-            account_id=12345,
-        )
-        adapter = TradeLockerAdapter(config)
-        adapter.connect()
-        quote = adapter.get_quote("EURUSD")
+    Config example (dans config/settings.yaml, section brokers):
+        gft_compte1:
+          enabled: true
+          type: tradelocker
+          name: "GFT Funded #1"
+          base_url: "https://bsb.tradelocker.com"
+          server: "GFTTL"
+          account_id: 1711519
+    Credentials dans config/secrets.yaml:
+        gft_compte1:
+          email: "your@email.com"
+          password: "your_password"
     """
 
-    def __init__(self, config: TradeLockerConfig | dict):
-        if isinstance(config, dict):
-            config = TradeLockerConfig(**{k: v for k, v in config.items()
-                                          if k in TradeLockerConfig.__dataclass_fields__})
-        self.cfg = config
-        self.name = config.name
-        self._connected = False
-        self._tl = None              # TLAPI instance
-        self._instruments: dict = {} # name → instrument info
+    def __init__(self, broker_id: str, config: dict):
+        super().__init__(broker_id, config)
 
-    def connect(self) -> bool:
-        """Établit la connexion TradeLocker.
+        if not TRADELOCKER_AVAILABLE:
+            raise ImportError("tradelocker library not installed. Run: pip install tradelocker")
 
-        1. Import tradelocker
-        2. Auth (email + password)
-        3. Sélectionne le compte
-        4. Charge la liste des instruments
-        """
+        self.email = config.get("email", "")
+        self.password = config.get("password", "")
+        self.server = config.get("server", "GFTTL")
+        self.base_url = config.get("base_url", "https://demo.tradelocker.com")
+
+        self._configured_account_id = config.get("account_id")
+
+        self._api: Optional[TLAPI] = None
+        self._account_id: Optional[int] = None
+        self._acc_num: Optional[int] = None
+
+        self._instruments_df = None
+        self._instruments_map: Dict[str, int] = {}   # name -> tradableInstrumentId
+        self._instruments_reverse_map: Dict[int, str] = {}  # tradableInstrumentId -> name
+
+    async def connect(self) -> bool:
         try:
-            from tradelocker import TLAPI
-        except ImportError:
-            logger.error("tradelocker not installed. "
-                         "Run: pip install tradelocker")
-            return False
-
-        try:
-            self._tl = TLAPI(
-                environment=self.cfg.base_url,
-                username=self.cfg.email,
-                password=self.cfg.password,
-                server=self.cfg.server,
+            self._api = TLAPI(
+                environment=self.base_url,
+                username=self.email,
+                password=self.password,
+                server=self.server,
+                log_level='warning'
             )
+            print(f"[TradeLocker] ✅ Authenticated to {self.base_url}")
 
-            # Vérifier la connexion en récupérant les comptes
-            accounts = self._tl.get_all_accounts()
-            if not accounts:
-                logger.error(f"[{self.name}] No accounts found")
+            accounts_df = self._api.get_all_accounts()
+            if accounts_df is None or accounts_df.empty:
+                print("[TradeLocker] ❌ No accounts found")
                 return False
 
-            # Sélectionner le bon compte
-            if self.cfg.account_id:
-                account_found = False
-                for acc in accounts:
-                    if acc.get("id") == self.cfg.account_id:
-                        account_found = True
-                        break
-                if not account_found:
-                    logger.warning(f"[{self.name}] Account {self.cfg.account_id} "
-                                   f"not found, using first account")
+            print(f"[TradeLocker] Found {len(accounts_df)} account(s):")
+            for _, acc in accounts_df.iterrows():
+                status = "✅" if acc.get('status') == 'ACTIVE' else "⚪"
+                print(f"   {status} ID: {acc['id']} | accNum: {acc['accNum']} | {acc['name']}")
 
-            # Charger les instruments
-            self._load_instruments()
+            if self._configured_account_id:
+                matching = accounts_df[accounts_df['id'] == self._configured_account_id]
+                selected = matching.iloc[0] if not matching.empty else accounts_df.iloc[0]
+            else:
+                active = accounts_df[accounts_df['status'] == 'ACTIVE']
+                selected = active.iloc[0] if not active.empty else accounts_df.iloc[0]
 
+            self._account_id = int(selected['id'])
+            self._acc_num = int(selected['accNum'])
+            print(f"[TradeLocker] ✅ Using account: {self._acc_num} (ID: {self._account_id})")
+
+            # Réinit avec le bon compte
+            self._api = TLAPI(
+                environment=self.base_url,
+                username=self.email,
+                password=self.password,
+                server=self.server,
+                acc_num=self._acc_num,
+                log_level='warning'
+            )
+
+            await self._load_instruments()
             self._connected = True
-            logger.info(f"[{self.name}] Connected. "
-                        f"{len(self._instruments)} instruments loaded.")
             return True
 
         except Exception as e:
-            logger.error(f"[{self.name}] Connection failed: {e}")
+            print(f"[TradeLocker] ❌ Connection error: {e}")
             return False
 
-    def get_quote(self, symbol: str) -> dict:
-        """Obtient bid/ask."""
-        if not self._connected or not self._tl:
-            return {"bid": 0, "ask": 0, "spread": 0, "error": "not connected"}
+    async def disconnect(self):
+        self._api = None
+        self._connected = False
 
+    async def _load_instruments(self):
         try:
-            instrument_id = self._resolve_instrument_id(symbol)
-            if not instrument_id:
-                return {"bid": 0, "ask": 0, "spread": 0,
-                        "error": f"instrument {symbol} not found"}
-
-            # TradeLocker : get_latest_asking_price retourne (bid, ask)
-            price_info = self._tl.get_price_history(
-                instrument_id=instrument_id,
-                resolution="1",     # 1 minute
-                start_timestamp=0,   # Dernier prix
-                end_timestamp=0,
-                lookback_period="1", # 1 bar
-            )
-
-            if price_info is not None:
-                # La lib retourne un DataFrame avec OHLC
-                if len(price_info) > 0:
-                    last = price_info.iloc[-1]
-                    bid = float(last.get("c", 0))  # close = dernier bid
-                    # Estimation ask = bid + spread moyen
-                    inst_info = self._instruments.get(symbol, {})
-                    spread = inst_info.get("spread", 0.0001)
-                    ask = bid + spread
-                    return {"bid": bid, "ask": ask, "spread": spread}
-
-            # Fallback : utiliser get_latest_asking_price
-            ask_price = self._tl.get_latest_asking_price(instrument_id)
-            if ask_price:
-                inst_info = self._instruments.get(symbol, {})
-                spread = inst_info.get("spread", 0.0001)
-                return {
-                    "bid": ask_price - spread,
-                    "ask": ask_price,
-                    "spread": spread,
-                }
-
-            return {"bid": 0, "ask": 0, "spread": 0, "error": "no price data"}
-
+            self._instruments_df = self._api.get_all_instruments()
+            if self._instruments_df is not None and not self._instruments_df.empty:
+                for _, inst in self._instruments_df.iterrows():
+                    inst_id = int(inst['tradableInstrumentId'])
+                    inst_name = inst['name']
+                    self._instruments_map[inst_name] = inst_id
+                    self._instruments_reverse_map[inst_id] = inst_name
+                print(f"[TradeLocker] Loaded {len(self._instruments_map)} instruments")
+            else:
+                print("[TradeLocker] ⚠️  No instruments loaded")
         except Exception as e:
-            logger.error(f"[{self.name}] get_quote error: {e}")
-            return {"bid": 0, "ask": 0, "spread": 0, "error": str(e)}
+            print(f"[TradeLocker] Error loading instruments: {e}")
 
-    def get_account_info(self) -> dict:
-        """Obtient balance, equity, marge."""
-        if not self._connected or not self._tl:
-            return {"balance": 0, "equity": 0, "margin_used": 0,
-                    "error": "not connected"}
-
-        try:
-            accounts = self._tl.get_all_accounts()
-            if accounts:
-                acc = accounts[0]  # Premier compte
-                return {
-                    "balance": float(acc.get("balance", 0)),
-                    "equity": float(acc.get("equity", 0)),
-                    "margin_used": float(acc.get("usedMargin", 0)),
-                }
-            return {"balance": 0, "equity": 0, "margin_used": 0}
-
-        except Exception as e:
-            logger.error(f"[{self.name}] get_account_info error: {e}")
-            return {"balance": 0, "equity": 0, "margin_used": 0, "error": str(e)}
-
-    def compute_volume(self, symbol: str, risk_cash: float,
-                       risk_distance: float) -> float:
-        """Calcule le volume (lots) pour TradeLocker.
-
-        TradeLocker utilise les lots standards (1 lot = 100,000 unités FX).
-        Le step et le min dépendent de l'instrument.
-        """
-        if risk_distance <= 0 or risk_cash <= 0:
-            return 0.0
-
-        inst_info = self._instruments.get(symbol, {})
-        lot_step = inst_info.get("lotStep", 0.01)
-        min_lot = inst_info.get("minLot", 0.01)
-        max_lot = inst_info.get("maxLot", 100.0)
-
-        # Pip value approximation (pour comptes USD)
-        pip_size = inst_info.get("pipSize", 0.0001)
-        risk_pips = risk_distance / pip_size
-
-        # pip_value ≈ 10 USD/lot pour paires XXX/USD
-        pip_value_per_lot = 10.0
-        lots = risk_cash / (risk_pips * pip_value_per_lot)
-
-        # Arrondir au lot_step, toujours vers le bas
-        lots = math.floor(lots / lot_step) * lot_step
-
-        # Clamp
-        lots = max(min_lot, min(lots, max_lot))
-
-        return round(lots, 2)
-
-    def place_order(self, signal: dict, sizing: dict) -> dict:
-        """Place un ordre market via TradeLocker REST API."""
-        if not self._connected or not self._tl:
-            return OrderResult(False, message="not connected").to_dict()
-
-        symbol = signal.get("symbol", "")
-        side = signal.get("side", "buy")
-        sl = signal.get("sl", 0)
-
-        instrument_id = self._resolve_instrument_id(symbol)
-        if not instrument_id:
-            return OrderResult(False, message=f"instrument {symbol} not found").to_dict()
-
-        volume = self.compute_volume(
-            symbol, sizing.get("risk_cash", 0),
-            sizing.get("risk_distance", 0),
-        )
-        if volume <= 0:
-            return OrderResult(False, message="volume=0").to_dict()
-
-        try:
-            logger.info(f"[{self.name}] Placing {side.upper()} {symbol} "
-                        f"vol={volume:.2f} SL={sl}")
-
-            order_id = self._tl.create_order(
-                instrument_id=instrument_id,
-                quantity=volume,
-                side=side.lower(),
-                type_="market",
-                stop_loss=sl if sl > 0 else None,
-            )
-
-            if order_id:
-                # Récupérer le fill price
-                fill_price = 0.0
-                try:
-                    orders = self._tl.get_all_orders()
-                    for o in (orders or []):
-                        if str(o.get("id")) == str(order_id):
-                            fill_price = float(o.get("filledPrice", 0))
-                            break
-                except Exception:
-                    pass
-
-                return OrderResult(
-                    success=True,
-                    order_id=str(order_id),
-                    volume=volume,
-                    fill_price=fill_price,
-                    message="order placed",
-                ).to_dict()
-
-            return OrderResult(False, volume=volume,
-                               message="order rejected by TradeLocker").to_dict()
-
-        except Exception as e:
-            logger.error(f"[{self.name}] place_order error: {e}")
-            return OrderResult(False, message=str(e)).to_dict()
-
-    def close_position(self, position_id: str, symbol: str) -> dict:
-        """Ferme une position."""
-        if not self._connected or not self._tl:
-            return {"success": False, "message": "not connected"}
-
-        try:
-            result = self._tl.close_position(int(position_id))
-            if result:
-                return {"success": True,
-                        "message": f"position {position_id} closed"}
-            return {"success": False, "message": "close failed"}
-
-        except Exception as e:
-            logger.error(f"[{self.name}] close_position error: {e}")
-            return {"success": False, "message": str(e)}
-
-    def modify_sl(self, position_id: str, symbol: str, new_sl: float) -> dict:
-        """Modifie le SL d'une position ouverte."""
-        if not self._connected or not self._tl:
-            return {"success": False, "message": "not connected"}
-
-        try:
-            # TradeLocker : modify position via update
-            result = self._tl.modify_position(
-                position_id=int(position_id),
-                stop_loss=new_sl,
-            )
-            if result:
-                logger.info(f"[{self.name}] SL modified: "
-                            f"pos={position_id} → {new_sl}")
-                return {"success": True, "message": f"SL → {new_sl}"}
-            return {"success": False, "message": "modify failed"}
-
-        except Exception as e:
-            logger.error(f"[{self.name}] modify_sl error: {e}")
-            return {"success": False, "message": str(e)}
-
-    # ── Internal helpers ─────────────────────────────────────────────
-
-    def _load_instruments(self):
-        """Charge la liste des instruments disponibles."""
-        if not self._tl:
-            return
-
-        try:
-            instruments = self._tl.get_all_instruments()
-            if instruments:
-                for inst in instruments:
-                    name = inst.get("name", "")
-                    self._instruments[name] = {
-                        "instrumentId": inst.get("tradableInstrumentId", 0),
-                        "name": name,
-                        "pipSize": float(inst.get("pipSize", 0.0001)),
-                        "lotStep": float(inst.get("lotStep", 0.01)),
-                        "minLot": float(inst.get("minQuantity", 0.01)),
-                        "maxLot": float(inst.get("maxQuantity", 100.0)),
-                        "spread": float(inst.get("spread", 0.0001)),
-                    }
-        except Exception as e:
-            logger.error(f"[{self.name}] _load_instruments error: {e}")
-
-    def _resolve_instrument_id(self, symbol: str) -> int | None:
-        """Résout le nom de symbole en instrument_id TradeLocker."""
-        inst = self._instruments.get(symbol)
-        if inst:
-            return inst["instrumentId"]
-
-        # Essayer les variantes (EURUSD vs EUR/USD)
-        variants = [
-            symbol,
-            symbol[:3] + "/" + symbol[3:] if len(symbol) == 6 else symbol,
-            symbol.replace("/", ""),
-        ]
-        for v in variants:
-            if v in self._instruments:
-                return self._instruments[v]["instrumentId"]
-
-        # Dernier recours : recherche partielle
-        for name, info in self._instruments.items():
-            if symbol.replace("/", "") in name.replace("/", ""):
-                return info["instrumentId"]
-
+    def _get_instrument_id(self, symbol: str) -> Optional[int]:
+        mapping = self.config.get("instruments_mapping", {})
+        if symbol in mapping:
+            broker_symbol = mapping[symbol]
+            if broker_symbol in self._instruments_map:
+                return self._instruments_map[broker_symbol]
+        if symbol in self._instruments_map:
+            return self._instruments_map[symbol]
+        symbol_x = f"{symbol}.X"
+        if symbol_x in self._instruments_map:
+            return self._instruments_map[symbol_x]
         return None
+
+    def map_symbol(self, symbol: str) -> Optional[str]:
+        mapping = self.config.get("instruments_mapping", {})
+        if symbol in mapping:
+            return mapping[symbol]
+        if symbol in self._instruments_map:
+            return symbol
+        symbol_x = f"{symbol}.X"
+        if symbol_x in self._instruments_map:
+            return symbol_x
+        return None
+
+    async def get_account_info(self) -> Optional[AccountInfo]:
+        if not self._api:
+            return None
+        try:
+            accounts_df = self._api.get_all_accounts()
+            if accounts_df is None or accounts_df.empty:
+                return None
+            acc = accounts_df[accounts_df['id'] == self._account_id]
+            if acc.empty:
+                acc = accounts_df.iloc[[0]]
+            acc = acc.iloc[0]
+            balance = float(acc.get('accountBalance', 0))
+            currency = acc.get('currency', 'USD')
+            return AccountInfo(
+                account_id=str(self._account_id),
+                broker_name=self.name,
+                balance=balance,
+                equity=balance,
+                margin_free=balance,
+                margin_used=0,
+                currency=currency,
+                leverage=100,
+                is_demo=self.config.get("is_demo", True)
+            )
+        except Exception as e:
+            print(f"[TradeLocker] Error getting account info: {e}")
+            return None
+
+    async def get_symbols(self) -> List[SymbolInfo]:
+        if self._instruments_df is None or self._instruments_df.empty:
+            return []
+        symbols = []
+        import math
+        for _, inst in self._instruments_df.iterrows():
+            inst_id = int(inst.get('tradableInstrumentId', 0))
+            inst_name = inst.get('name', '')
+            pip_size = float(inst.get('pipSize', 0.0001))
+            tick_size = float(inst.get('tickSize', pip_size / 10))
+            digits = max(0, int(-math.log10(tick_size))) if tick_size > 0 else 5
+            symbols.append(SymbolInfo(
+                symbol=inst_name,
+                broker_symbol=str(inst_id),
+                description=inst.get('description', ''),
+                pip_size=pip_size,
+                pip_value=float(inst.get('pipValue', 10)),
+                lot_size=float(inst.get('contractSize', 100000)),
+                min_volume=float(inst.get('minOrderSize', 0.01)),
+                max_volume=float(inst.get('maxOrderSize', 100)),
+                volume_step=float(inst.get('orderSizeStep', 0.01)),
+                tick_size=tick_size,
+                digits=digits
+            ))
+        return symbols
+
+    async def get_symbol_info(self, symbol: str) -> Optional[SymbolInfo]:
+        if self._instruments_df is None or self._instruments_df.empty:
+            return None
+        broker_symbol = self.map_symbol(symbol)
+        if not broker_symbol:
+            return None
+        import math
+        try:
+            inst = self._instruments_df[self._instruments_df['name'] == broker_symbol]
+            if inst.empty:
+                return None
+            inst = inst.iloc[0]
+            inst_id = int(inst.get('tradableInstrumentId', 0))
+            pip_size = float(inst.get('pipSize', 0.0001))
+            tick_size = float(inst.get('tickSize', pip_size / 10))
+            digits = max(0, int(-math.log10(tick_size))) if tick_size > 0 else 5
+            return SymbolInfo(
+                symbol=broker_symbol,
+                broker_symbol=str(inst_id),
+                description=inst.get('description', ''),
+                pip_size=pip_size,
+                pip_value=float(inst.get('pipValue', 10)),
+                lot_size=float(inst.get('contractSize', 100000)),
+                min_volume=float(inst.get('minOrderSize', 0.01)),
+                max_volume=float(inst.get('maxOrderSize', 100)),
+                volume_step=float(inst.get('orderSizeStep', 0.01)),
+                tick_size=tick_size,
+                digits=digits
+            )
+        except Exception as e:
+            print(f"[TradeLocker] Error getting symbol info: {e}")
+            return None
+
+    async def place_order(self, order: OrderRequest) -> OrderResult:
+        if not self._api:
+            return OrderResult(success=False, message="Not connected")
+
+        broker_symbol = self.map_symbol(order.symbol)
+        inst_id = self._get_instrument_id(order.symbol)
+        if not inst_id:
+            return OrderResult(success=False, message=f"Symbol {order.symbol} not found (tried {broker_symbol})")
+
+        try:
+            if order.order_type == OrderType.MARKET:
+                tl_type = 'market'
+            elif order.order_type == OrderType.LIMIT:
+                tl_type = 'limit'
+            elif order.order_type == OrderType.STOP:
+                tl_type = 'stop'
+            else:
+                tl_type = 'limit'
+
+            tl_side = 'buy' if order.side == OrderSide.BUY else 'sell'
+
+            order_params = {
+                'instrument_id': inst_id,
+                'quantity': order.volume,
+                'side': tl_side,
+                'type_': tl_type,
+            }
+            if tl_type != 'market':
+                order_params['price'] = order.entry_price
+                order_params['validity'] = 'GTC'
+            if order.stop_loss:
+                order_params['stop_loss'] = order.stop_loss
+                order_params['stop_loss_type'] = 'absolute'
+            if order.take_profit:
+                order_params['take_profit'] = order.take_profit
+                order_params['take_profit_type'] = 'absolute'
+
+            result = self._api.create_order(**order_params)
+
+            if result is not None:
+                if isinstance(result, int):
+                    order_id = str(result)
+                elif isinstance(result, dict):
+                    order_id = str(result.get('orderId', result.get('id', 'unknown')))
+                else:
+                    order_id = str(result)
+                print(f"[TradeLocker] ✅ Order placed: {order_id}")
+                return OrderResult(success=True, order_id=order_id,
+                                   message="Order placed successfully", broker_response=result)
+            else:
+                return OrderResult(success=False, message="Order creation returned None")
+
+        except Exception as e:
+            print(f"[TradeLocker] ❌ Order error: {e}")
+            return OrderResult(success=False, message=str(e))
+
+    async def cancel_order(self, order_id: str) -> OrderResult:
+        if not self._api:
+            return OrderResult(success=False, message="Not connected")
+        try:
+            result = self._api.delete_order(int(order_id))
+            if result:
+                return OrderResult(success=True, order_id=order_id, message="Order cancelled")
+            else:
+                return OrderResult(success=False, order_id=order_id, message="Failed to cancel order")
+        except Exception as e:
+            return OrderResult(success=False, order_id=order_id, message=str(e))
+
+    async def get_pending_orders(self) -> List[PendingOrder]:
+        if not self._api:
+            return []
+        try:
+            orders_df = self._api.get_all_orders()
+            if orders_df is None or orders_df.empty:
+                return []
+            pending = []
+            for _, order in orders_df.iterrows():
+                status = str(order.get('status', '')).upper()
+                if status in ['PENDING', 'NEW', 'WORKING', '']:
+                    inst_id = order.get('tradableInstrumentId')
+                    symbol = self._instruments_reverse_map.get(inst_id, str(inst_id))
+                    created_time = None
+                    for time_field in ['createdDate', 'createdAt', 'created', 'openTime',
+                                       'timestamp', 'time', 'creationTime', 'lastModified']:
+                        time_val = order.get(time_field)
+                        if time_val:
+                            try:
+                                if isinstance(time_val, (int, float)):
+                                    if time_val > 1e12:
+                                        created_time = datetime.fromtimestamp(time_val / 1000, tz=timezone.utc)
+                                    else:
+                                        created_time = datetime.fromtimestamp(time_val, tz=timezone.utc)
+                                elif isinstance(time_val, str):
+                                    created_time = datetime.fromisoformat(time_val.replace('Z', '+00:00'))
+                                elif isinstance(time_val, datetime):
+                                    created_time = time_val if time_val.tzinfo else time_val.replace(tzinfo=timezone.utc)
+                                break
+                            except Exception:
+                                continue
+                    if created_time is None:
+                        created_time = datetime.now(timezone.utc)
+                    pending.append(PendingOrder(
+                        order_id=str(order.get('id', '')),
+                        symbol=symbol,
+                        side=OrderSide.BUY if str(order.get('side', '')).lower() == 'buy' else OrderSide.SELL,
+                        order_type=OrderType.LIMIT,
+                        volume=float(order.get('qty', 0)),
+                        entry_price=float(order.get('price', 0)),
+                        stop_loss=float(order.get('stopLoss', 0)) if order.get('stopLoss') else None,
+                        take_profit=float(order.get('takeProfit', 0)) if order.get('takeProfit') else None,
+                        created_time=created_time,
+                        broker_id=self.broker_id
+                    ))
+            return pending
+        except Exception as e:
+            print(f"[TradeLocker] Error getting orders: {e}")
+            return []
+
+    async def get_positions(self) -> List[Position]:
+        if not self._api:
+            return []
+        try:
+            positions_df = self._api.get_all_positions()
+            if positions_df is None or positions_df.empty:
+                return []
+            positions = []
+            for _, pos in positions_df.iterrows():
+                inst_id = pos.get('tradableInstrumentId')
+                symbol = self._instruments_reverse_map.get(inst_id, str(inst_id))
+                positions.append(Position(
+                    position_id=str(pos.get('id', '')),
+                    symbol=symbol,
+                    side=OrderSide.BUY if pos.get('side', '').lower() == 'buy' else OrderSide.SELL,
+                    volume=float(pos.get('qty', 0)),
+                    entry_price=float(pos.get('avgPrice', 0)),
+                    current_price=float(pos.get('currentPrice', 0)) if pos.get('currentPrice') else None,
+                    stop_loss=float(pos.get('stopLoss', 0)) if pos.get('stopLoss') else None,
+                    take_profit=float(pos.get('takeProfit', 0)) if pos.get('takeProfit') else None,
+                    profit=float(pos.get('unrealizedPnl', 0)) if pos.get('unrealizedPnl') else 0,
+                    open_time=datetime.now(timezone.utc)
+                ))
+            return positions
+        except Exception as e:
+            print(f"[TradeLocker] Error getting positions: {e}")
+            return []
+
+    async def close_position(self, position_id: str) -> OrderResult:
+        if not self._api:
+            return OrderResult(success=False, message="Not connected")
+        try:
+            result = self._api.close_position(int(position_id))
+            if result:
+                return OrderResult(success=True, order_id=position_id, message="Position closed")
+            else:
+                return OrderResult(success=False, message="Failed to close position")
+        except Exception as e:
+            return OrderResult(success=False, message=str(e))
+
+    async def modify_position(
+        self,
+        position_id: str,
+        stop_loss: Optional[float] = None,
+        take_profit: Optional[float] = None
+    ) -> OrderResult:
+        if not self._api:
+            return OrderResult(success=False, message="Not connected")
+        try:
+            result = self._api.set_position_protection(
+                position_id=int(position_id),
+                stop_loss=stop_loss,
+                take_profit=take_profit
+            )
+            if result:
+                return OrderResult(success=True, message="Position modified")
+            else:
+                return OrderResult(success=False, message="Failed to modify position")
+        except Exception as e:
+            return OrderResult(success=False, message=str(e))
+
+
+# =============================================================================
+# Synchronous Wrapper
+# =============================================================================
+
+class TradeLockerBrokerSync(TradeLockerBroker):
+    """Wrapper synchrone pour usage en scripts CLI."""
+
+    def __init__(self, broker_id: str, config: dict):
+        super().__init__(broker_id, config)
+        self._loop = None
+
+    def _get_loop(self):
+        if self._loop is None or self._loop.is_closed():
+            self._loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(self._loop)
+        return self._loop
+
+    def connect(self) -> bool:
+        return self._get_loop().run_until_complete(super().connect())
+
+    def disconnect(self):
+        return self._get_loop().run_until_complete(super().disconnect())
+
+    def get_account_info(self) -> Optional[AccountInfo]:
+        return self._get_loop().run_until_complete(super().get_account_info())
+
+    def get_symbols(self) -> List[SymbolInfo]:
+        return self._get_loop().run_until_complete(super().get_symbols())
+
+    def get_symbol_info(self, symbol: str) -> Optional[SymbolInfo]:
+        return self._get_loop().run_until_complete(super().get_symbol_info(symbol))
+
+    def place_order(self, order: OrderRequest) -> OrderResult:
+        return self._get_loop().run_until_complete(super().place_order(order))
+
+    def cancel_order(self, order_id: str) -> OrderResult:
+        return self._get_loop().run_until_complete(super().cancel_order(order_id))
+
+    def get_pending_orders(self) -> List[PendingOrder]:
+        return self._get_loop().run_until_complete(super().get_pending_orders())
+
+    def get_positions(self) -> List[Position]:
+        return self._get_loop().run_until_complete(super().get_positions())
+
+    def close_position(self, position_id: str) -> OrderResult:
+        return self._get_loop().run_until_complete(super().close_position(position_id))
+
+    def modify_position(
+        self,
+        position_id: str,
+        stop_loss: Optional[float] = None,
+        take_profit: Optional[float] = None
+    ) -> OrderResult:
+        return self._get_loop().run_until_complete(
+            super().modify_position(position_id, stop_loss, take_profit)
+        )
