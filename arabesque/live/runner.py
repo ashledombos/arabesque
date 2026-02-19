@@ -4,33 +4,31 @@ Arabesque — Live Runner.
 Point d'entrée pour lancer le paper trading ou le live trading.
 
 Usage :
-    # Paper trading depuis les parquets locaux (pas besoin de cTrader)
+    # Paper trading depuis les parquets locaux
     python -m arabesque.live.runner --mode dry_run --source parquet
+    python -m arabesque.live.runner --mode dry_run --source parquet --strategy mean_reversion
+    python -m arabesque.live.runner --mode dry_run --source parquet --strategy trend
 
-    # Paper trading connecté à cTrader démo (barres réelles)
+    # Paper trading connecté à cTrader démo
     python -m arabesque.live.runner --mode dry_run --source ctrader
 
-    # Live trading cTrader (ordres réels)
+    # Live trading cTrader
     python -m arabesque.live.runner --mode live
 
-Variables d'environnement pour le mode live/ctrader :
+Variables d'environnement :
     CTRADER_HOST           demo.ctraderapi.com | live.ctraderapi.com
     CTRADER_PORT           5035
     CTRADER_CLIENT_ID
     CTRADER_CLIENT_SECRET
     CTRADER_ACCESS_TOKEN
     CTRADER_ACCOUNT_ID
-
-Variables Arabesque :
-    ARABESQUE_BALANCE          solde de départ (défaut: 10000)
-    ARABESQUE_MAX_DAILY_DD     limite DD journalier % (défaut: 5.0)
-    ARABESQUE_MAX_TOTAL_DD     limite DD total % (défaut: 10.0)
-    ARABESQUE_MAX_POSITIONS    filet absolu positions simultanées (défaut: 10)
-    ARABESQUE_MAX_OPEN_RISK_PCT % start_balance max en risque ouvert (défaut: 2.0)
-    ARABESQUE_RISK_PCT         risque par trade % (défaut: 1.0)
-    TELEGRAM_TOKEN             (optionnel)
-    TELEGRAM_CHAT_ID           (optionnel)
-    NTFY_TOPIC                 (optionnel)
+    ARABESQUE_BALANCE          (défaut: 10000)
+    ARABESQUE_MAX_DAILY_DD     (défaut: 5.0)
+    ARABESQUE_MAX_TOTAL_DD     (défaut: 10.0)
+    ARABESQUE_MAX_POSITIONS    (défaut: 10)
+    ARABESQUE_MAX_OPEN_RISK_PCT (défaut: 2.0)
+    ARABESQUE_RISK_PCT         (défaut: 1.0)
+    TELEGRAM_TOKEN / TELEGRAM_CHAT_ID / NTFY_TOPIC  (optionnel)
 """
 
 from __future__ import annotations
@@ -78,16 +76,20 @@ def main():
         "--config", default=None,
         help="Chemin vers arabesque_config.yaml",
     )
+    parser.add_argument(
+        "--strategy", choices=["trend", "mean_reversion", "combined"], default="trend",
+        help="Stratégie de signal : trend | mean_reversion | combined (défaut: trend)",
+    )
     args = parser.parse_args()
 
-    # ── Imports ──────────────────────────────────────────────────
+    # ── Imports ────────────────────────────────────────────
     from arabesque.config import ArabesqueConfig
     from arabesque.broker.adapters import DryRunAdapter
     from arabesque.webhook.orchestrator import Orchestrator
     from arabesque.live.bar_poller import BarPoller, BarPollerConfig, DEFAULT_INSTRUMENTS
     from arabesque.live.parquet_clock import ParquetClock
 
-    # ── Config ───────────────────────────────────────────────────
+    # ── Config ─────────────────────────────────────────────
     if args.config:
         cfg = ArabesqueConfig.from_yaml(args.config)
     else:
@@ -106,13 +108,25 @@ def main():
 
     instruments = args.instruments or DEFAULT_INSTRUMENTS
 
-    # ── Broker ───────────────────────────────────────────────────
+    # ── Signal generator ─────────────────────────────────────
+    if args.strategy == "mean_reversion":
+        from arabesque.backtest.signal_gen import BacktestSignalGenerator, SignalGenConfig
+        signal_generator = BacktestSignalGenerator(SignalGenConfig())
+    elif args.strategy == "combined":
+        from arabesque.backtest.signal_gen_combined import CombinedSignalGenerator
+        signal_generator = CombinedSignalGenerator()
+    else:  # trend (default)
+        from arabesque.backtest.signal_gen_trend import TrendSignalGenerator, TrendSignalConfig
+        signal_generator = TrendSignalGenerator(TrendSignalConfig())
+
+    logger.info(f"Strategy: {args.strategy.upper()}")
+
+    # ── Broker ─────────────────────────────────────────────
     if args.mode == "dry_run":
         broker = DryRunAdapter()
         brokers = {"dry_run": broker}
         logger.info("Mode DRY_RUN — aucun ordre réel")
     else:
-        # Mode live : cTrader obligatoire
         from arabesque.broker.ctrader import CTraderAdapter, CTraderConfig
         ctrader_cfg = CTraderConfig(
             host=os.environ.get("CTRADER_HOST", "live.ctraderapi.com"),
@@ -132,28 +146,26 @@ def main():
         brokers = {"ctrader": broker}
         logger.info(f"Mode LIVE — compte {ctrader_cfg.account_id}")
 
-    # ── Orchestrator ───────────────────────────────────────────────
+    # ── Orchestrator ──────────────────────────────────────────
     orchestrator = Orchestrator(config=cfg, brokers=brokers)
 
-    # ── Source de barres ───────────────────────────────────────────
+    # ── Source de barres ─────────────────────────────────────
     logger.info(f"Source: {args.source} | Instruments: {instruments}")
 
     try:
         if args.source == "parquet":
-            # Replay depuis les parquets locaux — pas besoin de cTrader
             clock = ParquetClock(
                 instruments=instruments,
                 start=args.start,
                 end=args.end,
                 replay_speed=args.speed,
+                signal_generator=signal_generator,
             )
             logger.info("Starting ParquetClock replay... (Ctrl+C to stop)")
             clock.run(orchestrator, blocking=True)
 
         else:
-            # Stream live cTrader
             if args.mode == "dry_run":
-                # dry_run + ctrader source : connexion démo cTrader
                 from arabesque.broker.ctrader import CTraderAdapter, CTraderConfig
                 ctrader_cfg = CTraderConfig(
                     host=os.environ.get("CTRADER_HOST", "demo.ctraderapi.com"),
@@ -165,13 +177,14 @@ def main():
                 )
                 stream_adapter = CTraderAdapter(ctrader_cfg)
             else:
-                stream_adapter = broker  # déjà le CTraderAdapter live
+                stream_adapter = broker
 
             poller_cfg = BarPollerConfig(
                 instruments=instruments,
                 dry_run=(args.mode == "dry_run"),
                 use_polling_fallback=True,
                 poll_interval_sec=60,
+                signal_generator=signal_generator,
             )
             poller = BarPoller(
                 ctrader_adapter=stream_adapter,
