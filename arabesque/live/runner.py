@@ -118,9 +118,13 @@ def main():
     instruments = args.instruments or DEFAULT_INSTRUMENTS
 
     # ── Signal generator ─────────────────────────────────────
+    # CRITIQUE : live_mode=False pour replay parquet (anti-lookahead)
+    #           live_mode=True SEULEMENT pour stream ctrader réel
     if args.strategy == "mean_reversion":
         from arabesque.backtest.signal_gen import BacktestSignalGenerator, SignalGenConfig
-        signal_generator = BacktestSignalGenerator(SignalGenConfig(), live_mode=True)
+        # live_mode dépend de la source : False pour parquet (backtest-like), True pour ctrader
+        live_mode = (args.source == "ctrader")
+        signal_generator = BacktestSignalGenerator(SignalGenConfig(), live_mode=live_mode)
     elif args.strategy == "combined":
         from arabesque.backtest.signal_gen_combined import CombinedSignalGenerator
         signal_generator = CombinedSignalGenerator()
