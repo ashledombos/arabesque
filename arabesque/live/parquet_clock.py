@@ -16,6 +16,7 @@ CORRECTION ANTI-LOOKAHEAD (2026-02-19) :
 - Entrée simulée au OPEN de bougie i+1 (décalage +1)
 - Update positions avec high/low/close de i+1
 - IDENTIQUE au backtest runner (pas de biais)
+- Période auto-étendue +1 jour pour capturer les fills de fin de période
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ import time
 import threading
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -109,6 +110,18 @@ class ParquetClock:
     # ── Internals ────────────────────────────────────────────
 
     def _replay(self, orchestrator):
+        # Extension automatique de la période de +1 jour pour capturer les fills
+        # des signaux générés en toute fin de période
+        end_extended = self.cfg.end
+        if self.cfg.end:
+            try:
+                end_dt = pd.to_datetime(self.cfg.end)
+                end_dt_plus1 = end_dt + timedelta(days=1)
+                end_extended = end_dt_plus1.strftime("%Y-%m-%d")
+                logger.info(f"Period extended to {end_extended} to capture end-of-period fills")
+            except Exception:
+                pass  # Si parsing échoue, on garde l'end original
+
         logger.info(
             f"ParquetClock starting | {len(self.cfg.instruments)} instruments "
             f"| {self.cfg.start or 'beginning'} → {self.cfg.end or '∞ (Ctrl+C to stop)'} "
@@ -116,7 +129,7 @@ class ParquetClock:
             f"| strategy={type(self._sig_gen).__name__}"
         )
 
-        # 1. Charger les DataFrames
+        # 1. Charger les DataFrames (avec période étendue)
         frames: dict[str, pd.DataFrame] = {}
         for inst in self.cfg.instruments:
             try:
@@ -124,7 +137,7 @@ class ParquetClock:
                     inst,
                     instrument=inst,
                     start=self.cfg.start,
-                    end=self.cfg.end,
+                    end=end_extended,  # +1 jour
                     prefer_parquet=True,
                 )
                 if df is None or len(df) < self.cfg.min_bars_for_signal + 10:
