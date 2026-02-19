@@ -17,6 +17,7 @@ CORRECTION ANTI-LOOKAHEAD (2026-02-19) :
 - Update positions avec high/low/close de i+1
 - IDENTIQUE au backtest runner (pas de biais)
 - Période auto-étendue +1 jour pour capturer les fills de fin de période
+- only_last_bar=False pour éviter la régénération de signaux historiques
 """
 
 from __future__ import annotations
@@ -89,6 +90,8 @@ class ParquetClock:
         self._bar_cache: dict[str, list[dict]] = {}
         # Queue de signaux en attente d'exécution à la bougie suivante
         self._pending_signals: dict[str, list[dict]] = {}
+        # Tracker des signaux déjà générés (timestamp) pour éviter doublons
+        self._seen_signals: dict[str, set[int]] = {}
 
     def run(self, orchestrator, blocking: bool = True):
         if blocking:
@@ -229,12 +232,23 @@ class ParquetClock:
                 instrument=instrument,
                 bars=cache,
                 sig_gen=self._sig_gen,
+                only_last_bar=False,  # Replay : retourne tous les signaux
             )
-            n_signals += len(signals)
+
+            # Filtrer les signaux déjà vus (par timestamp)
+            seen = self._seen_signals.setdefault(instrument, set())
+            new_signals = []
+            for sig in signals:
+                sig_ts = sig.get("ts")  # ISO string
+                if sig_ts and sig_ts not in seen:
+                    seen.add(sig_ts)
+                    new_signals.append(sig)
+
+            n_signals += len(new_signals)
 
             # Enregistrer les signaux pour exécution à la PROCHAINE bougie
-            if signals:
-                self._pending_signals.setdefault(instrument, []).extend(signals)
+            if new_signals:
+                self._pending_signals.setdefault(instrument, []).extend(new_signals)
 
             n_bars += 1
             if idx >= next_progress_log:
