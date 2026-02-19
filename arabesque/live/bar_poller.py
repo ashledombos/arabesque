@@ -356,6 +356,7 @@ class BarPoller:
             instrument=instrument,
             bars=bars,
             sig_gen=self._sig_gen,
+            only_last_bar=True,  # Live : uniquement les nouveaux signaux
         )
 
     @staticmethod
@@ -375,19 +376,18 @@ def _generate_signals_from_cache(
     instrument: str,
     bars: list[dict],
     sig_gen: CombinedSignalGenerator,
+    only_last_bar: bool = False,
 ) -> list[dict]:
     """
     Fonction partagée entre BarPoller et ParquetClock.
 
     Construit un DataFrame OHLCV depuis le cache, applique
-    CombinedSignalGenerator, et retourne TOUS les signaux générés
-    sous forme de dict compatible Orchestrator.handle_signal().
+    CombinedSignalGenerator, et retourne les signaux.
 
-    CORRECTION 2026-02-19 : retourne TOUS les signaux (pas seulement
-    ceux de la dernière bougie). En live (BarPoller), le cache est
-    stable et on veut uniquement les signaux de la nouvelle bougie.
-    En replay (ParquetClock), le cache change à chaque itération et
-    les signaux sont filtrés par la logique de pending queue.
+    only_last_bar=True (BarPoller live) : retourne uniquement les signaux
+      de la dernière bougie du cache (nouvelle bougie fermée).
+    only_last_bar=False (ParquetClock replay) : retourne TOUS les signaux
+      générés, la logique pending queue filtre les doublons.
     """
     try:
         df = pd.DataFrame(bars)
@@ -403,10 +403,18 @@ def _generate_signals_from_cache(
         if not all_signals:
             return []
 
-        # Retourner TOUS les signaux (pas de filtre last_idx)
+        # Filtrage selon contexte
+        if only_last_bar:
+            last_idx = len(df) - 1
+            signals_to_process = [(i, s) for i, s in all_signals if i == last_idx]
+        else:
+            signals_to_process = all_signals
+
+        if not signals_to_process:
+            return []
+
         result = []
-        for idx, sig in all_signals:
-            # close AU MOMENT DU SIGNAL (pas le close courant du cache)
+        for idx, sig in signals_to_process:
             sig_close = float(df.iloc[idx]["Close"])
             df_row = df.iloc[idx]
             atr = float(df["atr"].iloc[idx]) if "atr" in df.columns else 0.0
