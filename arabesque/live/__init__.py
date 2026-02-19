@@ -1,3 +1,3 @@
-from arabesque.live.bar_poller import BarPoller
+from arabesque.live.price_feed import PriceFeedManager
 
-__all__ = ["BarPoller"]
+__all__ = ["PriceFeedManager"]
