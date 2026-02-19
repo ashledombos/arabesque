@@ -2,8 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 cTrader Open API broker implementation.
-Basé sur Envolees-auto/brokers/ctrader.py, avec ajout du price feed
-(souscription aux ticks via ProtoOASubscribeSpotsReq / ProtoOASpotEvent).
+Price feed (ticks) + historical bars (trendbars) + order placement.
 """
 
 import asyncio
@@ -36,6 +35,10 @@ try:
         ProtoOAAssetListReq,
         ProtoOASubscribeSpotsReq,
         ProtoOAUnsubscribeSpotsReq,
+        ProtoOAGetTrendbarsReq,
+    )
+    from ctrader_open_api.messages.OpenApiCommonMessages_pb2 import (
+        ProtoOATrendbarPeriod,
     )
     CTRADER_AVAILABLE = True
 except ImportError:
@@ -43,8 +46,28 @@ except ImportError:
     print("⚠️  ctrader-open-api not installed. cTrader support disabled.")
 
 
+# Mapping timeframe string → ProtoOATrendbarPeriod enum value
+# Utilisé par get_history()
+_TIMEFRAME_MAP = {
+    "M1":  1,   # ProtoOATrendbarPeriod.M1
+    "M2":  2,
+    "M3":  3,
+    "M4":  4,
+    "M5":  5,   # ProtoOATrendbarPeriod.M5
+    "M10": 6,
+    "M15": 7,   # ProtoOATrendbarPeriod.M15
+    "M30": 8,   # ProtoOATrendbarPeriod.M30
+    "H1":  9,   # ProtoOATrendbarPeriod.H1
+    "H4":  10,  # ProtoOATrendbarPeriod.H4
+    "H12": 11,
+    "D1":  12,  # ProtoOATrendbarPeriod.D1
+    "W1":  13,  # ProtoOATrendbarPeriod.W1
+    "MN1": 14,  # ProtoOATrendbarPeriod.MN1
+}
+
+
 class CTraderBroker(BaseBroker):
-    """cTrader Open API broker implementation with price feed support."""
+    """cTrader Open API broker implementation with price feed + history support."""
 
     def __init__(self, broker_id: str, config: dict):
         super().__init__(broker_id, config)
@@ -69,15 +92,12 @@ class CTraderBroker(BaseBroker):
         self._symbols: Dict[int, SymbolInfo] = {}
         self._message_handlers: Dict[str, Callable] = {}
 
-        # Thread management for Twisted reactor
         self._reactor_thread: Optional[threading.Thread] = None
         self._reactor_running = False
         self._token_refreshed = False
 
         # Price feed
-        # symbol_id (int) -> last PriceTick
         self._price_ticks: Dict[int, PriceTick] = {}
-        # symbol_id -> list of callbacks(PriceTick)
         self._spot_callbacks: Dict[int, List[Callable]] = {}
         self._subscribed_symbol_ids: set = set()
 
@@ -190,6 +210,34 @@ class CTraderBroker(BaseBroker):
                 return sid
         return None
 
+    @staticmethod
+    def _decode_trendbar(tb, divisor: float) -> dict:
+        """
+        Décode un ProtoOATrendbar en dict OHLCV.
+
+        Dans le protocole cTrader :
+          - open  : valeur absolue (déjà correcte)
+          - high  = open + deltaHigh  (delta positif)
+          - low   = open + deltaLow   (delta négatif)
+          - close = open + deltaClose (delta, positif ou négatif)
+
+        Tous les prix sont en unités entières, divisor = 10^pipPosition.
+        """
+        ts    = tb.utcTimestampInMinutes * 60
+        open_ = tb.open / divisor
+        high  = (tb.open + tb.high)       / divisor if tb.high   else open_
+        low   = (tb.open + tb.low)        / divisor if tb.low    else open_
+        close = (tb.open + tb.deltaClose) / divisor if hasattr(tb, "deltaClose") else open_
+        vol   = tb.volume if hasattr(tb, "volume") else 0
+        return {
+            "ts":     ts,
+            "open":   open_,
+            "high":   high,
+            "low":    low,
+            "close":  close,
+            "volume": vol,
+        }
+
     # ------------------------------------------------------------------
     # Connection
     # ------------------------------------------------------------------
@@ -268,10 +316,11 @@ class CTraderBroker(BaseBroker):
                 if "reconcile" in self._pending_requests:
                     self._pending_requests["reconcile"].set_result(payload)
 
+            elif ptype == "ProtoOAGetTrendbarsRes":
+                # Réponse historique — dispatcher par symbolId
+                self._process_trendbar_response(payload)
+
             elif ptype == "ProtoOASpotEvent":
-                # -------------------------------------------------------
-                # Price feed: tick reçu
-                # -------------------------------------------------------
                 self._process_spot_event(payload)
 
             elif "Order" in ptype or "Execution" in ptype:
@@ -294,7 +343,6 @@ class CTraderBroker(BaseBroker):
             return False
 
     async def disconnect(self):
-        # Se désabonner de tous les spots avant de couper
         if self._subscribed_symbol_ids and self._client:
             req = ProtoOAUnsubscribeSpotsReq()
             req.ctidTraderAccountId = self.account_id
@@ -309,20 +357,146 @@ class CTraderBroker(BaseBroker):
         self._connected = False
 
     # ------------------------------------------------------------------
+    # Historical bars
+    # ------------------------------------------------------------------
+
+    async def get_history(
+        self,
+        symbol: str,
+        timeframe: str = "H1",
+        count: int = 250,
+    ) -> List[dict]:
+        """
+        Récupère count barres OHLCV depuis cTrader (ProtoOAGetTrendbarsReq).
+
+        Args:
+            symbol:    Nom unifié du symbole (ex: 'EURUSD', 'XAUUSD')
+            timeframe: 'M1','M5','M15','M30','H1','H4','D1','W1','MN1'
+            count:     Nombre de barres (max 5000 par requête cTrader)
+
+        Returns:
+            list[dict] triée par ts croissant,
+            chaque dict = {ts, open, high, low, close, volume}
+        """
+        if not self._connected:
+            print(f"[cTrader] get_history({symbol}): non connecté")
+            return []
+
+        # Résolution du symbole
+        if not self._symbols:
+            await self.get_symbols()
+
+        symbol_id = self._symbol_id_for_name(symbol)
+        if symbol_id is None:
+            broker_sym = self.map_symbol(symbol)
+            if broker_sym:
+                try:
+                    symbol_id = int(broker_sym)
+                except ValueError:
+                    symbol_id = self._symbol_id_for_name(broker_sym)
+
+        if symbol_id is None:
+            print(f"[cTrader] get_history: symbole '{symbol}' non trouvé")
+            return []
+
+        # Résolution du diviseur de prix (pipPosition)
+        sym_info = self._symbols.get(symbol_id)
+        if sym_info:
+            # pipPosition est stocké implicitement via pip_size
+            import math
+            pip_pos = -int(round(math.log10(sym_info.pip_size)))
+            divisor = 10 ** (pip_pos + 1)  # digits = pipPosition + 1
+        else:
+            divisor = 100000  # défaut 5 décimales
+
+        # Résolution du timeframe
+        tf_upper = timeframe.upper()
+        period = _TIMEFRAME_MAP.get(tf_upper)
+        if period is None:
+            print(f"[cTrader] get_history: timeframe '{timeframe}' inconnu, utilisation H1")
+            period = _TIMEFRAME_MAP["H1"]
+
+        # Clé unique pour cette requête
+        req_key = f"history_{symbol_id}_{tf_upper}"
+
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        self._pending_requests[req_key] = future
+
+        req = ProtoOAGetTrendbarsReq()
+        req.ctidTraderAccountId = self.account_id
+        req.symbolId = symbol_id
+        req.period = period
+        req.count = min(count, 5000)
+
+        from twisted.internet import reactor
+        reactor.callFromThread(self._client.send, req)
+
+        try:
+            bars = await asyncio.wait_for(future, timeout=20.0)
+            print(
+                f"[cTrader] 📊 get_history({symbol}, {timeframe}): "
+                f"{len(bars)} barres chargées"
+            )
+            return bars
+        except asyncio.TimeoutError:
+            print(f"[cTrader] ⏱ get_history({symbol}, {timeframe}): timeout")
+            self._pending_requests.pop(req_key, None)
+            return []
+        except Exception as e:
+            print(f"[cTrader] ❌ get_history({symbol}): {e}")
+            self._pending_requests.pop(req_key, None)
+            return []
+
+    def _process_trendbar_response(self, payload):
+        """
+        Traite un ProtoOAGetTrendbarsRes.
+        Résout la Future correspondante via la clé history_{symbolId}_{period}.
+        """
+        symbol_id = payload.symbolId
+        period = payload.period
+
+        # Chercher la clé correspondante dans les requêtes en attente
+        # (on cherche par préfixe + symbolId)
+        matching_key = None
+        for key in list(self._pending_requests.keys()):
+            if key.startswith(f"history_{symbol_id}_"):
+                matching_key = key
+                break
+
+        if not matching_key:
+            # Réponse non attendue, ignorer
+            return
+
+        sym_info = self._symbols.get(symbol_id)
+        if sym_info:
+            import math
+            pip_pos = -int(round(math.log10(sym_info.pip_size)))
+            divisor = 10 ** (pip_pos + 1)
+        else:
+            divisor = 100000
+
+        bars = [
+            self._decode_trendbar(tb, divisor)
+            for tb in payload.trendbar
+        ]
+        bars.sort(key=lambda b: b["ts"])
+
+        future = self._pending_requests.pop(matching_key, None)
+        if future and not future.done():
+            future.set_result(bars)
+
+    # ------------------------------------------------------------------
     # Price feed (spots)
     # ------------------------------------------------------------------
 
     async def subscribe_spots(self, symbol: str, callback: Callable) -> bool:
         """
         Souscrire aux ticks de prix pour un symbole.
-
         Le callback reçoit un objet PriceTick à chaque tick.
-        symbol: nom unifié (ex: 'EURUSD')
         """
         if not self._connected:
             return False
-
-        # S'assurer que les symboles sont chargés
         if not self._symbols:
             await self.get_symbols()
 
@@ -350,7 +524,6 @@ class CTraderBroker(BaseBroker):
         return True
 
     async def unsubscribe_spots(self, symbol: str):
-        """Se désabonner des ticks d'un symbole."""
         if not self._connected or not self._client:
             return
         symbol_id = self._symbol_id_for_name(symbol)
@@ -367,7 +540,6 @@ class CTraderBroker(BaseBroker):
             print(f"[cTrader] 🔕 Unsubscribed from spots: {symbol}")
 
     def get_last_tick(self, symbol: str) -> Optional[PriceTick]:
-        """Retourne le dernier tick connu pour un symbole (ou None)."""
         symbol_id = self._symbol_id_for_name(symbol)
         if symbol_id is None:
             return None
@@ -376,24 +548,15 @@ class CTraderBroker(BaseBroker):
     def _process_spot_event(self, payload):
         """Traite un ProtoOASpotEvent reçu du serveur."""
         symbol_id = payload.symbolId
-
-        # Les prix sont en format entier avec 5 décimales (× 100000)
-        # selon les specs cTrader Open API
         divisor = 100000
-
         bid = getattr(payload, 'bid', None)
         ask = getattr(payload, 'ask', None)
-
         if bid is None or ask is None:
             return
-
         bid_f = bid / divisor
         ask_f = ask / divisor
-
-        # Récupérer le nom du symbole depuis le cache
         sym_info = self._symbols.get(symbol_id)
         sym_name = sym_info.symbol if sym_info else str(symbol_id)
-
         tick = PriceTick(
             symbol=sym_name,
             bid=bid_f,
@@ -401,8 +564,6 @@ class CTraderBroker(BaseBroker):
             timestamp=datetime.now(timezone.utc),
         )
         self._price_ticks[symbol_id] = tick
-
-        # Appeler les callbacks enregistrés
         loop = asyncio.get_event_loop()
         for cb in self._spot_callbacks.get(symbol_id, []):
             try:
@@ -414,7 +575,7 @@ class CTraderBroker(BaseBroker):
                 print(f"[cTrader] ⚠️ Spot callback error: {e}")
 
     # ------------------------------------------------------------------
-    # Symbols processing
+    # Symbols
     # ------------------------------------------------------------------
 
     def _process_symbols_response(self, payload):
@@ -531,7 +692,7 @@ class CTraderBroker(BaseBroker):
             ))
 
     # ------------------------------------------------------------------
-    # Account & symbols
+    # Account
     # ------------------------------------------------------------------
 
     async def get_account_info(self) -> Optional[AccountInfo]:
@@ -713,6 +874,16 @@ class CTraderBrokerSync:
 
     def get_symbols(self) -> List[SymbolInfo]:
         return self._get_loop().run_until_complete(self.broker.get_symbols())
+
+    def get_history(
+        self,
+        symbol: str,
+        timeframe: str = "H1",
+        count: int = 250,
+    ) -> List[dict]:
+        return self._get_loop().run_until_complete(
+            self.broker.get_history(symbol, timeframe, count)
+        )
 
     def place_order(self, order: OrderRequest) -> OrderResult:
         return self._get_loop().run_until_complete(self.broker.place_order(order))

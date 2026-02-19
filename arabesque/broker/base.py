@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 """
 Base broker interface and common types.
-Importé depuis Envolees-auto/brokers/base.py
 """
 
 from abc import ABC, abstractmethod
@@ -37,27 +36,19 @@ class OrderStatus(Enum):
 @dataclass
 class OrderRequest:
     """Order request to be sent to broker"""
-    symbol: str                          # Unified symbol (e.g., "EURUSD")
+    symbol: str
     side: OrderSide
     order_type: OrderType
-    volume: float                        # In lots
-
-    # Price levels
-    entry_price: Optional[float] = None  # Required for LIMIT/STOP
+    volume: float
+    entry_price: Optional[float] = None
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
-
-    # Expiration
     expiry_timestamp_ms: Optional[int] = None
-
-    # Metadata
     label: str = ""
     comment: str = ""
     magic_number: Optional[int] = None
-
-    # Calculated fields (filled by broker)
-    broker_symbol: Optional[str] = None  # Broker-specific symbol
-    broker_volume: Optional[int] = None  # Broker-specific volume unit
+    broker_symbol: Optional[str] = None
+    broker_volume: Optional[int] = None
 
 
 @dataclass
@@ -68,8 +59,6 @@ class OrderResult:
     message: str = ""
     error_code: Optional[str] = None
     broker_response: Optional[Any] = None
-
-    # Execution details
     fill_price: Optional[float] = None
     fill_volume: Optional[float] = None
     fill_time: Optional[datetime] = None
@@ -105,8 +94,6 @@ class PendingOrder:
     expiry_time: Optional[datetime] = None
     label: str = ""
     comment: str = ""
-
-    # For order cleanup
     broker_id: str = ""
     raw_data: Optional[dict] = None
 
@@ -129,7 +116,7 @@ class AccountInfo:
 class SymbolInfo:
     """Symbol/instrument information"""
     symbol: str
-    broker_symbol: str  # Broker-specific symbol ID
+    broker_symbol: str
     description: str = ""
     pip_value: float = 0.0001
     pip_size: float = 0.0001
@@ -178,19 +165,15 @@ class OrderValidation:
     """Result of post-order validation"""
     is_valid: bool
     warnings: List[str] = field(default_factory=list)
-
     requested_sl: Optional[float] = None
     actual_sl: Optional[float] = None
     sl_deviation_pips: Optional[float] = None
-
     requested_tp: Optional[float] = None
     actual_tp: Optional[float] = None
     tp_deviation_pips: Optional[float] = None
-
     requested_volume: Optional[float] = None
     actual_volume: Optional[float] = None
     volume_deviation_percent: Optional[float] = None
-
     risk_deviation_percent: Optional[float] = None
 
 
@@ -209,6 +192,30 @@ class PriceTick:
     @property
     def spread(self) -> float:
         return self.ask - self.bid
+
+
+@dataclass
+class OHLCBar:
+    """
+    Bougie OHLCV.
+    Format standard retourné par get_history() et consommé par BarAggregator.
+    """
+    ts: int          # timestamp Unix (secondes) du début de la bougie
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: int = 0
+
+    def to_dict(self) -> dict:
+        return {
+            "ts": self.ts,
+            "open": self.open,
+            "high": self.high,
+            "low": self.low,
+            "close": self.close,
+            "volume": self.volume,
+        }
 
 
 def validate_placed_order(
@@ -320,6 +327,35 @@ class BaseBroker(ABC):
     @abstractmethod
     async def get_positions(self) -> List[Position]:
         pass
+
+    async def get_history(
+        self,
+        symbol: str,
+        timeframe: str = "H1",
+        count: int = 250,
+    ) -> List[dict]:
+        """
+        Retourne l'historique OHLCV d'un symbole.
+
+        Chaque dict a les clés : ts (int, Unix s), open, high, low, close, volume.
+        Trié par ts croissant (le plus ancien en premier).
+
+        L'implémentation par défaut retourne [] — les brokers qui ne servent
+        pas de données historiques (ex: TradeLocker) peuvent garder ce défaut.
+        Les brokers source de données (ex: cTrader) doivent implémenter cette méthode.
+
+        Args:
+            symbol:    Nom unifié du symbole (ex: 'EURUSD', 'XAUUSD')
+            timeframe: Timeframe sous forme de chaîne : 'M1','M5','M15','M30',
+                       'H1','H4','D1','W1','MN1'. Défaut : 'H1'.
+            count:     Nombre de barres à récupérer. Défaut : 250
+                       (suffisant pour EMA200 + warmup).
+
+        Returns:
+            list[dict] avec clés ts/open/high/low/close/volume,
+            ou [] si non disponible / erreur.
+        """
+        return []
 
     def map_symbol(self, unified_symbol: str) -> Optional[str]:
         mapping = self.config.get("instruments_mapping", {})
