@@ -10,6 +10,12 @@ Comportement :
 
 Le résumé est aussi exporté en JSONL (un enregistrement par trade + une ligne
 ``summary``) dans ``dry_run_YYYYMMDD_HHMMSS.jsonl``.
+
+CORRECTION ANTI-LOOKAHEAD (2026-02-19) :
+- Signal généré sur bougie i (close confirmé)
+- Entrée simulée au OPEN de bougie i+1 (décalage +1)
+- Update positions avec high/low/close de i+1
+- IDENTIQUE au backtest runner (pas de biais)
 """
 
 from __future__ import annotations
@@ -80,6 +86,8 @@ class ParquetClock:
             self._sig_gen = CombinedSignalGenerator()
 
         self._bar_cache: dict[str, list[dict]] = {}
+        # Queue de signaux en attente d'exécution à la bougie suivante
+        self._pending_signals: dict[str, list[dict]] = {}
 
     def run(self, orchestrator, blocking: bool = True):
         if blocking:
@@ -147,7 +155,7 @@ class ParquetClock:
         n_bars    = 0
         n_signals = 0
         t_start   = time.time()
-        next_progress_log = 5000  # log tous les 5k événements
+        next_progress_log = 5000
 
         for idx, (ts, instrument, row) in enumerate(events, start=1):
             bar = {
@@ -164,6 +172,33 @@ class ParquetClock:
             if len(cache) > 300:
                 cache.pop(0)
 
+            # ── EXÉCUTION DES SIGNAUX PENDING (générés sur bougie précédente) ──
+            # Entrée au OPEN de la bougie courante
+            pending = self._pending_signals.get(instrument, [])
+            if pending:
+                for sig_data in pending:
+                    # Override tv_close avec le OPEN de cette bougie (fill réel)
+                    sig_data["tv_close"] = bar["open"]
+                    result = orchestrator.handle_signal(sig_data)
+                    status = result.get('status', '?')
+                    detail = result.get('reason', result.get('position_id', ''))
+                    logger.info(
+                        f"[{instrument}] {ts.strftime('%Y-%m-%d %H:%M')} "
+                        f"{sig_data['side'].upper()} open={bar['open']:.4f} "
+                        f"sl={sig_data['sl']:.4f} rr={sig_data.get('rr', 0):.2f} "
+                        f"→ {status} {detail}"
+                    )
+                self._pending_signals[instrument] = []
+
+            # ── UPDATE POSITIONS (après exécution signaux) ──
+            orchestrator.update_positions(
+                instrument=instrument,
+                high=bar["high"],
+                low=bar["low"],
+                close=bar["close"],
+            )
+
+            # ── GÉNÉRATION SIGNAUX (sur bougie confirmée) ──
             if len(cache) < self.cfg.min_bars_for_signal:
                 n_bars += 1
                 if idx >= next_progress_log:
@@ -171,6 +206,10 @@ class ParquetClock:
                     logger.info(f"Progress: {idx:,}/{total_events:,} ({pct:.1f}%) — {n_signals} signals so far")
                     next_progress_log += 5000
                     sys.stdout.flush()
+                if self.on_bar_closed:
+                    self.on_bar_closed(instrument, bar)
+                if self.cfg.replay_speed > 0:
+                    time.sleep(self.cfg.replay_speed)
                 continue
 
             signals = _generate_signals_from_cache(
@@ -180,23 +219,9 @@ class ParquetClock:
             )
             n_signals += len(signals)
 
-            for sig_data in signals:
-                result = orchestrator.handle_signal(sig_data)
-                status = result.get('status', '?')
-                detail = result.get('reason', result.get('position_id', ''))
-                logger.info(
-                    f"[{instrument}] {ts.strftime('%Y-%m-%d %H:%M')} "
-                    f"{sig_data['side'].upper()} close={bar['close']:.4f} "
-                    f"sl={sig_data['sl']:.4f} rr={sig_data.get('rr', 0):.2f} "
-                    f"→ {status} {detail}"
-                )
-
-            orchestrator.update_positions(
-                instrument=instrument,
-                high=bar["high"],
-                low=bar["low"],
-                close=bar["close"],
-            )
+            # Enregistrer les signaux pour exécution à la PROCHAINE bougie
+            if signals:
+                self._pending_signals.setdefault(instrument, []).extend(signals)
 
             n_bars += 1
             if idx >= next_progress_log:
