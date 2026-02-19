@@ -117,10 +117,16 @@ def load_full_config(
     """
     Charge et retourne (settings, secrets, instruments) comme dicts bruts.
 
-    - settings : config/settings.yaml
-    - secrets  : config/secrets.yaml (credentials, absent = {})
+    - settings    : config/settings.yaml
+    - secrets     : config/secrets.yaml (credentials, absent = {})
     - instruments : config/instruments.yaml fusionné avec settings[instruments]
-                   (instruments.yaml a priorité si les deux existent)
+                    (instruments.yaml a priorité si les deux existent)
+
+    Fusion notifications :
+      settings.notifications.channels a priorité.
+      Si vide/absent, utilise secrets.notifications.channels.
+      Le résultat est stocké dans settings.notifications.channels
+      pour que l'engine n'ait qu'une source à lire.
 
     Si secrets.yaml n'existe pas, un avertissement est émis mais pas d'erreur.
     """
@@ -149,6 +155,19 @@ def load_full_config(
     else:
         with open(secrets_path) as f:
             secrets = yaml.safe_load(f) or {}
+
+    # --- Fusion notifications.channels ---
+    # settings.notifications.channels a la priorité.
+    # Fallback : secrets.notifications.channels (contient les URLs avec tokens).
+    notif_settings = settings.setdefault("notifications", {})
+    if not notif_settings.get("channels"):
+        notif_secrets = secrets.get("notifications", {})
+        secret_channels = notif_secrets.get("channels", [])
+        if secret_channels:
+            notif_settings["channels"] = secret_channels
+            logger.debug(
+                "[config] notifications.channels chargés depuis secrets.yaml"
+            )
 
     # --- Instruments ---
     # Base : instruments dans settings["instruments"] (peut être {})
@@ -245,7 +264,7 @@ brokers:
 
 price_feed:
   source_broker: ftmo_ctrader
-  symbols: []
+  symbols: []  # Vide = tous les instruments avec follow: true dans instruments.yaml
 
 filters:
   min_margin_percent: 30
@@ -259,7 +278,7 @@ instruments: {}
 
 notifications:
   enabled: false
-  channels: []
+  channels: []  # Mettre dans secrets.yaml : notifications.channels
 """
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w") as f:

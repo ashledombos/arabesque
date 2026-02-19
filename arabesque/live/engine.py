@@ -237,12 +237,20 @@ class LiveEngine:
 
         pf_cfg = self.settings.get("price_feed", {})
         source_broker_id = pf_cfg.get("source_broker", "")
-        symbols = pf_cfg.get("symbols", [])
 
+        # Priorité 1 : liste explicite dans price_feed.symbols
+        symbols = pf_cfg.get("symbols", []) or []
+
+        # Priorité 2 : instruments avec follow: true (ou follow absent)
+        # pour le broker source
         if not symbols and source_broker_id:
             symbols = [
                 sym for sym, data in self.instruments.items()
-                if isinstance(data, dict) and source_broker_id in data
+                if (
+                    isinstance(data, dict)
+                    and source_broker_id in data
+                    and data.get("follow", True)
+                )
             ]
 
         agg_cfg = BarAggregatorConfig(
@@ -255,14 +263,14 @@ class LiveEngine:
 
         self._bar_aggregator = BarAggregator(
             config=agg_cfg,
-            on_signal=self.receive_signal,  # Signal directement au dispatcher
+            on_signal=self.receive_signal,
             broker=source_broker,
         )
 
-        # Précharger l'historique
         await self._bar_aggregator.initialize()
         logger.info(
-            f"[Engine] 📊 BarAggregator prêt — {len(symbols)} instrument(s)"
+            f"[Engine] 📊 BarAggregator prêt — {len(symbols)} instrument(s): "
+            f"{', '.join(symbols)}"
         )
 
     # ------------------------------------------------------------------
@@ -300,11 +308,9 @@ class LiveEngine:
             symbols=symbols,
         )
 
-        # Brancher bar_aggregator.on_tick sur chaque symbole
         for sym in symbols:
             await self._price_feed.subscribe(sym, self._bar_aggregator.on_tick)
 
-        # Aussi brancher le dispatcher (pour le déclenchement d'ordres pendants)
         for sym in symbols:
             await self._price_feed.subscribe(sym, self._dispatcher.on_tick)
 
@@ -363,7 +369,51 @@ class LiveEngine:
                 f"[Engine] {status} {broker_id} | {signal.instrument} "
                 f"{signal.side.value} FAILED: {result.message}"
             )
-        # TODO: notification Telegram/ntfy
+        # TODO: notification via channels (Telegram/ntfy)
+        await self._notify_order(broker_id, signal, result)
+
+    async def _notify_order(self, broker_id, signal, result) -> None:
+        """Envoie une notification si les channels sont configurés."""
+        try:
+            notif_settings = self.settings.get("notifications", {})
+            if not notif_settings.get("enabled", False):
+                return
+            if result.success and not notif_settings.get("on_order_placed", True):
+                return
+            if not result.success and not notif_settings.get("on_order_error", True):
+                return
+
+            # Channels : settings en priorité, sinon secrets
+            channels = notif_settings.get("channels") or []
+
+            if not channels:
+                return
+
+            status = "✅" if result.success else "❌"
+            msg = (
+                f"{status} {broker_id} | {signal.instrument} "
+                f"{signal.side.value}"
+            )
+            if result.success:
+                msg += f" | order_id={result.order_id}"
+            else:
+                msg += f" | FAILED: {result.message}"
+
+            for channel in channels:
+                try:
+                    import apprise
+                    a = apprise.Apprise()
+                    a.add(channel)
+                    await a.async_notify(body=msg, title="Arabesque")
+                except ImportError:
+                    logger.warning(
+                        "[Engine] apprise non installé — pip install apprise"
+                    )
+                    break
+                except Exception as e:
+                    logger.warning(f"[Engine] Notification échouée ({channel}): {e}")
+        except Exception as e:
+            logger.warning(f"[Engine] _notify_order: {e}")
 
 
 # =============================================================================

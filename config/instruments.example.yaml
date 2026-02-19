@@ -1,30 +1,48 @@
 # =============================================================================
 # INSTRUMENTS - Configuration des paires de trading
 # =============================================================================
-# Mapping: nom unifié → nom par broker
-# Si un broker n'est pas listé pour un instrument, celui-ci est ignoré
-# pour ce broker.
 #
-# RÈGLES DE CONFIGURATION:
-# - XXX/USD (quote=USD): pip_value_per_lot: 10 (fixe)
-# - USD/XXX (base=USD): pip_value_per_lot: null + quote_currency: "XXX"
-# - XXX/YYY (cross):    pip_value_per_lot: null + quote_currency: "YYY"
+# follow: true  → instrument surveillé par le price feed live
+# follow: false → instrument présent dans la config mais non suivi en live
+#
+# pip_value_per_lot = valeur en USD d'1 pip pour 1 lot standard
+#
+# Formules (pour référence future) :
+#   - XXX/USD : pip_value = 10 (fixe)
+#   - USD/XXX : pip_value = 10 / taux_USDXXX
+#   - XXX/YYY : pip_value = 10 / taux_USDYYY
+#   - Crypto  : pip_value = pip_size × contract_size
+#
+# Dernière mise à jour : 23 janvier 2026
+# Taux de référence :
+#   USDJPY: 158 | USDCHF: 0.79 | USDCAD: 1.38 | USDGBP: 0.74
+#   USDNZD: 1.71 | USDAUD: 1.48 | USDEUR: 0.85 | USDHKD: 7.80
+#   USDSGD: 1.28 | USDCNH: 6.96 | USDNOK: 10.5 | USDCZK: 23.5
+#
+# VALIDÉS BACKTESTING (16) :
+#   FOREX: GBPUSD, GBPCHF, GBPNZD, EURCHF, EURNZD, EURNOK, NZDCAD,
+#          USDSGD, USDCNH, USDCZK, USDNOK, USDHKD
+#   CRYPTO: BTCUSD, BNBUSD, XLMUSD, XMRUSD
+#   (VET retiré - indisponible sur FTMO et GFT)
+#
 # =============================================================================
 
 # ---------------------------------------------------------------------------
-# MAJORS - Quote currency = USD
+# MAJORS - Quote currency = USD (pip_value = $10 fixe)
 # ---------------------------------------------------------------------------
 EURUSD:
   ftmo_ctrader: "EURUSD"
   gft_compte1: "EURUSD.X"
   gft_compte2: "EURUSD.X"
+  follow: false
   pip_size: 0.0001
   pip_value_per_lot: 10
 
-GBPUSD:
+GBPUSD:                        # ✅ VALIDÉ
   ftmo_ctrader: "GBPUSD"
   gft_compte1: "GBPUSD.X"
   gft_compte2: "GBPUSD.X"
+  follow: true
   pip_size: 0.0001
   pip_value_per_lot: 10
 
@@ -32,6 +50,7 @@ AUDUSD:
   ftmo_ctrader: "AUDUSD"
   gft_compte1: "AUDUSD.X"
   gft_compte2: "AUDUSD.X"
+  follow: false
   pip_size: 0.0001
   pip_value_per_lot: 10
 
@@ -39,86 +58,133 @@ NZDUSD:
   ftmo_ctrader: "NZDUSD"
   gft_compte1: "NZDUSD.X"
   gft_compte2: "NZDUSD.X"
+  follow: false
   pip_size: 0.0001
   pip_value_per_lot: 10
 
 # ---------------------------------------------------------------------------
-# USD/XXX - Base = USD, calcul dynamique
+# USD/XXX - pip_value = 10 / taux
 # ---------------------------------------------------------------------------
 USDJPY:
   ftmo_ctrader: "USDJPY"
   gft_compte1: "USDJPY.X"
   gft_compte2: "USDJPY.X"
+  follow: false
   pip_size: 0.01
-  pip_value_per_lot: null
-  quote_currency: "JPY"
+  pip_value_per_lot: 6.33      # 1000 / 158
 
 USDCAD:
   ftmo_ctrader: "USDCAD"
   gft_compte1: "USDCAD.X"
   gft_compte2: "USDCAD.X"
+  follow: false
   pip_size: 0.0001
-  pip_value_per_lot: null
-  quote_currency: "CAD"
+  pip_value_per_lot: 7.25      # 10 / 1.38
 
 USDCHF:
   ftmo_ctrader: "USDCHF"
   gft_compte1: "USDCHF.X"
   gft_compte2: "USDCHF.X"
+  follow: false
   pip_size: 0.0001
-  pip_value_per_lot: null
-  quote_currency: "CHF"
+  pip_value_per_lot: 12.66     # 10 / 0.79
+
+USDZAR:
+  ftmo_ctrader: "USDZAR"
+  follow: false
+  pip_size: 0.0001
+  pip_value_per_lot: 0.61      # 10 / 16.4
 
 USDMXN:
   ftmo_ctrader: "USDMXN"
   gft_compte1: "USDMXN.X"
   gft_compte2: "USDMXN.X"
+  follow: false
   pip_size: 0.0001
-  pip_value_per_lot: null
-  quote_currency: "MXN"
+  pip_value_per_lot: 0.57      # 10 / 17.6
 
-USDCNH:
+USDCNH:                        # ✅ VALIDÉ
   ftmo_ctrader: "USDCNH"
   gft_compte1: "USDCNH.X"
   gft_compte2: "USDCNH.X"
+  follow: true
   pip_size: 0.0001
-  pip_value_per_lot: null
-  quote_currency: "CNH"
+  pip_value_per_lot: 1.44      # 10 / 6.96
+
+USDSGD:                        # ✅ VALIDÉ
+  ftmo_ctrader: "USDSGD"
+  gft_compte1: "USDSGD.X"
+  gft_compte2: "USDSGD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 7.81      # 10 / 1.28
+
+USDCZK:                        # ✅ VALIDÉ
+  ftmo_ctrader: "USDCZK"
+  gft_compte1: "USDCZK.X"
+  gft_compte2: "USDCZK.X"
+  follow: true
+  pip_size: 0.001              # Attention: pip = 0.001 pour CZK
+  pip_value_per_lot: 4.26      # 100 / 23.5
+
+USDNOK:                        # ✅ VALIDÉ
+  ftmo_ctrader: "USDNOK"
+  gft_compte1: "USDNOK.X"
+  gft_compte2: "USDNOK.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 0.95      # 10 / 10.5
+
+USDHKD:                        # ✅ VALIDÉ
+  ftmo_ctrader: "USDHKD"
+  gft_compte1: "USDHKD.X"
+  gft_compte2: "USDHKD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 1.28      # 10 / 7.80 (HKD pegged)
 
 # ---------------------------------------------------------------------------
-# JPY CROSSES
+# JPY CROSSES - pip_value = 1000 / USDJPY ≈ 6.33
 # ---------------------------------------------------------------------------
 EURJPY:
   ftmo_ctrader: "EURJPY"
   gft_compte1: "EURJPY.X"
   gft_compte2: "EURJPY.X"
+  follow: false
   pip_size: 0.01
-  pip_value_per_lot: null
-  quote_currency: "JPY"
+  pip_value_per_lot: 6.33
 
 GBPJPY:
   ftmo_ctrader: "GBPJPY"
   gft_compte1: "GBPJPY.X"
   gft_compte2: "GBPJPY.X"
+  follow: false
   pip_size: 0.01
-  pip_value_per_lot: null
-  quote_currency: "JPY"
+  pip_value_per_lot: 6.33
 
 AUDJPY:
   ftmo_ctrader: "AUDJPY"
   gft_compte1: "AUDJPY.X"
   gft_compte2: "AUDJPY.X"
+  follow: false
   pip_size: 0.01
-  pip_value_per_lot: null
-  quote_currency: "JPY"
+  pip_value_per_lot: 6.33
 
 NZDJPY:
   ftmo_ctrader: "NZDJPY"
   gft_compte1: "NZDJPY.X"
   gft_compte2: "NZDJPY.X"
+  follow: false
   pip_size: 0.01
-  pip_value_per_lot: null
-  quote_currency: "JPY"
+  pip_value_per_lot: 6.33
+
+CHFJPY:
+  ftmo_ctrader: "CHFJPY"
+  gft_compte1: "CHFJPY.X"
+  gft_compte2: "CHFJPY.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 6.33
 
 # ---------------------------------------------------------------------------
 # EUR CROSSES
@@ -127,33 +193,78 @@ EURGBP:
   ftmo_ctrader: "EURGBP"
   gft_compte1: "EURGBP.X"
   gft_compte2: "EURGBP.X"
+  follow: false
   pip_size: 0.0001
-  pip_value_per_lot: null
-  quote_currency: "GBP"
+  pip_value_per_lot: 13.51     # 10 / 0.74 (USDGBP)
 
-EURNZD:
+EURNZD:                        # ✅ VALIDÉ
   ftmo_ctrader: "EURNZD"
   gft_compte1: "EURNZD.X"
   gft_compte2: "EURNZD.X"
+  follow: true
   pip_size: 0.0001
-  pip_value_per_lot: null
-  quote_currency: "NZD"
+  pip_value_per_lot: 5.85      # 10 / 1.71
 
-EURCHF:
+EURCHF:                        # ✅ VALIDÉ
   ftmo_ctrader: "EURCHF"
   gft_compte1: "EURCHF.X"
   gft_compte2: "EURCHF.X"
+  follow: true
   pip_size: 0.0001
-  pip_value_per_lot: null
-  quote_currency: "CHF"
+  pip_value_per_lot: 12.66     # 10 / 0.79
 
 EURAUD:
   ftmo_ctrader: "EURAUD"
   gft_compte1: "EURAUD.X"
   gft_compte2: "EURAUD.X"
+  follow: false
   pip_size: 0.0001
-  pip_value_per_lot: null
-  quote_currency: "AUD"
+  pip_value_per_lot: 6.76      # 10 / 1.48
+
+EURNOK:                        # ✅ VALIDÉ
+  ftmo_ctrader: "EURNOK"
+  gft_compte1: "EURNOK.X"
+  gft_compte2: "EURNOK.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 0.95      # 10 / 10.5
+
+EURHUF:
+  gft_compte1: "EURHUF.X"
+  gft_compte2: "EURHUF.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 2.60      # 1000 / 385
+
+# ---------------------------------------------------------------------------
+# GBP CROSSES
+# ---------------------------------------------------------------------------
+GBPCHF:                        # ✅ VALIDÉ
+  ftmo_ctrader: "GBPCHF"
+  gft_compte1: "GBPCHF.X"
+  gft_compte2: "GBPCHF.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 12.66     # 10 / 0.79
+
+GBPNZD:                        # ✅ VALIDÉ
+  ftmo_ctrader: "GBPNZD"
+  gft_compte1: "GBPNZD.X"
+  gft_compte2: "GBPNZD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 5.85      # 10 / 1.71
+
+# ---------------------------------------------------------------------------
+# NZD CROSSES
+# ---------------------------------------------------------------------------
+NZDCAD:                        # ✅ VALIDÉ
+  ftmo_ctrader: "NZDCAD"
+  gft_compte1: "NZDCAD.X"
+  gft_compte2: "NZDCAD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 7.25      # 10 / 1.38
 
 # ---------------------------------------------------------------------------
 # MÉTAUX
@@ -162,16 +273,18 @@ XAUUSD:
   ftmo_ctrader: "XAUUSD"
   gft_compte1: "XAUUSD.X"
   gft_compte2: "XAUUSD.X"
+  follow: false
   pip_size: 0.01
-  pip_value_per_lot: 1
+  pip_value_per_lot: 1         # $1 par pip (0.01) pour 100 oz
   contract_size: 100
 
 XAGUSD:
   ftmo_ctrader: "XAGUSD"
   gft_compte1: "XAGUSD.X"
   gft_compte2: "XAGUSD.X"
+  follow: false
   pip_size: 0.001
-  pip_value_per_lot: 5
+  pip_value_per_lot: 5         # $5 par pip (0.001) pour 5000 oz
   contract_size: 5000
 
 # ---------------------------------------------------------------------------
@@ -181,6 +294,7 @@ US30:
   ftmo_ctrader: "US30"
   gft_compte1: "US30.X"
   gft_compte2: "US30.X"
+  follow: false
   pip_size: 1
   pip_value_per_lot: 1
 
@@ -188,6 +302,7 @@ US100:
   ftmo_ctrader: "USTEC"
   gft_compte1: "US100.X"
   gft_compte2: "US100.X"
+  follow: false
   pip_size: 1
   pip_value_per_lot: 1
 
@@ -195,6 +310,7 @@ US500:
   ftmo_ctrader: "US500"
   gft_compte1: "US500.X"
   gft_compte2: "US500.X"
+  follow: false
   pip_size: 0.1
   pip_value_per_lot: 1
 
@@ -202,23 +318,164 @@ GER40:
   ftmo_ctrader: "DE40"
   gft_compte1: "GER40.X"
   gft_compte2: "GER40.X"
+  follow: false
   pip_size: 1
-  pip_value_per_lot: null
-  quote_currency: "EUR"
+  pip_value_per_lot: 1.18      # 1 / 0.85 (USDEUR)
+
+JAP225:
+  ftmo_ctrader: "JP225"
+  gft_compte1: "JAP225.X"
+  gft_compte2: "JAP225.X"
+  follow: false
+  pip_size: 1
+  pip_value_per_lot: 0.0063    # 1 / 158 (USDJPY)
 
 # ---------------------------------------------------------------------------
-# CRYPTO
+# CRYPTO - Specs vérifiées le 23/01/2026
 # ---------------------------------------------------------------------------
-BTCUSD:
+# pip_value_per_lot = pip_size × contract_size
+# pip_value: overrides par broker quand les specs diffèrent
+# ---------------------------------------------------------------------------
+
+BTCUSD:                        # ✅ VALIDÉ - Identique FTMO/GFT
   ftmo_ctrader: "BTCUSD"
   gft_compte1: "BTCUSD.X"
   gft_compte2: "BTCUSD.X"
-  pip_size: 1
-  pip_value_per_lot: 1
+  follow: true
+  pip_size: 0.01               # Vérifié cTrader + TradeLocker
+  pip_value_per_lot: 0.01      # 0.01 × 1 contract (identique)
+  contract_size: 1
+  session_model: "24x7"
+  candle_phase_minutes: 0
 
-ETHUSD:
+ETHUSD:                        # Différent FTMO vs GFT
   ftmo_ctrader: "ETHUSD"
   gft_compte1: "ETHUSD.X"
   gft_compte2: "ETHUSD.X"
-  pip_size: 0.1
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+  pip_value:
+    ftmo_ctrader: 0.1
+  contract_size: 10
+  max_lot: 1
+  session_model: "24x7"
+  candle_phase_minutes: 0
+
+BNBUSD:                        # ✅ VALIDÉ - Différent FTMO vs GFT
+  ftmo_ctrader: "BNBUSD"
+  gft_compte1: "BNBUSD.X"
+  gft_compte2: "BNBUSD.X"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+  pip_value:
+    ftmo_ctrader: 1
+  contract_size: 100
+  max_lot: 1
+  session_model: "24x7"
+  candle_phase_minutes: 0
+
+XLMUSD:                        # ✅ VALIDÉ - FTMO uniquement
+  ftmo_ctrader: "XLMUSD"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 10        # 0.0001 × 100,000
+  contract_size: 100000
+  max_lot: 1
+  session_model: "24x7"
+  candle_phase_minutes: 0
+
+XMRUSD:                        # ✅ VALIDÉ - FTMO uniquement
+  ftmo_ctrader: "XMRUSD"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 1         # 0.01 × 100
+  contract_size: 100
+  max_lot: 1
+  session_model: "24x7"
+  candle_phase_minutes: 0
+
+# ---------------------------------------------------------------------------
+# CRYPTO - Nouvelles ajoutées le 31/01/2026
+# ---------------------------------------------------------------------------
+
+FETUSD:                        # ✅ VALIDÉ - FTMO uniquement
+  ftmo_ctrader: "FETUSD"
+  follow: false
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+  contract_size: 100000
+  max_lot: 1
+  session_model: "24x7"
+  candle_phase_minutes: 0
+
+AAVEUSD:                       # ✅ VALIDÉ - FTMO uniquement
+  ftmo_ctrader: "AAVEUSD"
+  follow: false
+  pip_size: 0.01
   pip_value_per_lot: 1
+  contract_size: 100
+  max_lot: 1
+  session_model: "24x7"
+  candle_phase_minutes: 0
+
+SANUSD:                        # ✅ VALIDÉ - FTMO uniquement (Santiment Network)
+  ftmo_ctrader: "SANUSD"
+  follow: false
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+  contract_size: 100000
+  max_lot: 1
+  session_model: "24x7"
+  candle_phase_minutes: 0
+
+NEOUSD:                        # ✅ VALIDÉ - FTMO uniquement
+  ftmo_ctrader: "NEOUSD"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 10
+  contract_size: 1000
+  max_lot: 1
+  session_model: "24x7"
+  candle_phase_minutes: 0
+
+ICPUSD:                        # ✅ VALIDÉ - FTMO uniquement
+  ftmo_ctrader: "ICPUSD"
+  follow: false
+  pip_size: 0.001
+  pip_value_per_lot: 10
+  contract_size: 10000
+  max_lot: 1
+  session_model: "24x7"
+  candle_phase_minutes: 0
+
+DOTUSD:                        # ✅ VALIDÉ - FTMO uniquement
+  ftmo_ctrader: "DOTUSD"
+  follow: false
+  pip_size: 0.001
+  pip_value_per_lot: 10
+  contract_size: 10000
+  max_lot: 5
+  session_model: "24x7"
+  candle_phase_minutes: 0
+
+DOGEUSD:                       # ✅ VALIDÉ - FTMO uniquement
+  ftmo_ctrader: "DOGEUSD"
+  follow: false
+  pip_size: 0.00001
+  pip_value_per_lot: 1
+  contract_size: 100000
+  max_lot: 1
+  session_model: "24x7"
+  candle_phase_minutes: 0
+
+AVAXUSD:                       # ✅ VALIDÉ - FTMO uniquement
+  ftmo_ctrader: "AVAXUSD"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 10
+  contract_size: 1000
+  max_lot: 5
+  session_model: "24x7"
+  candle_phase_minutes: 0
