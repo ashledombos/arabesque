@@ -14,8 +14,10 @@ Remplace Pine pour le backtest. Calcule les MÊMES indicateurs :
 Signal BB excess LONG : close < BB lower && régime bullish && filtre supplémentaire
 Signal BB excess SHORT : close > BB upper && régime bearish && filtre supplémentaire
 
-Anti-lookahead : le signal est émis sur la bougie CONFIRMÉE (index i),
-l'entrée est simulée au OPEN de la bougie suivante (i+1).
+Anti-lookahead (backtest) : signal émis sur bougie CONFIRMÉE (index i),
+  entrée simulée au OPEN de i+1.
+live_mode=True : signal émis sur la DERNIÈRE bougie du cache (index n-1),
+  entrée au close courant (pas de décalage).
 """
 
 from __future__ import annotations
@@ -65,22 +67,26 @@ class SignalGenConfig:
     # SL placement
     sl_method: str = "swing"        # "swing" = recent swing low/high, "atr" = N*ATR
     sl_atr_mult: float = 1.5        # Multiplicateur ATR pour SL si method=atr
-    sl_swing_bars: int = 10          # Lookback pour swing low/high
-    min_sl_atr: float = 0.8         # SL minimum = 0.8 * ATR (évite les R minuscules)
+    sl_swing_bars: int = 10         # Lookback pour swing low/high
+    min_sl_atr: float = 0.8        # SL minimum = 0.8 * ATR (évite les R minuscules)
 
 
 class BacktestSignalGenerator:
-    """Génère des signaux BB excess à partir de données OHLC."""
+    """Génère des signaux BB excess à partir de données OHLC.
 
-    def __init__(self, config: SignalGenConfig | None = None):
+    Interface identique à TrendSignalGenerator :
+    generate_signals() retourne list[tuple[int, Signal]].
+
+    live_mode=True : inclut la dernière bougie du cache (index n-1)
+    et ne nécessite pas la bougie suivante pour simuler l'entrée.
+    """
+
+    def __init__(self, config: SignalGenConfig | None = None, live_mode: bool = False):
         self.cfg = config or SignalGenConfig()
+        self.live_mode = live_mode
 
     def prepare(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calcule tous les indicateurs sur le DataFrame.
-
-        Retourne le DataFrame enrichi avec les colonnes indicateurs.
-        ATTENTION : ne modifie pas le df original.
-        """
+        """Calcule tous les indicateurs sur le DataFrame."""
         df = df.copy()
 
         # ── BB(20, 2) ──
@@ -103,7 +109,7 @@ class BacktestSignalGenerator:
         # ── ATR ──
         df["atr"] = self._atr(df, self.cfg.atr_period)
 
-        # ── Williams %R (VRAI, pas percentrank * -1) ──
+        # ── Williams %R ──
         df["wr_14"] = self._williams_r(df, self.cfg.wr_period)
 
         # ── Régime HTF (resample 4H) ──
@@ -115,21 +121,27 @@ class BacktestSignalGenerator:
 
         return df
 
-    def generate_signals(self, df: pd.DataFrame, instrument: str = "") -> list[Signal]:
+    def generate_signals(
+        self, df: pd.DataFrame, instrument: str = ""
+    ) -> list[tuple[int, Signal]]:
         """Génère les signaux à partir du DataFrame préparé.
 
-        ANTI-LOOKAHEAD : le signal à l'index i utilise les données de i et avant.
-        L'entrée se fait au OPEN de i+1 (simulée par le runner).
+        Retourne list[tuple[bar_index, Signal]] — même interface que
+        TrendSignalGenerator pour usage dans _generate_signals_from_cache.
+
+        En backtest (live_mode=False) : boucle sur range(warmup, n-1),
+          anti-lookahead strict, entrée simulée au OPEN de i+1.
+        En live_mode=True : boucle sur range(warmup, n), inclut la
+          dernière bougie, entrée au close courant.
         """
-        signals = []
+        signals: list[tuple[int, Signal]] = []
 
-        # Démarrer après warmup de tous les indicateurs
         warmup = max(self.cfg.ema_slow, self.cfg.bb_period, self.cfg.atr_period) + 10
+        end = len(df) if self.live_mode else len(df) - 1
 
-        for i in range(warmup, len(df) - 1):  # -1 car on a besoin de la bougie suivante
+        for i in range(warmup, end):
             row = df.iloc[i]
 
-            # Skip si indicateurs manquants
             if pd.isna(row.get("atr")) or row["atr"] <= 0:
                 continue
             if pd.isna(row.get("bb_lower")):
@@ -137,7 +149,7 @@ class BacktestSignalGenerator:
 
             signal = self._check_bb_excess(row, df, i, instrument)
             if signal is not None:
-                signals.append(signal)
+                signals.append((i, signal))
 
         return signals
 
@@ -151,31 +163,23 @@ class BacktestSignalGenerator:
         bb_mid = row["bb_mid"]
         atr = row["atr"]
 
-        # ── BB width filter (pas de signal en squeeze) ──
         if row["bb_width"] < self.cfg.min_bb_width:
             return None
 
         # ── LONG : close < BB lower ──
         if close < bb_lower:
-            # Filtre RSI : oversold
             if row["rsi"] > self.cfg.rsi_oversold:
                 return None
 
-            # Filtre régime : pas en bear trend fort
             regime = row.get("regime", "bull_range")
             if regime == "bear_trend":
                 return None
 
-            # SL
             sl = self._compute_sl(row, df, idx, Side.LONG)
             if sl <= 0 or sl >= close:
-                # SL invalide, fallback ATR
                 sl = close - self.cfg.sl_atr_mult * atr
 
-            # TP = BB mid (retour à la moyenne)
             tp = bb_mid
-
-            # R:R check
             risk_dist = abs(close - sl)
             reward_dist = abs(tp - close)
             if risk_dist <= 0:
@@ -207,6 +211,7 @@ class BacktestSignalGenerator:
                 regime=regime,
                 max_spread_atr=0.3,
                 rr=round(rr, 2),
+                strategy_type="mean_reversion",
                 timestamp=df.index[idx],
             )
             return label_mr_signal(sig, df, idx)
@@ -256,6 +261,7 @@ class BacktestSignalGenerator:
                 regime=regime,
                 max_spread_atr=0.3,
                 rr=round(rr, 2),
+                strategy_type="mean_reversion",
                 timestamp=df.index[idx],
             )
             return label_mr_signal(sig, df, idx)
@@ -265,10 +271,6 @@ class BacktestSignalGenerator:
     def _compute_sl(
         self, row: pd.Series, df: pd.DataFrame, idx: int, side: Side
     ) -> float:
-        """Calcule le SL basé sur swing low/high ou ATR.
-
-        Enforce un R minimum de min_sl_atr * ATR pour éviter les SL absurdes.
-        """
         atr = row["atr"]
         close = row["Close"]
         min_dist = self.cfg.min_sl_atr * atr
@@ -278,7 +280,6 @@ class BacktestSignalGenerator:
                 sl = row.get("swing_low", 0)
                 if sl > 0:
                     sl -= 0.2 * atr
-                # Enforce minimum distance
                 if sl <= 0 or (close - sl) < min_dist:
                     sl = close - min_dist
             else:
@@ -289,7 +290,6 @@ class BacktestSignalGenerator:
                     sl = close + min_dist
             return sl
 
-        # Fallback ATR
         if side == Side.LONG:
             return close - max(self.cfg.sl_atr_mult * atr, min_dist)
         return close + max(self.cfg.sl_atr_mult * atr, min_dist)
@@ -306,7 +306,6 @@ class BacktestSignalGenerator:
 
     @staticmethod
     def _cmf(df: pd.DataFrame, period: int) -> pd.Series:
-        """Chaikin Money Flow."""
         hl_range = df["High"] - df["Low"]
         hl_range = hl_range.replace(0, np.nan)
         mf_mult = ((df["Close"] - df["Low"]) - (df["High"] - df["Close"])) / hl_range
@@ -327,23 +326,12 @@ class BacktestSignalGenerator:
 
     @staticmethod
     def _williams_r(df: pd.DataFrame, period: int) -> pd.Series:
-        """Vrai Williams %R : (HH - close) / (HH - LL) * -100."""
         hh = df["High"].rolling(period).max()
         ll = df["Low"].rolling(period).min()
         hl_range = hh - ll
         return ((hh - df["Close"]) / hl_range.replace(0, np.nan)) * -100
 
     def _compute_htf_regime(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Calcule le régime HTF (4H) en resampleant les données 1H.
-
-        Régime :
-        - bull_trend : EMA fast > EMA slow AND ADX > 25
-        - bear_trend : EMA fast < EMA slow AND ADX > 25
-        - bull_range : EMA fast > EMA slow AND ADX <= 25
-        - bear_range : EMA fast < EMA slow AND ADX <= 25
-        - squeeze : BB width < threshold (déjà géré par le guard)
-        """
-        # Resample à 4H
         df_4h = df.resample("4h").agg({
             "Open": "first",
             "High": "max",
@@ -358,29 +346,20 @@ class BacktestSignalGenerator:
             df["htf_adx"] = 0
             return df
 
-        # EMAs 4H
         df_4h["ema_fast"] = df_4h["Close"].ewm(span=self.cfg.htf_ema_fast, adjust=False).mean()
         df_4h["ema_slow"] = df_4h["Close"].ewm(span=self.cfg.htf_ema_slow, adjust=False).mean()
-
-        # ADX 4H
         df_4h["adx"] = self._adx(df_4h, self.cfg.htf_adx_period)
 
-        # Régime
         def _regime(r):
             bull = r["ema_fast"] > r["ema_slow"]
             strong = r["adx"] > 25 if not pd.isna(r["adx"]) else False
-            if bull and strong:
-                return "bull_trend"
-            elif not bull and strong:
-                return "bear_trend"
-            elif bull:
-                return "bull_range"
-            else:
-                return "bear_range"
+            if bull and strong:   return "bull_trend"
+            elif not bull and strong: return "bear_trend"
+            elif bull:            return "bull_range"
+            else:                 return "bear_range"
 
         df_4h["regime"] = df_4h.apply(_regime, axis=1)
 
-        # Forward-fill vers 1H
         htf_cols = df_4h[["regime", "ema_fast", "ema_slow", "adx"]].copy()
         htf_cols.columns = ["regime", "htf_ema_fast_val", "htf_ema_slow_val", "htf_adx"]
         htf_reindexed = htf_cols.reindex(df.index, method="ffill")
@@ -394,7 +373,6 @@ class BacktestSignalGenerator:
 
     @staticmethod
     def _adx(df: pd.DataFrame, period: int) -> pd.Series:
-        """Average Directional Index."""
         high = df["High"]
         low = df["Low"]
         close = df["Close"]
@@ -402,7 +380,6 @@ class BacktestSignalGenerator:
         plus_dm = high.diff().clip(lower=0)
         minus_dm = (-low.diff()).clip(lower=0)
 
-        # Si +DM <= -DM, +DM = 0 et vice versa
         mask = plus_dm <= minus_dm
         plus_dm[mask] = 0
         minus_dm[~mask] = 0
@@ -414,9 +391,8 @@ class BacktestSignalGenerator:
         ], axis=1).max(axis=1)
 
         atr = tr.ewm(span=period, adjust=False).mean()
-        plus_di = 100 * (plus_dm.ewm(span=period, adjust=False).mean() / atr)
+        plus_di  = 100 * (plus_dm.ewm(span=period, adjust=False).mean() / atr)
         minus_di = 100 * (minus_dm.ewm(span=period, adjust=False).mean() / atr)
 
         dx = (abs(plus_di - minus_di) / (plus_di + minus_di).replace(0, np.nan)) * 100
-        adx = dx.ewm(span=period, adjust=False).mean()
-        return adx
+        return dx.ewm(span=period, adjust=False).mean()
