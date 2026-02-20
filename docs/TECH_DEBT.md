@@ -64,17 +64,6 @@
 | **Fix** | Supprimer après vérification |
 | **Priorité** | P7 |
 
-### TD-007 — Alias `tv_close` / `tv_open` dans `models.py`
-
-| Champ | Valeur |
-|---|---|
-| **Fichier** | `arabesque/models.py` |
-| **Symptôme** | `tv_close` et `tv_open` existent comme propriétés alias de `close` et `open_` |
-| **Cause** | Héritage d'une architecture TradingView webhook abandonnée |
-| **Impact** | Confusion sur les noms — a déjà causé le bug TD-004 |
-| **Fix** | Supprimer les propriétés après grep complet (`git grep tv_close`) |
-| **Priorité** | P7 |
-
 ### TD-008 — Calcul ADX dupliqué
 
 | Champ | Valeur |
@@ -112,6 +101,7 @@
 | ID | Description | Fix | Date |
 |---|---|---|---|
 | **TD-001** | `daily_dd_pct` et `remaining_daily` divisés par `start_balance` au lieu de `daily_start_balance` — guards DD ne se déclenchaient jamais | Commit [`0cb70ec`](https://github.com/ashledombos/arabesque/commit/0cb70ec8da5d967d5f34570108e210571aa7080a) | **2026-02-20** |
+| **TD-007** | Alias `tv_close`/`tv_open` (héritage TradingView) confondaient le code, ont causé bug `signal_gen_trend.py` | Suppression propriétés + remplacement par `signal.close`/`signal.open_` | **2026-02-20** |
 | — | `sig.tp` → `AttributeError` | Renommer en `sig.tp_indicative` | 2026-02-18 |
 | — | Guard slippage rejetait 96% des signaux | Comparer `fill` vs `open_next_bar` | 2026-02-18 |
 | — | `np.float64` dans dict signal | Cast `float()` partout | 2026-02-18 |

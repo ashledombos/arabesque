@@ -28,6 +28,10 @@ CORRECTIONS v2.3 (2026-02-20) — TD-001 :
    Après : ((equity - daily_start_balance) / daily_start_balance) * 100
 10. compute_sizing : remaining_daily corrigé de même (start_balance → daily_start_balance)
     pour cohérence avec daily_dd_pct
+
+CORRECTIONS v2.4 (2026-02-20) — TD-007 :
+11. Remplacement signal.tv_close → signal.close dans _slippage() et compute_sizing()
+    Les alias tv_close/tv_open (héritage TradingView webhook) sont supprimés de models.py
 """
 
 from __future__ import annotations
@@ -230,9 +234,12 @@ class Guards:
         return True, None, ""
 
     def _slippage(self, signal: Signal, bid: float, ask: float, atr: float):
-        """Slippage = |fill estimé - tv_close| / ATR."""
+        """Slippage = |fill estimé - signal.close| / ATR.
+
+        CORRECTION v2.4 (2026-02-20) : signal.tv_close → signal.close
+        """
         fill_est = ask if signal.side == Side.LONG else bid
-        slip = abs(fill_est - signal.tv_close) / atr
+        slip = abs(fill_est - signal.close) / atr
         if slip > self.exec.max_slippage_atr:
             return False, RejectReason.SLIPPAGE_TOO_HIGH, f"slip {slip:.3f}ATR > {self.exec.max_slippage_atr}"
         return True, None, ""
@@ -269,10 +276,12 @@ class Guards:
           DD = -5% → ratio = 0.43 → risk = 214$
           DD = -6% → ratio = 0.29 → risk = 143$
           DD = -7% → guard bloque (jamais atteint ici)
+
+        CORRECTION v2.4 (2026-02-20) : signal.tv_close → signal.close
         """
         MIN_RISK_RATIO = 0.10  # plancher à 10% du risque nominal
 
-        entry = signal.tv_close
+        entry = signal.close
         sl = signal.sl
         if entry == 0 or sl == 0:
             return {"risk_cash": 0, "risk_distance": 0, "error": "missing entry/sl"}

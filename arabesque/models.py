@@ -3,6 +3,10 @@ Arabesque v2 — Modèles de données.
 
 Fusion v0.1 (types propres, audit trail) + v1 (pragmatisme pipeline).
 Chaque objet est conçu pour l'audit : append-only, immutable une fois résolu.
+
+CORRECTION v2.4 (2026-02-20) — TD-007 :
+- Suppression des propriétés alias tv_close/tv_open (héritage TradingView webhook)
+- Utiliser directement signal.close et signal.open_ partout dans le code
 """
 
 from __future__ import annotations
@@ -14,7 +18,7 @@ from enum import Enum
 from typing import Any
 
 
-# ── Enums ───────────────────────────────────────────────────────────────────────
+# ── Enums ───────────────────────────────────────────────────────────────
 
 class Side(str, Enum):
     LONG = "LONG"
@@ -71,16 +75,11 @@ class RejectReason(str, Enum):
     BB_SQUEEZE = "bb_squeeze"
 
 
-# ── Signal ───────────────────────────────────────────────────────────────────
+# ── Signal ─────────────────────────────────────────────────────────
 
 @dataclass
 class Signal:
-    """Signal émis par le générateur interne (cTrader → OHLCV → indicateurs).
-
-    NB : les champs tv_close / tv_open sont des alias maintenus pour
-    la compatibilité avec l'ancien code backtest. Utiliser `close` / `open_`
-    dans tout nouveau code.
-    """
+    """Signal émis par le générateur interne (cTrader → OHLCV → indicateurs)."""
     signal_id: str = field(default_factory=lambda: str(uuid.uuid4())[:12])
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     instrument: str = ""
@@ -122,26 +121,6 @@ class Signal:
     sub_type: str = ""
     label_factors: dict = field(default_factory=dict)
 
-    # ── Alias de compatibilité (ancienne interface TradingView) ──────
-    # Ces propriétés permettent au code backtest existant de continuer
-    # à fonctionner sans modification. À supprimer dans une future version.
-
-    @property
-    def tv_close(self) -> float:
-        return self.close
-
-    @tv_close.setter
-    def tv_close(self, v: float):
-        self.close = v
-
-    @property
-    def tv_open(self) -> float:
-        return self.open_
-
-    @tv_open.setter
-    def tv_open(self, v: float):
-        self.open_ = v
-
     @classmethod
     def from_bar(cls, instrument: str, row, df=None, timeframe: str = "1h") -> "Signal":
         """
@@ -157,7 +136,7 @@ class Signal:
         )
 
 
-# ── Decision (Event) ────────────────────────────────────────────────────────────────
+# ── Decision (Event) ──────────────────────────────────────────────────
 
 @dataclass
 class Decision:
@@ -181,7 +160,7 @@ class Decision:
     metadata: dict = field(default_factory=dict)
 
 
-# ── Position ──────────────────────────────────────────────────────────────────────
+# ── Position ──────────────────────────────────────────────────────────
 
 @dataclass
 class Position:
@@ -308,7 +287,7 @@ class Position:
                 f"bars={self.bars_open}")
 
 
-# ── Counterfactual ──────────────────────────────────────────────────────────────────
+# ── Counterfactual ──────────────────────────────────────────────────
 
 @dataclass
 class Counterfactual:
