@@ -1,118 +1,122 @@
 # Arabesque — ROADMAP
 
-> Version : 2026-02-18  
-> Horizon : 4 semaines (S1 → S4)
+> Dernière mise à jour : 2026-02-20  
+> Horizon : 4-6 semaines
 
 ---
 
-## Baseline v1 — Résultats après filtres Phase 1.3
+## État actuel (2026-02-20)
 
-Analyse OOS sur **6 759 trades / 102 instruments** (split 70/30, 730 jours de données).
+Pipeline run sur **80 instruments** (S1: 77 → S2: 31 → S3: **17 viables**) :
 
-| Catégorie   | Sub-type gagnant      | Total R OOS | Statut   |
-|-------------|-----------------------|-------------|----------|
-| energy      | mr_deep_wide          | positif     | ✅ stable |
-| commodities | mr_deep_wide          | positif     | ✅ stable |
-| crypto      | trend_strong          | positif     | ✅ stable |
-| indices     | trend_strong          | positif     | ✅ stable |
-| metals      | mr_shallow_narrow     | à confirmer | 🔶 watch  |
-| fx          | tous sub-types        | −60.2 R     | ❌ filtré |
+| Catégorie | Testés | Viables | Statut |
+|---|---|---|---|
+| Crypto alt-coins | 31 | 16 | ✅ Validée |
+| Metals | 6 | 1 (XAUUSD) | ⚠️ Neutre (trend exclu) |
+| FX | 43 | 0 | ❌ Suspendu 1H — à explorer 4H |
+| Énergie | 0 | — | 🔄 Pas de parquets H1 |
+| Commodities | 0 | — | 🔄 Pas de parquets H1 |
+| Indices | 0 | — | 🔄 Pas de parquets H1 |
 
-**Filtres actifs** (`config/signal_filters.yaml`) :
+Filtres actifs (`config/signal_filters.yaml`) :
 - `mr_shallow_wide` désactivé sur FX, crypto, indices, metals
 - `trend_strong` et `trend_moderate` désactivés sur metals
-- FX entièrement hors prod jusqu'à validation 4H (cf. S3)
-
-**Métriques baseline à battre** (seuils de référence) :
-- Expectancy globale OOS : > 0.10 R/trade
-- Profit Factor : > 1.20
-- Max Drawdown : < 15 % du capital
+- FX suspendu en 1H jusqu'à validation 4H
 
 ---
 
-## Plan 4 semaines
+## Plan — Étapes P0-P8
 
-### S1 — Filtres + EXIT_TRAILING
+### P0 🔴 — Corriger `daily_dd_pct` *(BLOQUANT avant tout live)*
 
-**Objectif** : stabiliser la baseline, mesurer l'impact du trailing stop.
+**Fichier** : `arabesque/guards.py`  
+**Fix** : `(daily_start_balance - equity) / daily_start_balance` (pas `/start_balance`)  
+**Validation** : replay 3 mois, chercher `"rejected DAILY_DD_LIMIT"` dans les logs.
 
-- [ ] Intégrer `SignalFilter.is_allowed()` dans `BacktestRunner` et `CombinedSignalGenerator`
-- [ ] Relancer `run_label_analysis.py` avec filtres actifs → confirmer gain OOS
-- [ ] Analyser la distribution des sorties `EXIT_TRAILING` vs `EXIT_SL` vs `EXIT_TP`
-- [ ] Tester variantes des paliers trailing : `[1.0R, 1.5R, 2.0R]` vs `[0.75R, 1.25R, 2.0R]`
-- [ ] Sauvegarder résultats dans `results/stable/s1_baseline_filtered.json`
+### P1 🟠 — Implémenter `EXIT_TRAILING`
 
-### S2 — Scorecard par instrument
+Dans `_check_sl_tp_intrabar` : si `pos.trailing_active and pos.result_r > 0` → `DecisionType.EXIT_TRAILING`.  
+Débloque : vrai WR, PF, expectancy par sortie, et la décision TP fixe vs TSL.
 
-**Objectif** : identifier les instruments individuellement profitables.
+### P2 — Run stats avancées sur les 17 viables
 
-- [ ] Créer `scripts/run_scorecard.py` : rank instruments par Sharpe OOS
-- [ ] Définir seuil d'inclusion : expectancy > 0.08R ET n_trades ≥ 30 OOS
-- [ ] Générer `config/stable/instruments_approved.yaml` (liste filtrée)
-- [ ] Comparer scorecard IS vs OOS → détecter overfitting par instrument
-- [ ] Sauvegarder dans `results/stable/s2_scorecard.json`
-
-### S3 — FX en 4H
-
-**Objectif** : tester si FX redevient profitable sur timeframe supérieur.
-
-- [ ] Lancer `scripts/research/explore_fx_4h.py`
-- [ ] Comparer FX 1H vs FX 4H sur même période OOS
-- [ ] Critère de validation : Total R OOS > 0 sur ≥ 3 sub-types
-- [ ] Si validé → créer `config/research/fx_4h_settings.yaml`
-- [ ] Sauvegarder dans `results/research/s3_fx_4h.json`
-
-### S4 — TP fixe vs Trailing
-
-**Objectif** : optimiser la stratégie de sortie sur les sub-types avec AvgW > 1.0R.
-
-- [ ] Lancer `scripts/research/explore_tp_vs_tsl.py`
-- [ ] Cibles : TP fixe à 1.5R, 2.0R, 2.5R vs trailing actuel
-- [ ] Filtrer sur sub-types où AvgWin > 1.0R (energy × mr_deep_wide, etc.)
-- [ ] Critère : TP fixe retenu si Sharpe ≥ trailing ET max DD ≤ trailing
-- [ ] Sauvegarder dans `results/research/s4_tp_vs_tsl.json`
-
----
-
-## Architecture deux branches
-
-```
-config/
-├── settings.yaml             # Config globale (broker, risk, mode)
-├── signal_filters.yaml       # Matrice activation sub_type × catégorie
-├── stable/                   # Configs validées OOS — ne pas modifier sans test
-│   └── instruments_approved.yaml
-└── research/                 # Configs expérimentales — jamais en prod
-    └── fx_4h_settings.yaml
-
-results/
-├── stable/                   # Résultats backtests branch stable
-│   ├── s1_baseline_filtered.json
-│   └── s2_scorecard.json
-└── research/                 # Résultats expérimentaux
-    ├── s3_fx_4h.json
-    └── s4_tp_vs_tsl.json
-
-scripts/
-├── run_label_analysis.py     # Pipeline Phase 1.3 (existant)
-├── run_pipeline.py           # Pipeline principal (existant)
-└── research/                 # Scripts d'exploration (jamais importés en prod)
-    ├── explore_fx_4h.py
-    └── explore_tp_vs_tsl.py
+```bash
+for inst in AAVUSD ALGUSD BCHUSD DASHUSD GRTUSD ICPUSD IMXUSD LNKUSD \
+            NEOUSD NERUSD SOLUSD UNIUSD VECUSD XAUUSD XLMUSD XRPUSD XTZUSD; do
+    python scripts/run_stats.py $inst --period 730d
+done
+# Garder si bootstrap 95% CI borne basse > 0R
+# Reporter dans config/instruments.yaml (follow: true)
 ```
 
-**Règle de gouvernance** :
-- Un fichier passe de `research/` → `stable/` uniquement après validation OOS positive
-- Les scripts `research/` ne sont jamais importés par le runner de prod
-- Chaque merge vers `main` doit inclure le fichier `results/stable/` correspondant
+### P3 — Valider les guards DD sur replay 3 mois (après fix P0)
+
+```bash
+python -m arabesque.live.runner \
+  --mode dry_run --source parquet \
+  --start 2025-10-01 --end 2026-01-01
+# Chercher : "rejected DAILY_DD_LIMIT", "rejected MAX_DD_LIMIT"
+```
+
+### P4 — Connexion compte test FTMO (dry-run cTrader)
+
+```bash
+# Remplir config/secrets.yaml avec account_id 17057523
+python -m arabesque.live.engine --dry-run
+# Vrais ticks, zéro ordre envoyé
+```
+
+### P5 — Premier ordre réel (compte test uniquement)
+
+```bash
+python -m arabesque.live.engine
+# Vérifier dans cTrader : ordre, SL, volume corrects
+```
+
+### P6 — FX en 4H (exploration)
+
+```bash
+python scripts/run_pipeline.py --list fx --mode wide --period 1825d -v
+# Tester aussi : filtre EMA200 daily + tier 0 trailing +0.25R → 0.15R
+```
+
+### P7 — Nettoyage dette technique (TD-005 à TD-009)
+
+- Supprimer `arabesque/live/runner.py` → remplacé par `engine.py`
+- Supprimer `arabesque/live/bar_poller.py` → remplacé par `price_feed.py`
+- Supprimer alias `tv_close`/`tv_open` dans `models.py` après `git grep tv_close`
+- Unifier ADX dans `arabesque/indicators.py`
+- Créer `scripts/run_all_stats.py` (boucle sur instruments viables)
+
+### P8 — Nouvelles catégories (énergie, commodities, indices)
+
+```bash
+# 1. Télécharger parquets H1 via barres_au_sol
+# 2. Copier dans data/parquet/
+python scripts/run_pipeline.py --list energy -v
+python scripts/run_pipeline.py --list indices -v
+```
 
 ---
 
-## Décisions ouvertes
+## Architecture stable vs research
 
-| # | Question | Owner | Deadline |
-|---|----------|-------|----------|
-| 1 | Intégrer SignalFilter dans le webhook live ou seulement backtest ? | — | S1 |
-| 2 | FX 4H : utiliser Yahoo Finance ou Parquet FTMO ? | — | S3 |
-| 3 | Seuil AvgWin minimal pour activer TP fixe ? | — | S4 |
-| 4 | `mr_deep_narrow` : activer sur metals après S1 si OOS > 0 ? | — | S2 |
+```
+config/stable/   + results/stable/   → production validée IS/OOS + Monte Carlo
+config/research/ + results/research/ → exploration (jamais déployé direct)
+```
+
+Règle : un fichier passe de `research/` → `stable/` **uniquement** après pipeline IS/OOS + Monte Carlo complet validé.
+
+---
+
+## Questions ouvertes
+
+| # | Question | Bloqué par |
+|---|---|---|
+| 1 | FX 4H viable avec EMA200 daily + tier 0 trailing ? | P6 |
+| 2 | TP fixe 1.5-2.0R vs TSL sur `mr_deep_narrow` energy ? | P1 (EXIT_TRAILING) |
+| 3 | `max_positions` optimal pour le compte challenge ? | P3 (guards validés) |
+| 4 | Filtre volume crypto/metals (+0.060 corrélation) utile ? | À tester après P1 |
+| 5 | ROI dégressive (sortie profit minimal après N barres stagnation) ? | À tester après P1 |
+| 6 | Stage 0 validation par catégorie dans pipeline ? | Voir `instrument_selection_philosophy.md` |
