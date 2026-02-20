@@ -24,6 +24,9 @@ Label factors (continus, pour analyse granulaire) :
   - volume_ratio     : volume / avg_volume_20 (seulement si volume > 0)
   - rr_ratio         : R:R du signal
   - regime           : le régime de marché au moment du signal
+
+CORRECTION v2.4 (2026-02-20) — TD-007 suite :
+- signal.tv_close → signal.close dans label_mr_signal() et label_trend_signal()
 """
 
 from __future__ import annotations
@@ -72,7 +75,7 @@ def label_mr_signal(
     row = df.iloc[bar_idx]
     rsi = signal.rsi
     bb_width = signal.bb_width
-    close = signal.tv_close
+    close = signal.close
 
     # ── RSI depth ──
     if signal.side.value == "LONG":
@@ -176,7 +179,7 @@ def label_trend_signal(
                 break
 
     # ── Breakout strength (distance au-delà de la bande en fraction d'ATR) ──
-    close = signal.tv_close
+    close = signal.close
     atr = signal.atr
     if atr > 0:
         if signal.side.value == "LONG":
