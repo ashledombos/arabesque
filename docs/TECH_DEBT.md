@@ -101,7 +101,7 @@
 | ID | Description | Fix | Date |
 |---|---|---|---|
 | **TD-001** | `daily_dd_pct` et `remaining_daily` divisés par `start_balance` au lieu de `daily_start_balance` — guards DD ne se déclenchaient jamais | Commit [`0cb70ec`](https://github.com/ashledombos/arabesque/commit/0cb70ec8da5d967d5f34570108e210571aa7080a) | **2026-02-20** |
-| **TD-007** | Alias `tv_close`/`tv_open` (héritage TradingView) confondaient le code, ont causé bug `signal_gen_trend.py` | Suppression propriétés + remplacement par `signal.close`/`signal.open_` | **2026-02-20** |
+| **TD-007** | Alias `tv_close`/`tv_open` (héritage TradingView) confondaient le code, ont causé bug `signal_gen_trend.py` | Commits [`2aa9487`](https://github.com/ashledombos/arabesque/commit/2aa9487f1e7dc5ca102ff9eedd45cd8dc46d25e6) (models.py + guards.py), [`cbbb114`](https://github.com/ashledombos/arabesque/commit/cbbb1149a7af625346d2737c47d8756d3ffa1cfc) (signal_labeler.py), [`ac5936f`](https://github.com/ashledombos/arabesque/commit/ac5936f47a135cd472881ca86b038f949b7350e7) (runner.py) | **2026-02-20** |
 | — | `sig.tp` → `AttributeError` | Renommer en `sig.tp_indicative` | 2026-02-18 |
 | — | Guard slippage rejetait 96% des signaux | Comparer `fill` vs `open_next_bar` | 2026-02-18 |
 | — | `np.float64` dans dict signal | Cast `float()` partout | 2026-02-18 |
