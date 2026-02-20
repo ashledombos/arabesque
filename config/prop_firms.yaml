@@ -1,0 +1,336 @@
+# ═══════════════════════════════════════════════════════════════════
+# Arabesque — Mapping des instruments prop firms
+#
+# Ce fichier centralise les correspondances entre symboles de différents
+# prop firms et les symboles internes utilisés par Arabesque.
+#
+# Format :
+#   instruments:
+#     <SYMBOLE_INTERNE>:
+#       ftmo: "<symbole FTMO>"
+#       gft: "<symbole GFT>"        # Goat Funded Trader
+#       # futurs brokers ici
+#       category: "<catégorie>"     # forex, crypto, metals, indices, etc.
+#       yahoo: "<symbole Yahoo>"    # fallback si Parquet absent
+#
+# Usage :
+#   - Arabesque utilise le SYMBOLE_INTERNE partout dans le code
+#   - Les adapters broker (cTrader, etc.) mappent vers ftmo/gft selon config
+#   - Yahoo Finance est le fallback si Parquet manquant
+# ═══════════════════════════════════════════════════════════════════
+
+# Note : Ce fichier n'est pas encore branché dans le code (phase 1 = doc)
+# Phase 2 : refactor data.py pour lire ce YAML au lieu du dict hardcodé
+
+instruments:
+  # ══════════════════════════════════════════════════════════════
+  # INDICES
+  # ══════════════════════════════════════════════════════════════
+  US500:
+    ftmo: "US500.cash"
+    gft: "SPX500.X"
+    category: "indices"
+    yahoo: "^GSPC"
+  
+  US100:
+    ftmo: "US100.cash"
+    gft: "NAS100.X"
+    category: "indices"
+    yahoo: "^NDX"
+  
+  US30:
+    ftmo: "US30.cash"
+    gft: "US30.X"
+    category: "indices"
+    yahoo: "^DJI"
+  
+  UK100:
+    ftmo: "UK100.cash"
+    gft: "UK100.X"
+    category: "indices"
+    yahoo: "^FTSE"
+  
+  GER40:
+    ftmo: "GER40.cash"
+    gft: "GER40.X"
+    category: "indices"
+    yahoo: "^GDAXI"
+  
+  JP225:
+    ftmo: "JP225.cash"
+    gft: "JAP225.X"
+    category: "indices"
+    yahoo: "^N225"
+  
+  N25:
+    ftmo: "N25.cash"
+    gft: null
+    category: "indices"
+    yahoo: "^N225"
+  
+  AUS200:
+    ftmo: "AUS200.cash"
+    gft: "AUS200.X"
+    category: "indices"
+    yahoo: "^AXJO"
+  
+  HK50:
+    ftmo: "HK50.cash"
+    gft: null
+    category: "indices"
+    yahoo: "^HSI"
+  
+  FRA40:
+    ftmo: "FRA40.cash"
+    gft: null
+    category: "indices"
+    yahoo: "^FCHI"
+  
+  EU50:
+    ftmo: "EU50.cash"
+    gft: null
+    category: "indices"
+    yahoo: "^STOXX50E"
+  
+  SPN35:
+    ftmo: "SPN35.cash"
+    gft: null
+    category: "indices"
+    yahoo: "^IBEX"
+  
+  US2000:
+    ftmo: "US2000.cash"
+    gft: null
+    category: "indices"
+    yahoo: "^RUT"
+  
+  DXY:
+    ftmo: "DXY.cash"
+    gft: null
+    category: "indices"
+    yahoo: "DX-Y.NYB"
+  
+  # ══════════════════════════════════════════════════════════════
+  # FOREX
+  # ══════════════════════════════════════════════════════════════
+  EURUSD:
+    ftmo: "EURUSD"
+    gft: "EURUSD.X"
+    category: "fx"
+    yahoo: "EURUSD=X"
+  
+  GBPUSD:
+    ftmo: "GBPUSD"
+    gft: "GBPUSD.X"
+    category: "fx"
+    yahoo: "GBPUSD=X"
+  
+  USDJPY:
+    ftmo: "USDJPY"
+    gft: "USDJPY.X"
+    category: "fx"
+    yahoo: "USDJPY=X"
+  
+  AUDUSD:
+    ftmo: "AUDUSD"
+    gft: "AUDUSD.X"
+    category: "fx"
+    yahoo: "AUDUSD=X"
+  
+  USDCAD:
+    ftmo: "USDCAD"
+    gft: "USDCAD.X"
+    category: "fx"
+    yahoo: "USDCAD=X"
+  
+  USDCHF:
+    ftmo: "USDCHF"
+    gft: "USDCHF.X"
+    category: "fx"
+    yahoo: "USDCHF=X"
+  
+  NZDUSD:
+    ftmo: "NZDUSD"
+    gft: "NZDUSD.X"
+    category: "fx"
+    yahoo: "NZDUSD=X"
+  
+  # (... suite des 40+ paires FX)
+  # Note : pour économiser de l'espace, seules les principales sont détaillées
+  # Le pattern est systématique : ftmo="XXXYYY", gft="XXXYYY.X", yahoo="XXXYYY=X"
+  
+  # ══════════════════════════════════════════════════════════════
+  # MÉTAUX
+  # ══════════════════════════════════════════════════════════════
+  XAUUSD:
+    ftmo: "XAUUSD"
+    gft: "XAUUSD.X"
+    category: "metals"
+    yahoo: "GC=F"
+  
+  XAGUSD:
+    ftmo: "XAGUSD"
+    gft: "XAGUSD.X"
+    category: "metals"
+    yahoo: "SI=F"
+  
+  XAUEUR:
+    ftmo: "XAUEUR"
+    gft: null
+    category: "metals"
+    yahoo: "GC=F"  # approximation
+  
+  XAGEUR:
+    ftmo: "XAGEUR"
+    gft: null
+    category: "metals"
+    yahoo: "SI=F"  # approximation
+  
+  XAGAUD:
+    ftmo: "XAGAUD"
+    gft: null
+    category: "metals"
+    yahoo: "SI=F"  # approximation
+  
+  XPDUSD:
+    ftmo: "XPDUSD"
+    gft: null
+    category: "metals"
+    yahoo: "PA=F"
+  
+  XPTUSD:
+    ftmo: "XPTUSD"
+    gft: null
+    category: "metals"
+    yahoo: "PL=F"
+  
+  XCUUSD:
+    ftmo: "XCUUSD"
+    gft: null
+    category: "metals"
+    yahoo: "HG=F"
+  
+  # ══════════════════════════════════════════════════════════════
+  # ÉNERGIES
+  # ══════════════════════════════════════════════════════════════
+  USOIL:
+    ftmo: "USOIL.cash"
+    gft: "WTI.X"
+    category: "energy"
+    yahoo: "CL=F"
+  
+  UKOIL:
+    ftmo: "UKOIL.cash"
+    gft: "BRENT.X"
+    category: "energy"
+    yahoo: "BZ=F"
+  
+  NATGAS:
+    ftmo: "NATGAS.cash"
+    gft: null
+    category: "energy"
+    yahoo: "NG=F"
+  
+  HEATOIL:
+    ftmo: "HEATOIL.c"
+    gft: null
+    category: "energy"
+    yahoo: "HO=F"
+  
+  # ══════════════════════════════════════════════════════════════
+  # COMMODITIES AGRICOLES
+  # ══════════════════════════════════════════════════════════════
+  WHEAT:
+    ftmo: "WHEAT.c"
+    gft: null
+    category: "commodities"
+    yahoo: "ZW=F"
+  
+  SOYBEAN:
+    ftmo: "SOYBEAN.c"
+    gft: null
+    category: "commodities"
+    yahoo: "ZS=F"
+  
+  COTTON:
+    ftmo: "COTTON.c"
+    gft: null
+    category: "commodities"
+    yahoo: "CT=F"
+  
+  CORN:
+    ftmo: "CORN.c"
+    gft: null
+    category: "commodities"
+    yahoo: "ZC=F"
+  
+  COFFEE:
+    ftmo: "COFFEE.c"
+    gft: null
+    category: "commodities"
+    yahoo: "KC=F"
+  
+  COCOA:
+    ftmo: "COCOA.c"
+    gft: null
+    category: "commodities"
+    yahoo: "CC=F"
+  
+  # ══════════════════════════════════════════════════════════════
+  # CRYPTOMONNAIES
+  # ══════════════════════════════════════════════════════════════
+  BTCUSD:
+    ftmo: "BTCUSD"
+    gft: "BTCUSD.X"
+    category: "crypto"
+    yahoo: "BTC-USD"
+  
+  ETHUSD:
+    ftmo: "ETHUSD"
+    gft: "ETHUSD.X"
+    category: "crypto"
+    yahoo: "ETH-USD"
+  
+  LTCUSD:
+    ftmo: "LTCUSD"
+    gft: "LTCUSD.X"
+    category: "crypto"
+    yahoo: "LTC-USD"
+  
+  BNBUSD:
+    ftmo: "BNBUSD"
+    gft: "BNBUSD.X"
+    category: "crypto"
+    yahoo: "BNB-USD"
+  
+  BCHUSD:
+    ftmo: "BCHUSD"
+    gft: "BCHUSD.X"
+    category: "crypto"
+    yahoo: "BCH-USD"
+  
+  SOLUSD:
+    ftmo: "SOLUSD"
+    gft: "SOLUSD.X"
+    category: "crypto"
+    yahoo: "SOL-USD"
+  
+  # (20+ autres crypto suivent le même pattern)
+  
+  # ══════════════════════════════════════════════════════════════
+  # ACTIONS CFD (exemple)
+  # ══════════════════════════════════════════════════════════════
+  AAPL:
+    ftmo: "AAPL"
+    gft: "AAPL.X"
+    category: "stocks"
+    yahoo: "AAPL"
+  
+  TSLA:
+    ftmo: "TSLA"
+    gft: "TSLA.X"
+    category: "stocks"
+    yahoo: "TSLA"
+  
+  # Note : Les actions CFD sont documentées mais non priorisées en Phase 1
+  # car leur comportement (gaps, earnings, etc.) nécessite des guards spécifiques
