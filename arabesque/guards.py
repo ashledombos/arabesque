@@ -20,6 +20,14 @@ CORRECTIONS v2.2 :
    bougie. max_positions=3 rejetait des signaux valides alors que l'exposition réelle
    était faible (positions sizées à 70-80$ après réduction DD).
 8. Corrige bug _daily_trades() : utilisait RejectReason.MAX_POSITIONS au lieu de MAX_DAILY_TRADES
+
+CORRECTIONS v2.3 (2026-02-20) — TD-001 :
+9. daily_dd_pct : diviseur corrigé start_balance → daily_start_balance
+   Avant : ((equity - daily_start_balance) / start_balance) * 100
+         → sous-estimait le DD journalier → guard DAILY_DD_LIMIT ne se déclenchait jamais
+   Après : ((equity - daily_start_balance) / daily_start_balance) * 100
+10. compute_sizing : remaining_daily corrigé de même (start_balance → daily_start_balance)
+    pour cohérence avec daily_dd_pct
 """
 
 from __future__ import annotations
@@ -67,9 +75,18 @@ class AccountState:
 
     @property
     def daily_dd_pct(self) -> float:
-        if self.start_balance == 0:
+        """DD journalier en % — base = solde de début de journée.
+
+        CORRECTION v2.3 (2026-02-20) : diviseur corrigé start_balance → daily_start_balance.
+        Avec start_balance (~100k) au dénominateur, un DD de 3k en journée
+        donnait daily_dd_pct = -3.0% sur un compte de 100k mais seulement
+        -2.6% sur un compte de 115k après gains — le guard se déclenchait
+        trop tard ou jamais. Avec daily_start_balance au dénominateur, le
+        calcul est cohérent avec la règle FTMO (3% du solde de ce matin).
+        """
+        if self.daily_start_balance == 0:
             return 0.0
-        return ((self.equity - self.daily_start_balance) / self.start_balance) * 100
+        return ((self.equity - self.daily_start_balance) / self.daily_start_balance) * 100
 
     @property
     def total_dd_pct(self) -> float:
@@ -275,8 +292,12 @@ class Guards:
                 1.0 - (total_dd_abs / pause_threshold_pct) * (1.0 - MIN_RISK_RATIO)
             )
 
-        # Plafonner aussi au DD daily restant (protection intraday)
-        remaining_daily = max(0, (self.prop.max_daily_dd_pct + account.daily_dd_pct) / 100 * account.start_balance)
+        # Plafonner au DD daily restant (protection intraday)
+        # CORRECTION v2.3 (2026-02-20) : diviseur daily_start_balance (cohérent avec daily_dd_pct)
+        remaining_daily = max(
+            0,
+            (self.prop.max_daily_dd_pct + account.daily_dd_pct) / 100 * account.daily_start_balance
+        )
         max_risk_daily = remaining_daily * 0.5
 
         risk_cash = min(risk_nominal * dd_ratio, max_risk_daily)
