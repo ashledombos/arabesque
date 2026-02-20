@@ -134,9 +134,49 @@ class Signal:
             close=float(row.get("Close", 0)),
             open_=float(row.get("Open", 0)),
         )
+    @classmethod
+    def from_webhook_json(cls, data: dict) -> "Signal":
+        """
+        Construit un Signal depuis un payload JSON (webhook TradingView ou dict interne).
+
+        Champs attendus : instrument, side, close, sl, atr, rsi, cmf, bb_width,
+        bb_lower, bb_mid, bb_upper, ema200_ltf, rr, strategy_type, sub_type.
+        Champs inconnus sont ignorés silencieusement.
+        Rétrocompatibilité : accepte encore "tv_close" si "close" absent.
+        """
+        side_raw = data.get("side", "long").lower()
+        side = Side.LONG if side_raw in ("long", "buy", "1") else Side.SHORT
+
+        return cls(
+            instrument=data.get("instrument", data.get("symbol", "")),
+            side=side,
+            timeframe=data.get("timeframe", "1h"),
+            close=float(data.get("close", data.get("tv_close", 0))),
+            open_=float(data.get("open_", data.get("open", 0))),
+            sl=float(data.get("sl", 0)),
+            tp_indicative=float(data.get("tp_indicative", data.get("tp", 0))),
+            atr=float(data.get("atr", 0)),
+            atr_htf=float(data.get("atr_htf", 0)),
+            rsi=float(data.get("rsi", 50)),
+            cmf=float(data.get("cmf", 0)),
+            bb_lower=float(data.get("bb_lower", 0)),
+            bb_mid=float(data.get("bb_mid", 0)),
+            bb_upper=float(data.get("bb_upper", 0)),
+            bb_width=float(data.get("bb_width", 0)),
+            wr_14=float(data.get("wr_14", 0)),
+            ema200_ltf=float(data.get("ema200_ltf", 0)),
+            htf_ema_fast=float(data.get("htf_ema_fast", 0)),
+            htf_ema_slow=float(data.get("htf_ema_slow", 0)),
+            htf_adx=float(data.get("htf_adx", 0)),
+            regime=data.get("regime", "bull_range"),
+            max_spread_atr=float(data.get("max_spread_atr", 0.3)),
+            rr=float(data.get("rr", 0)),
+            strategy_type=data.get("strategy_type", "mean_reversion"),
+            sub_type=data.get("sub_type", ""),
+        )
 
 
-# ── Decision (Event) ──────────────────────────────────────────────────
+# # ── Decision (Event) ──────────────────────────────────────────────────
 
 @dataclass
 class Decision:
