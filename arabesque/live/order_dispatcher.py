@@ -188,7 +188,7 @@ class OrderDispatcher:
                 f"[Dispatcher] ⚠️  Aucun tick connu pour {signal.instrument} — "
                 f"signal mis en attente sans vérification spread"
             )
-            bid, ask = signal.tv_close, signal.tv_close
+            bid, ask = signal.close, signal.close
         else:
             bid, ask = tick.bid, tick.ask
 
@@ -234,14 +234,14 @@ class OrderDispatcher:
 
         pending = PendingSignal(
             signal=signal,
-            entry_price=signal.sl if signal.sl != signal.tv_close else signal.tv_close,
+            entry_price=signal.sl if signal.sl != signal.close else signal.close,
             order_type=order_type,
             volume_lots=volume_lots,
             risk_cash=risk_cash,
             expiry=expiry,
         )
-        # L'entrée cible est le tv_close (on entre à ce niveau ou mieux)
-        pending.entry_price = signal.tv_close
+        # L'entrée cible est le close du signal (on entre à ce niveau ou mieux)
+        pending.entry_price = signal.close
 
         sym = signal.instrument
         if sym not in self._pending:
@@ -451,9 +451,9 @@ class OrderDispatcher:
         else:
             # Heuristique
             if signal.side == Side.LONG:
-                return OrderType.STOP if signal.tv_close < signal.sl else OrderType.LIMIT
+                return OrderType.STOP if signal.close < signal.sl else OrderType.LIMIT
             else:
-                return OrderType.STOP if signal.tv_close > signal.sl else OrderType.LIMIT
+                return OrderType.STOP if signal.close > signal.sl else OrderType.LIMIT
 
     def _compute_lots(
         self,
