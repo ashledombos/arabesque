@@ -22,6 +22,9 @@ Spread + slippage simulés :
 Usage CLI :
     python -m arabesque.backtest.runner XRPUSD --period 730d --strategy trend
     python -m arabesque.backtest.runner XRPUSD SOLUSD --strategy trend --split 0.7
+
+CORRECTION v2.4 (2026-02-20) — TD-007 final :
+- signal.tv_close → signal.close dans la logique de guards check (lignes 213-217)
 """
 
 from __future__ import annotations
@@ -210,11 +213,11 @@ class BacktestRunner:
                 else:
                     fill_price -= slip
 
-                original_tv_close = signal.tv_close
-                signal.tv_close = next_bar["Open"]
+                original_close = signal.close
+                signal.close = next_bar["Open"]
                 ok, decision = self.guards.check_all(signal, self.account, bid, ask)
                 all_decisions.append(decision)
-                signal.tv_close = original_tv_close
+                signal.close = original_close
 
                 if not ok:
                     n_rejected += 1
@@ -491,7 +494,7 @@ def _print_synthesis(results: dict[str, tuple[BacktestResult, BacktestResult]]):
     print(f"{'='*60}")
 
 
-# ── CLI ──────────────────────────────────────────────────────
+# ── CLI ──────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import argparse
