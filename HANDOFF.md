@@ -166,15 +166,16 @@ docs/
 | 2026-02-18 | Guard slippage rejetait 96% des signaux | Comparer `fill` vs `open_next_bar` (pas `tv_close`) |
 | 2026-02-18 | 0 signaux en replay | `only_last_bar=False` + `_seen_signals` |
 | 2026-02-20 | `Signal.__init__()` : `tv_close`/`tv_open` argument inconnu | `close=` / `open_=` dans `signal_gen_trend.py` |
+| 2026-02-20 | `daily_dd_pct` divisé par `start_balance` | `/ daily_start_balance` dans `guards.py` (TD-001) |
+| 2026-02-20 | `EXIT_TRAILING` jamais tag dans `_check_sl_tp_intrabar` | Discrimination `trailing_active or breakeven_set` dans `manager.py` (TD-002) |
+| 2026-02-20 | Résidus `signal.tv_close` dans `order_dispatcher.py`, `orchestrator.py`, `adapters.py`, `parquet_clock.py` + `Signal.from_webhook_json` manquant | → `signal.close` partout + classmethod ajouté (TD-011) |
 
 ### ⚠️ Non corrigés (bloquants en premier)
 
 | Priorité | Bug | Impact |
 |---|---|---|
-| 🔴 BLOQUANT | `daily_dd_pct` divisé par `start_balance` au lieu de `daily_start_balance` | Guards DD ne se déclenchent jamais — déploiement live sans ce fix = risque direct |
-| 🟠 Haute | `EXIT_TRAILING` jamais tag dans `_check_sl_tp_intrabar` | Stats fausses : pertes réelles et gains trailing indistinguables |
-| 🟡 Moyenne | `tv_close = bars[-1]["close"]` (cache) au lieu de `df.iloc[idx]["Close"]` | RR légèrement faux en replay historique long |
-| 🟡 Moyenne | `orchestrator.get_status()` exception silencieuse en fin de replay | Résumé final non fiable |
+| 🟡 Moyenne | `tv_close = bars[-1]["close"]` (cache) au lieu de `df.iloc[idx]["Close"]` | RR légèrement faux en replay historique long (TD-004) |
+| 🟡 Moyenne | `orchestrator.get_status()` exception silencieuse en fin de replay | Résumé final non fiable (TD-003) |
 
 ---
 
@@ -209,22 +210,12 @@ OOS meilleur qu’IS = signal structurel (pas overfitting sur la période IS).
 
 ## 8. Prochaines étapes (par priorité)
 
-### P0 — 🔴 Corriger `daily_dd_pct` (BLOQUANT avant tout live)
+### P0 — ✅ FAIT — Corriger TD-001, TD-002, TD-011
 
-```python
-# Dans guards.py, remplacer :
-daily_dd_pct = (daily_start_balance - equity) / start_balance
-# par :
-daily_dd_pct = (daily_start_balance - equity) / daily_start_balance
-```
-Sans ce fix, les guards DD ne se déclenchent jamais. Déployer en live avec ce bug = perte certaine du compte.
+TD-001 (`daily_dd_pct`) et TD-002 (`EXIT_TRAILING`) corrigés dans le code.  
+TD-011 : résidus `signal.tv_close` dans le chemin live supprimés, `Signal.from_webhook_json` ajouté.
 
-### P1 — Corriger `EXIT_TRAILING`
-
-Dans `_check_sl_tp_intrabar` : ajouter la condition `if pos.trailing_active and pos.result_r > 0 → DecisionType.EXIT_TRAILING`.
-Débloque : stats réelles (vrai WR, PF), décision TP fixe vs TSL.
-
-### P2 — Run stats avancées sur les 17 viables
+### P1 — Run stats avancées sur les 17 viables
 
 ```bash
 for inst in AAVUSD ALGUSD BCHUSD DASHUSD GRTUSD ICPUSD IMXUSD LNKUSD \
@@ -235,32 +226,40 @@ done
 # Reporter dans config/instruments.yaml (follow: true)
 ```
 
-### P3 — Valider les guards DD sur replay 3 mois
+### P2 — Valider les guards DD sur replay parquet (dry-run offline)
+
+> Aucun credentials nécessaire — utilise les fichiers Parquet locaux.
 
 ```bash
-python -m arabesque.live.runner \
-  --mode dry_run --source parquet \
+python -m arabesque.live.engine --mode dry_run --source parquet \
   --start 2025-10-01 --end 2026-01-01
 # Chercher : "rejected DAILY_DD_LIMIT", "rejected MAX_DD_LIMIT"
-# Si jamais déclenchés après fix P0 → revoir les seuils
+# Vérifier aussi : EXIT_TRAILING dans les logs (doit apparaître)
 ```
 
-### P4 — Connexion compte test FTMO (dry-run cTrader)
+### P3 — Connexion compte test FTMO (dry-run cTrader — vrais ticks, zéro ordre)
+
+> Nécessite credentials dans `config/secrets.yaml` (account_id `17057523`).
 
 ```bash
-# config/secrets.yaml :
-# ctrader_account_id: 17057523
-# ctrader_host: live.ctraderapi.com
-# ctrader_port: 5035
 python -m arabesque.live.engine --dry-run
 # Vrais ticks cTrader, zéro ordre envoyé
 ```
 
-### P5 — Premier ordre réel (compte test seulement)
+### P4 — Premier ordre réel (compte test 15j seulement)
 
 ```bash
 python -m arabesque.live.engine
 # Vérifier dans cTrader : ordre apparaît, SL correct, volume correct
+```
+
+### P5 — Ré-analyse complète du pipeline (périodique)
+
+Lancer le pipeline sur 100% des instruments pour validation par catégorie.
+Un instrument neutre dans une catégorie validée n'est pas exclu automatiquement.
+
+```bash
+python scripts/run_pipeline.py -v  # tous les instruments
 ```
 
 ### P6 — FX en 4H (exploration)
@@ -271,15 +270,7 @@ python scripts/run_pipeline.py --list fx --mode wide --period 1825d -v
 # Voir docs/decisions_log.md §8 pour le contexte
 ```
 
-### P7 — Nettoyage technique
-
-- Supprimer `arabesque/live/runner.py` (déprécié par `engine.py`)
-- Supprimer `arabesque/live/bar_poller.py` (déprécié par `price_feed.py`)
-- Supprimer les propriétés `tv_close`/`tv_open` de `models.py` (vérifier qu’aucun fichier ne les utilise encore)
-- Unifier le calcul ADX (dupliqué dans `signal_gen.py` et `signal_gen_trend.py`)
-- Ajouter un script `scripts/run_all_stats.py` (boucle sur les viables automatiquement)
-
-### P8 — Nouvelles catégories (énergie, commodities, indices)
+### P7 — Nouvelles catégories (énergie, commodities, indices)
 
 ```bash
 # 1. Télécharger les parquets via barres_au_sol
@@ -288,7 +279,6 @@ python scripts/run_pipeline.py --list fx --mode wide --period 1825d -v
 python scripts/run_pipeline.py --list energy -v
 python scripts/run_pipeline.py --list indices -v
 ```
-
 ---
 
 ## 9. Commandes utiles
