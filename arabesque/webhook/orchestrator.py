@@ -92,7 +92,7 @@ class Orchestrator:
     def handle_signal(self, data: dict) -> dict:
         try:
             signal = Signal.from_webhook_json(data)
-            logger.info(f"Signal received: {signal.instrument} {signal.side.value} @ {signal.tv_close}")
+            logger.info(f"Signal received: {signal.instrument} {signal.side.value} @ {signal.close}")
 
             self._check_daily_reset()
 
@@ -104,8 +104,8 @@ class Orchestrator:
             if broker is None:
                 return {"status": "error", "reason": "no broker available"}
 
-            if hasattr(broker, '_last_prices') and signal.tv_close > 0:
-                broker._last_prices[signal.instrument] = signal.tv_close
+            if hasattr(broker, '_last_prices') and signal.close > 0:
+                broker._last_prices[signal.instrument] = signal.close
 
             quote = broker.get_quote(signal.instrument)
             bid = quote.get("bid", 0)
