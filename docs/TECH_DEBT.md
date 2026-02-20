@@ -5,22 +5,6 @@
 
 ---
 
-## 🔴 Critique (bloquant avant tout déploiement live)
-
-### TD-001 — `daily_dd_pct` divisé par le mauvais dénominateur
-
-| Champ | Valeur |
-|---|---|
-| **Fichier** | `arabesque/guards.py` |
-| **Symptôme** | Guards DD (journalier 3%, total 10%) ne se déclenchent jamais |
-| **Cause** | `daily_dd_pct = (daily_start_balance - equity) / start_balance` — doit être `/ daily_start_balance` |
-| **Impact** | Bot peut brûler le compte challenge sans jamais stopper |
-| **Fix** | Remplacer `start_balance` par `daily_start_balance` dans le calcul du `daily_dd_pct` |
-| **Validation** | Replay 3 mois : chercher `"rejected DAILY_DD_LIMIT"` dans les logs |
-| **Priorité** | P0 — ne pas déployer en live sans ce fix |
-
----
-
 ## 🟠 Haute (impacte la fiabilité des stats)
 
 ### TD-002 — `EXIT_TRAILING` jamais utilisé
@@ -127,6 +111,7 @@
 
 | ID | Description | Fix | Date |
 |---|---|---|---|
+| **TD-001** | `daily_dd_pct` et `remaining_daily` divisés par `start_balance` au lieu de `daily_start_balance` — guards DD ne se déclenchaient jamais | Commit [`0cb70ec`](https://github.com/ashledombos/arabesque/commit/0cb70ec8da5d967d5f34570108e210571aa7080a) | **2026-02-20** |
 | — | `sig.tp` → `AttributeError` | Renommer en `sig.tp_indicative` | 2026-02-18 |
 | — | Guard slippage rejetait 96% des signaux | Comparer `fill` vs `open_next_bar` | 2026-02-18 |
 | — | `np.float64` dans dict signal | Cast `float()` partout | 2026-02-18 |

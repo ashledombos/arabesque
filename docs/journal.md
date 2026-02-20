@@ -2,6 +2,22 @@
 
 ---
 
+## 2026-02-20 (après-midi)
+
+### Fix TD-001 `daily_dd_pct` (commit [`0cb70ec`](https://github.com/ashledombos/arabesque/commit/0cb70ec8da5d967d5f34570108e210571aa7080a))
+
+**Fichier** : `arabesque/guards.py`
+
+Deux corrections dans le même commit :
+1. Propriété `AccountState.daily_dd_pct` : diviseur `start_balance` → `daily_start_balance`
+2. `compute_sizing` : `remaining_daily` utilisait aussi `start_balance` au lieu de `daily_start_balance` — corrigé pour cohérence
+
+**Impact** : les guards DAILY_DD_LIMIT et MAX_DD_LIMIT sont maintenant opérationnels. À valider sur replay 3 mois (P3).
+
+**Prochaine étape** : lancer le replay et chercher `"rejected DAILY_DD_LIMIT"` dans les logs pour confirmer.
+
+---
+
 ## 2026-02-20 (matin)
 
 ### Fix `signal_gen_trend.py` (commit `e2bc0eb`)
@@ -14,20 +30,16 @@
 - Crypto : 16 instruments (AAVUSD, ALGUSD, BCHUSD, DASHUSD, GRTUSD, ICPUSD, IMXUSD, LNKUSD, NEOUSD, NERUSD, SOLUSD, UNIUSD, VECUSD, XLMUSD, XRPUSD, XTZUSD)
 - Metals : 1 (XAUUSD)
 - FX : 0/43 viable — confirmé non viable en 1H
-- Exemple XTZUSD : IS 60.8% WR → OOS 67.7% WR, expectancy IS +0.071R → OOS +0.305R (signal structurel, pas overfitting)
+- Exemple XTZUSD : IS 60.8% WR → OOS 67.7% WR, expectancy IS +0.071R → OOS +0.305R
 
 ### Consolidation documentation (sessions Perplexity)
 - Croisement 4 conversations précédentes + session courante
 - `HANDOFF.md` v5 : état complet, brokers cTrader + TradeLocker, P0-P8
-- `docs/decisions_log.md` : 8 sections, bugs corrigés + ouverts, instruments, questions ouvertes
+- `docs/decisions_log.md` : 8 sections, bugs corrigés + ouverts
 - `.github/copilot-instructions.md` : règles anti-biais, workflow, alertes
 - `docs/START_HERE.md` : guide de démarrage humains + IA
 - `docs/TECH_DEBT.md` : dette technique priorisée (TD-001 à TD-010)
-
-### Dettes techniques actives (à traiter en priorité)
-- **TD-001 BLOQUANT** : `daily_dd_pct` / `start_balance` → doit être `/ daily_start_balance`
-- **TD-002 Haute** : `EXIT_TRAILING` jamais taggué dans `_check_sl_tp_intrabar`
-- **TD-003 Moyenne** : `orchestrator.get_status()` exception silencieuse
+- `docs/ROADMAP.md` : mis à jour avec résultats pipeline et plan P0-P8
 
 ---
 
@@ -48,7 +60,7 @@
 - Guards validés en conditions réelles : `open_risk_limit`, `duplicate_instrument`, `max_daily_trades` tous actifs
 - Trailing stop fonctionne (ex : NERUSD +0.57R, AAVUSD +0.72R, VECUSD +0.77R, ALGUSD +0.71R)
 
-### Dettes techniques identifiées (traitées dans TECH_DEBT.md)
+### Dettes techniques identifiées
 - **Corrélation inter-instruments** : 10/10/2025, krach crypto simultané RSI <20 sur 15 instruments → TD-010
 - `runner.py` (live) ne vide pas `open_risk_cash` au daily reset — acceptable (positions restent ouvertes)
 - `audit.py` stats non persistées entre redémarrages — acceptable pour dry-run
@@ -60,7 +72,7 @@
 ### Patch guards (commit `994f228`)
 - Ajout `RejectReason.OPEN_RISK_LIMIT` et `MAX_DAILY_TRADES` dans `models.py`
 - `guards.py` : `PropConfig.max_positions` 3→10, `PropConfig.max_open_risk_pct=2.0`, `AccountState.open_risk_cash=0.0`
-- Correction bug `_daily_trades()` qui remontait `MAX_POSITIONS` au lieu de `MAX_DAILY_TRADES`
+- Correction bug `_daily_trades()` : utilisait `MAX_POSITIONS` au lieu de `MAX_DAILY_TRADES`
 - **Dette** : `open_risk_cash` non branché dans orchestrator → guard inactif jusqu'au patch suivant
 
 ### Patch orchestrator (commit `afb062d`)
