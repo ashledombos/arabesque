@@ -7,16 +7,7 @@
 
 ## 🟠 Haute (impacte la fiabilité des stats)
 
-### TD-002 — `EXIT_TRAILING` jamais utilisé
-
-| Champ | Valeur |
-|---|---|
-| **Fichier** | `arabesque/position/manager.py` (`_check_sl_tp_intrabar`) |
-| **Symptôme** | Toutes les sorties sont étiquetées `EXIT_SL`, qu'il s'agisse d'une perte (-1R) ou d'un gain trailing (+0.5R) |
-| **Cause** | `DecisionType.EXIT_TRAILING` existe dans l'enum mais n'est jamais appelé |
-| **Impact** | WR, PF, expectancy par type de sortie tous faux. Bloque la décision TP fixe vs TSL. |
-| **Fix** | Dans `_check_sl_tp_intrabar` : `if pos.trailing_active and pos.result_r > 0 → EXIT_TRAILING` |
-| **Priorité** | P1 |
+> Aucun item critique ouvert en date du 2026-02-20.
 
 ### TD-003 — `orchestrator.get_status()` exception silencieuse
 
@@ -101,7 +92,9 @@
 | ID | Description | Fix | Date |
 |---|---|---|---|
 | **TD-001** | `daily_dd_pct` et `remaining_daily` divisés par `start_balance` au lieu de `daily_start_balance` — guards DD ne se déclenchaient jamais | Commit [`0cb70ec`](https://github.com/ashledombos/arabesque/commit/0cb70ec8da5d967d5f34570108e210571aa7080a) | **2026-02-20** |
+| **TD-002** | `DecisionType.EXIT_TRAILING` jamais appelé dans `_check_sl_tp_intrabar` — tous les exits étiquetés `EXIT_SL` | Discrimination `trailing_active or breakeven_set` ajoutée dans `manager.py` lignes 246-261 | **2026-02-20** |
 | **TD-007** | Alias `tv_close`/`tv_open` (héritage TradingView) confondaient le code, ont causé bug `signal_gen_trend.py` | Commits [`2aa9487`](https://github.com/ashledombos/arabesque/commit/2aa9487f1e7dc5ca102ff9eedd45cd8dc46d25e6) (models.py + guards.py), [`cbbb114`](https://github.com/ashledombos/arabesque/commit/cbbb1149a7af625346d2737c47d8756d3ffa1cfc) (signal_labeler.py), [`ac5936f`](https://github.com/ashledombos/arabesque/commit/ac5936f47a135cd472881ca86b038f949b7350e7) (runner.py) | **2026-02-20** |
+| **TD-011** | Résidus `signal.tv_close` dans `order_dispatcher.py`, `orchestrator.py`, `adapters.py`, `parquet_clock.py` + `Signal.from_webhook_json` manquant → crash `AttributeError` au premier dispatch live | `signal.tv_close` → `signal.close` dans 8 occurrences ; `from_webhook_json` ajouté à `Signal` | **2026-02-20** |
 | — | `sig.tp` → `AttributeError` | Renommer en `sig.tp_indicative` | 2026-02-18 |
 | — | Guard slippage rejetait 96% des signaux | Comparer `fill` vs `open_next_bar` | 2026-02-18 |
 | — | `np.float64` dans dict signal | Cast `float()` partout | 2026-02-18 |
