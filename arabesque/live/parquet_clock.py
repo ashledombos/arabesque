@@ -193,8 +193,8 @@ class ParquetClock:
             pending = self._pending_signals.get(instrument, [])
             if pending:
                 for sig_data in pending:
-                    # Override tv_close avec le OPEN de cette bougie (fill réel)
-                    sig_data["tv_close"] = bar["open"]
+                    # Override close avec le OPEN de cette bougie (fill réel)
+                    sig_data["close"] = bar["open"]
                     result = orchestrator.handle_signal(sig_data)
                     status = result.get('status', '?')
                     detail = result.get('reason', result.get('position_id', ''))
