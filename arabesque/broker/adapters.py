@@ -259,7 +259,7 @@ class DryRunAdapter(BrokerAdapter):
             "success": True,
             "order_id": f"DRY_{len(self._orders) + 1:04d}",
             "volume": volume,
-            "fill_price": signal.get("tv_close", 0),
+            "fill_price": signal.get("close", 0),
             "message": "dry run",
         }
         self._orders.append(order)
