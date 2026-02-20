@@ -1,274 +1,354 @@
-# ARABESQUE — Handoff Document v4
+# ARABESQUE — Handoff Document v5
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque  
 > **Branche principale** : `main`  
-> **Dernière mise à jour** : 2026-02-20
+> **Dernière mise à jour** : 2026-02-20 (session matin)
+
+> 📖 **Lire aussi** :
+> - `docs/decisions_log.md` — pourquoi chaque décision a été prise, bugs connus, ce qui a été abandonné
+> - `docs/instrument_selection_philosophy.md` — logique de sélection par catégorie
 
 ---
 
-## 1. Contexte : pourquoi Arabesque existe
+## 1. Contexte
 
-**Raph** développe un système de trading quantitatif pour prop firms (FTMO, Goat Funded Trader).
+Arabesque est un système de trading quantitatif pour prop firms (FTMO, Goat Funded Trader).
+Edge : **mean-reversion BB H1** + module trend, sur crypto alt-coins et métaux.
+Justification de l’edge : asymétrie de slippage (MR achète la baisse, slippage favorable).
+Référence : BB_RPB_TSL (Freqtrade, 527j live, 48% CAGR, 90.8% WR).
 
-**Envolées** (le système précédent) utilisait des breakouts Donchian sur 4H. Après diagnostic complet, tous les configs validées sont devenues négatives une fois les biais corrigés. Le Donchian breakout n’a pas d’edge exploitable sur les instruments testés.
-
-**Raison fondamentale** : l’asymétrie d’exécution. Le breakout achète quand le prix MONTE (slippage adverse). Le mean-reversion achète quand le prix DESCEND (slippage neutre ou favorable).
-
-**BB_RPB_TSL** (Freqtrade, crypto) a été analysé en détail : 527 jours live, 48% CAGR, 90.8% WR, 20.8% DD. Son edge vient du pipeline complet, pas d’un indicateur isolé.
-
-**Arabesque** = extraction des principes de BB_RPB_TSL, adaptée aux prop firms avec contraintes de drawdown strict.
+**Ce qui a été abandonné** : breakout Donchian 4H (projet Envolées) — edge inexistant après correction des biais. Le connecteur cTrader d’Envolées est réutilisable, pas la stratégie.
 
 ---
 
-## 2. Architecture générale
+## 2. Architecture
 
-Arabesque est divisé en **deux modes** qui partagent exactement le même générateur de signaux (`CombinedSignalGenerator`).
+### Principe fondamental
+**Le même `CombinedSignalGenerator` tourne en backtest, replay parquet, et live cTrader.**  
+Toute divergence entre les modes invalide les résultats du backtest.
 
-### 2a. Mode Recherche (offline)
+### Mode Recherche (offline)
 
-Objectif : valider quels instruments ont un edge **avant** d’en passer un en live.
+| Script | Usage |
+|---|---|
+| `scripts/run_pipeline.py` | Screening N instruments : Stage 1 (signals) → Stage 2 (IS) → Stage 3 (OOS+MC) |
+| `scripts/backtest.py` | Backtest IS+OOS sur un instrument spécifique |
+| `scripts/run_stats.py` | Stats avancées : Wilson CI, bootstrap 1000 iter, dégradation IS→OOS |
 
-| Script | Usage | Quand l’utiliser |
-|---|---|---|
-| `scripts/run_pipeline.py` | Screening 80 instruments en 3 stages (signal count → IS backtest → OOS + Monte Carlo) | Point de départ, à faire tourner régulièrement |
-| `scripts/backtest.py` | Backtest IS+OOS sur un instrument donné | Pour creuser un instrument spécifique |
-| `scripts/run_stats.py` | Statistiques avancées (Wilson CI, bootstrap, dégradation IS→OOS) | Après pipeline, sur les instruments viables |
-
-Le résultat du pipeline est un JSONL dans `results/`. Les instruments viables (`follow: true`) sont reportés dans `config/instruments.yaml`.
-
-### 2b. Mode Live (online)
+### Mode Live (online)
 
 ```
-cTrader ticks
+cTrader / TradeLocker ticks
     │
     ▼
-PriceFeedManager         arabesque/live/price_feed.py
+PriceFeedManager       arabesque/live/price_feed.py
     │ on_tick
     ▼
-BarAggregator            arabesque/live/bar_aggregator.py
-    ├─ agrège ticks → barres H1
+BarAggregator          arabesque/live/bar_aggregator.py
+    ├─ ticks → barres H1
     ├─ CombinedSignalGenerator.prepare(df)
     └─ CombinedSignalGenerator.generate_signals()
     │ Signal
     ▼
-OrderDispatcher          arabesque/live/order_dispatcher.py
+OrderDispatcher        arabesque/live/order_dispatcher.py
     ├─ Guards (DD, spread, positions, risque open)
-    ├─ cTrader compte 1
-    ├─ cTrader compte 2
-    └─ TradeLocker
-    │ résultat
-_notify_order()          → Apprise (Telegram / ntfy / Discord)
+    ├─ CTraderAdapter    (compte 1 et/ou 2)
+    └─ TradeLockerAdapter (Goat Funded Trader)
+    │
+_notify_order()        → Apprise (Telegram / ntfy / Discord)
 ```
 
-Commande de démarrage :
-```bash
-python -m arabesque.live.engine --dry-run   # ticks réels, zéro ordre
-python -m arabesque.live.engine             # live réel
-```
-
-### 2c. Continuité stratégique : backtest = live ?
-
-**Oui.** Les trois scripts backtest et le moteur live s’appuient **tous** sur le même `CombinedSignalGenerator` :
-- `arabesque/backtest/signal_gen.py` — mean-reversion (BB excess + RSI + régime HTF)
-- `arabesque/backtest/signal_gen_trend.py` — trend (BB squeeze → expansion → breakout + ADX)
-- `arabesque/backtest/signal_gen_combined.py` — fusion des deux, c’est lui que tout le monde appelle
-
-Le `BarAggregator` live appelle `CombinedSignalGenerator.generate_signals()` sur le cache de barres H1, exactement comme le runner backtest le fait sur un DataFrame parquet. **Ce qu’on backteste est ce qui tourne en live.**
+### Anti-lookahead (règle absolue)
+- Signal généré sur bougie `i` (close confirmé)
+- Stocké dans `_pending_signals`
+- Exécuté au **open de bougie `i+1`**
+- Toute exécution sur le close de `i` est un biais — invalide le backtest
 
 ---
 
-## 3. Briques partagées (backtest + live)
+## 3. Briques partagées
 
 | Module | Rôle |
 |---|---|
-| `arabesque/models.py` | Dataclasses `Signal`, `Position`, `Decision`, `Counterfactual` |
-| `arabesque/guards.py` | Guards FTMO : drawdown, risque open, sessions, spread |
-| `arabesque/position/manager.py` | Trailing stop 5 paliers, breakeven, giveback, deadfish |
-| `arabesque/backtest/signal_gen_combined.py` | `CombinedSignalGenerator` — cœur de la stratégie |
+| `arabesque/models.py` | `Signal`, `Position`, `Decision`, `Counterfactual` |
+| `arabesque/guards.py` | Guards FTMO : DD, risque open, sessions, spread |
+| `arabesque/position/manager.py` | Trailing 5 paliers, breakeven, giveback, deadfish |
+| `arabesque/backtest/signal_gen_combined.py` | `CombinedSignalGenerator` — cœur stratégique |
+| `arabesque/broker/factory.py` | `create_all_brokers()` — crée CTraderAdapter + TradeLockerAdapter |
 | `arabesque/config.py` | Chargement `settings.yaml` + `secrets.yaml` + `instruments.yaml` |
 | `arabesque/audit.py` | Logger JSONL des décisions |
 
-**Points d’attention sur `Signal`** :
-- Champs natifs : `close`, `open_` (pas `tv_close`/`tv_open` dans `__init__`)
-- `tv_close` et `tv_open` existent comme **propriétés** (alias de compatibilité) — ne pas les passer en argument du constructeur
-- Toujours utiliser `sig.tp_indicative` (pas `sig.tp` qui n’existe pas)
-- `sig.side` est un enum `Side.LONG`/`Side.SHORT`, pas une string
+**Pièges sur `Signal`** :
+- `close=` et `open_=` dans `__init__` (PAS `tv_close=` ni `tv_open=` qui sont des propriétés)
+- `sig.tp_indicative` (PAS `sig.tp` qui n’existe pas)
+- `sig.side` = enum `Side.LONG`/`Side.SHORT` (pas une string)
 
-**Trailing paliers** :
-- +0.5R → BE, +1R → 0.5R, +1.5R → 0.8R, +2R → 1.2R, +3R → 1.5R
-- SL ne descend jamais (LONG) / ne monte jamais (SHORT)
+**Trailing** :
+- +0.5R→BE, +1R→0.5R, +1.5R→0.8R, +2R→1.2R, +3R→1.5R
+- SL ne descend jamais (LONG) / ne monte jamais (SHORT) — règle inviolable
 
 ---
 
-## 4. État du code (2026-02-20)
+## 4. Brokers supportés
+
+| Broker | Adapter | Prop firm | Statut |
+|---|---|---|---|
+| cTrader | `CTraderAdapter` | FTMO | ⚠️ Implémenté, jamais testé en live réel |
+| TradeLocker | `TradeLockerAdapter` | Goat Funded Trader | ⚠️ Implémenté, jamais testé |
+
+**Multi-comptes** : `create_all_brokers()` dans `broker/factory.py` instancie tous les adapters configurés dans `secrets.yaml`. Un même signal peut être envoyé à plusieurs comptes simultanément.
+
+**Comptes FTMO actuels** :
+- **Compte live test 15j** : 100 000 USD, `live.ctraderapi.com:5035`, account_id `17057523` — sans risque réel, idéal pour valider l’intégration
+- **Compte challenge 100k** : ~94 989 USD, ~5% DD déjà consommé, ~5% de marge restante — **ne pas y connecter le bot avant validation complète des guards DD**
+
+---
+
+## 5. État du code (2026-02-20)
 
 ```
 arabesque/
-├── models.py                   # Signal, Decision, Position, Counterfactual
-├── guards.py                   # Guards prop + exec, sizing, AccountState
-├── audit.py                    # JSONL logger
-├── screener.py                 # Screener pipeline
-├── config.py                   # Chargement YAML
+├── models.py
+├── guards.py
+├── audit.py
+├── config.py
 ├── backtest/
-│   ├── data.py                 # load_ohlc() — charge parquets locaux
-│   ├── signal_gen.py           # BacktestSignalGenerator (mean-reversion)
-│   ├── signal_gen_trend.py     # TrendSignalGenerator (breakout)
+│   ├── data.py                 # load_ohlc()
+│   ├── signal_gen.py           # MeanReversionSignalGenerator
+│   ├── signal_gen_trend.py     # TrendSignalGenerator
 │   ├── signal_gen_combined.py  # CombinedSignalGenerator ← utiliser celui-ci
-│   ├── signal_labeler.py       # label_mr_signal, label_trend_signal
-│   └── runner.py               # Backtest runner (DataFrame → trades)
+│   ├── signal_labeler.py
+│   ├── pipeline.py             # Pipeline 3 stages
+│   ├── runner.py               # Backtest runner
+│   ├── metrics.py
+│   ├── metrics_by_label.py
+│   └── stats.py                # Wilson CI, bootstrap
 ├── live/
-│   ├── engine.py               # LiveEngine — point d’entrée principal
+│   ├── engine.py               # ⭐ Point d’entrée principal (UTILISER CELUI-CI)
 │   ├── bar_aggregator.py       # Ticks → barres H1 → signaux
-│   ├── price_feed.py           # Connexion cTrader, subscribe par symbole
+│   ├── price_feed.py           # Connexion cTrader
 │   ├── order_dispatcher.py     # Guards + dispatch multi-comptes
-│   ├── parquet_clock.py        # Replay parquets (dry-run sans credentials)
-│   ├── runner.py               # Ancien point d’entrée (déprécié, ≈ engine.py)
-│   └── bar_poller.py           # BarPoller (legacy cTrader H1 stream)
+│   ├── parquet_clock.py        # Replay parquets (dry-run offline)
+│   ├── runner.py               # ⚠️ Déprécié — remplacer par engine.py
+│   └── bar_poller.py           # ⚠️ Legacy — remplacer par price_feed.py
 ├── broker/
-│   └── factory.py + adapters   # create_all_brokers(), CTraderAdapter, TradeLockerAdapter
+│   └── factory.py              # create_all_brokers()
 ├── position/
-│   └── manager.py              # PositionManager (trailing, breakeven, exits)
-└── analysis/                   # Outils stats post-run
+│   └── manager.py              # PositionManager
+└── analysis/
 
 scripts/
-├── run_pipeline.py             # Screener principal (3 stages)
-├── backtest.py                 # Backtest simple IS+OOS
-└── run_stats.py                # Stats avancées (Wilson, bootstrap)
+├── run_pipeline.py
+├── backtest.py
+└── run_stats.py
+
+docs/
+├── decisions_log.md            # ⭐ Pourquoi chaque décision
+├── instrument_selection_philosophy.md
+├── ARCHITECTURE.md
+├── ROADMAP.md
+└── journal.md
 ```
 
 ---
 
-## 5. Historique des bugs résolus
+## 6. Historique des bugs
 
-| Date | Bug | Correction |
+### ✅ Corrigés
+
+| Date | Bug | Fix |
 |---|---|---|
 | 2026-02-18 | `sig.tp` → AttributeError | `sig.tp_indicative` |
-| 2026-02-18 | RR calculé sur close courant (faux en replay) | RR calculé sur `df.iloc[idx]["Close"]` |
-| 2026-02-18 | `np.float64` dans le dict signal | Cast `float()` natif partout |
+| 2026-02-18 | RR calculé sur close courant | `df.iloc[idx]["Close"]` |
+| 2026-02-18 | `np.float64` dans le dict signal | Cast `float()` natif |
 | 2026-02-18 | Colonne `"ema200"` inexistante | Essaie `"ema200"` puis `"ema_slow"` |
-| 2026-02-20 | `Signal.__init__() got an unexpected keyword argument 'tv_close'` | `signal_gen_trend.py` : remplacé `tv_close=` / `tv_open=` par `close=` / `open_=` dans les deux constructeurs LONG + SHORT |
+| 2026-02-18 | Guard slippage rejetait 96% des signaux | Comparer `fill` vs `open_next_bar` (pas `tv_close`) |
+| 2026-02-18 | 0 signaux en replay | `only_last_bar=False` + `_seen_signals` |
+| 2026-02-20 | `Signal.__init__()` : `tv_close`/`tv_open` argument inconnu | `close=` / `open_=` dans `signal_gen_trend.py` |
+
+### ⚠️ Non corrigés (bloquants en premier)
+
+| Priorité | Bug | Impact |
+|---|---|---|
+| 🔴 BLOQUANT | `daily_dd_pct` divisé par `start_balance` au lieu de `daily_start_balance` | Guards DD ne se déclenchent jamais — déploiement live sans ce fix = risque direct |
+| 🟠 Haute | `EXIT_TRAILING` jamais tag dans `_check_sl_tp_intrabar` | Stats fausses : pertes réelles et gains trailing indistinguables |
+| 🟡 Moyenne | `tv_close = bars[-1]["close"]` (cache) au lieu de `df.iloc[idx]["Close"]` | RR légèrement faux en replay historique long |
+| 🟡 Moyenne | `orchestrator.get_status()` exception silencieuse en fin de replay | Résumé final non fiable |
 
 ---
 
-## 6. Comptes FTMO (situation 2026-02-18)
+## 7. Résultats du pipeline (2026-02-20, 07h45)
 
-- **Compte live test gratuit 15j** : 100 000 USD, Hedged 1:30 — compte «Live» selon cTrader — **sans risque réel**, idéal pour tester les ordres dangereux
-- **Compte challenge 100k** : 94 989 USD actuel, Hedged 1:30 — compte «Demo» selon cTrader — **argent réel payé** — max DD 10%, déjà à ~5.0% DD → marge restante ~5%
+```
+80 testés → S1:77 → S2:31 → S3:17 viables  (763s)
 
-⚠️ **Ne pas connecter le bot live sur le compte challenge sans validation complète des Guards DD.**
+Viables :
+  Crypto (16) : AAVUSD, ALGUSD, BCHUSD, DASHUSD, GRTUSD, ICPUSD, IMXUSD,
+                LNKUSD, NEOUSD, NERUSD, SOLUSD, UNIUSD, VECUSD, XLMUSD,
+                XRPUSD, XTZUSD
+  Metals  (1) : XAUUSD
+
+FX : 0/43 viables (susp : BB width faible + régime USD trending 2024-25)
+```
+
+**Comparaison IS vs OOS sur l’exemple XTZUSD** :
+| Métrique | IS | OOS | Delta |
+|---|---|---|---|
+| Trades | 212 | 93 | |
+| Win Rate | 60.8% | 67.7% | +6.9% |
+| Expectancy | +0.071R | +0.305R | +0.234R |
+| Profit Factor | 1.18 | 2.00 | +0.82 |
+| Max DD | 6.2% | 3.6% | -2.6% |
+
+OOS meilleur qu’IS = signal structurel (pas overfitting sur la période IS).
+
+**Prochaine étape immédiate** : lancer `run_stats` sur les 17 viables (voir §8).
 
 ---
 
-## 7. Prochaines étapes (par priorité)
+## 8. Prochaines étapes (par priorité)
 
-### P0 — Pipeline à nouveau fonctionnel (corrigé 2026-02-20)
+### P0 — 🔴 Corriger `daily_dd_pct` (BLOQUANT avant tout live)
 
-Bug résolu : `signal_gen_trend.py` utilisait `tv_close=` / `tv_open=` dans les constructeurs `Signal()` alors que ce sont des propriétés (pas des champs `__init__`).  
-Fix : commit [`e2bc0eb`](https://github.com/ashledombos/arabesque/commit/e2bc0ebcfa52b255284b98ec7db3ab902e3869b6).
+```python
+# Dans guards.py, remplacer :
+daily_dd_pct = (daily_start_balance - equity) / start_balance
+# par :
+daily_dd_pct = (daily_start_balance - equity) / daily_start_balance
+```
+Sans ce fix, les guards DD ne se déclenchent jamais. Déployer en live avec ce bug = perte certaine du compte.
+
+### P1 — Corriger `EXIT_TRAILING`
+
+Dans `_check_sl_tp_intrabar` : ajouter la condition `if pos.trailing_active and pos.result_r > 0 → DecisionType.EXIT_TRAILING`.
+Débloque : stats réelles (vrai WR, PF), décision TP fixe vs TSL.
+
+### P2 — Run stats avancées sur les 17 viables
 
 ```bash
-python scripts/run_pipeline.py -v
-# Doit maintenant passer Stage 1 sans erreur tv_close
+for inst in AAVUSD ALGUSD BCHUSD DASHUSD GRTUSD ICPUSD IMXUSD LNKUSD \
+            NEOUSD NERUSD SOLUSD UNIUSD VECUSD XAUUSD XLMUSD XRPUSD XTZUSD; do
+    python scripts/run_stats.py $inst --period 730d
+done
+# Garder si bootstrap 95% CI borne basse > 0R
+# Reporter dans config/instruments.yaml (follow: true)
 ```
 
-### P1 — Valider les résultats du pipeline
-
-Après la correction, lancer le pipeline complet et examiner les instruments viables :
-```bash
-python scripts/run_pipeline.py --list all -v 2>&1 | tee results/pipeline_run.log
-# Vérifier : combien passent Stage 1, Stage 2, Stage 3 ?
-# Reporter les viables dans config/instruments.yaml (follow: true)
-```
-
-### P2 — Run stats avancées sur les viables
-
-```bash
-python scripts/run_stats.py XAUUSD
-python scripts/run_stats.py BTCUSD
-# Wilson CI, bootstrap, dégradation IS→OOS
-# Garder uniquement si bootstrap 95% CI > 0
-```
-
-### P3 — Valider les Guards DD sur replay complet
+### P3 — Valider les guards DD sur replay 3 mois
 
 ```bash
 python -m arabesque.live.runner \
   --mode dry_run --source parquet \
   --start 2025-10-01 --end 2026-01-01
-# Chercher dans les logs :
-# - "rejected DAILY_DD_LIMIT"
-# - "rejected MAX_DD_LIMIT"
-# - Résumé final : balance, equity, open_positions
+# Chercher : "rejected DAILY_DD_LIMIT", "rejected MAX_DD_LIMIT"
+# Si jamais déclenchés après fix P0 → revoir les seuils
 ```
 
-### P4 — Connecter le compte test FTMO (live gratuit 15j)
+### P4 — Connexion compte test FTMO (dry-run cTrader)
 
 ```bash
-# Copier les credentials dans config/secrets.yaml
-# Tester sans ordres réels :
+# config/secrets.yaml :
+# ctrader_account_id: 17057523
+# ctrader_host: live.ctraderapi.com
+# ctrader_port: 5035
 python -m arabesque.live.engine --dry-run
-# dry_run = vrais ticks cTrader, zéro ordre envoyé
+# Vrais ticks cTrader, zéro ordre envoyé
 ```
 
-### P5 — Premier ordre réel sur compte test
+### P5 — Premier ordre réel (compte test seulement)
 
 ```bash
 python -m arabesque.live.engine
-# Vérifier dans cTrader que l’ordre apparaît avec le bon SL/volume
+# Vérifier dans cTrader : ordre apparaît, SL correct, volume correct
 ```
 
-### P6 — Nettoyage technique
+### P6 — FX en 4H (exploration)
 
-- Supprimer les alias `tv_close`/`tv_open` de `models.py` une fois vérifié qu’aucun autre fichier ne les utilise encore comme argument de constructeur
-- Déprécier `arabesque/live/runner.py` (remplacé par `engine.py`)
-- Unifier le calcul ADX (dupliqué entre `signal_gen.py` et `signal_gen_trend.py`)
+```bash
+python scripts/run_pipeline.py --list fx --mode wide --period 1825d -v
+# Tester aussi avec filtre EMA200 daily et tier 0 trailing à +0.25R
+# Voir docs/decisions_log.md §8 pour le contexte
+```
+
+### P7 — Nettoyage technique
+
+- Supprimer `arabesque/live/runner.py` (déprécié par `engine.py`)
+- Supprimer `arabesque/live/bar_poller.py` (déprécié par `price_feed.py`)
+- Supprimer les propriétés `tv_close`/`tv_open` de `models.py` (vérifier qu’aucun fichier ne les utilise encore)
+- Unifier le calcul ADX (dupliqué dans `signal_gen.py` et `signal_gen_trend.py`)
+- Ajouter un script `scripts/run_all_stats.py` (boucle sur les viables automatiquement)
+
+### P8 — Nouvelles catégories (énergie, commodities, indices)
+
+```bash
+# 1. Télécharger les parquets via barres_au_sol
+# 2. Copier dans data/parquet/
+# 3. Lancer :
+python scripts/run_pipeline.py --list energy -v
+python scripts/run_pipeline.py --list indices -v
+```
 
 ---
 
-## 8. Commandes utiles
+## 9. Commandes utiles
 
 ```bash
-# Lancer le pipeline (screener)
+# Pipeline complet
 python scripts/run_pipeline.py -v
 python scripts/run_pipeline.py --list crypto -v
+python scripts/run_pipeline.py --list fx --mode wide -v
 
-# Backtest d’un instrument
+# Stats sur un instrument
+python scripts/run_stats.py XAUUSD --period 730d
+
+# Backtest simple
 python scripts/backtest.py BTCUSD --strategy combined
 
-# Stats avancées
-python scripts/run_stats.py XAUUSD
-
-# Replay dry-run rapide (4 instruments)
+# Replay dry-run (offline, parquets)
 python -m arabesque.live.runner \
   --mode dry_run --source parquet \
-  --start 2025-06-01 --instruments ALGUSD XTZUSD BCHUSD SOLUSD
+  --start 2025-10-01 --end 2026-01-01
 
-# Moteur live (dry-run, ticks réels)
+# Live dry-run (ticks réels cTrader, zéro ordre)
 python -m arabesque.live.engine --dry-run
 
-# Git : aligner local sur remote
+# Live réel
+python -m arabesque.live.engine
+
+# Git : aligner local sur remote (jamais --force sur main)
 git fetch origin && git reset --hard origin/main
 ```
 
 ---
 
-## 9. Infra
+## 10. Règles de maintenance (pour toute session future)
 
-- Serveur : hodo, user `raphael`, `/home/raphael/dev/arabesque/`
-- Parquets H1 : présents localement, chargés via `load_ohlc(instrument, prefer_parquet=True)`
-- Alertes : Telegram + ntfy (configurés dans settings.yaml)
-- Python : `.venv` dans le repo
-- Systemd : unit files dans `systemd/` pour démarrage automatique
+### Documentation
+- **Mettre à jour ce fichier** à chaque session : date, bugs corrigés, résultats obtenus, nouvelles étapes.
+- **Mettre à jour `docs/decisions_log.md`** à chaque décision stratégique ou bug identifié.
+- **Ne pas dupliquer** : si une info est dans `decisions_log.md`, référencer sans recopier.
+
+### Code
+- **Supprimer** les fichiers dépréciés plutôt que de les garder avec un commentaire `# deprecated`.
+- **Refactoriser** si une commande revient souvent sans script dédié (ex : boucle `run_stats` sur tous les viables).
+- **Ne pas garder de code mort** : alias `tv_close`/`tv_open`, anciens runners, calculs ADX dupliqués.
+- **`config/stable/`** pour la prod uniquement. `config/research/` pour les explorations. Rien ne migre vers stable sans pipeline IS/OOS + Monte Carlo.
+
+### Git
+- **Jamais `git push --force` sur `main`** (a déjà écrasé un commit).
+- Messages de commit : `fix:`, `feat:`, `docs:`, `refactor:`, `chore:`.
 
 ---
 
-## 10. Pour reprendre dans un nouveau chat
+## 11. Pour reprendre dans un nouveau chat
 
 ```
-Lis le fichier HANDOFF.md dans le repo GitHub ashledombos/arabesque (branche main).
+Lis HANDOFF.md et docs/decisions_log.md dans le repo GitHub
+ashledombos/arabesque (branche main) avant de répondre.
 Contexte : système de trading algo Python pour prop firms FTMO.
-Dernière session (2026-02-20) : bug tv_close corrigé dans signal_gen_trend.py,
-pipeline de nouveau fonctionnel, architecture documentée.
-Prochain objectif : [voir §7 Prochaines étapes]
+Dernière session : 2026-02-20 matin.
+Bug critique non corrigé : daily_dd_pct divisé par start_balance
+(doit être daily_start_balance) — guards DD ne se déclenchent jamais.
+Prochain objectif : voir HANDOFF.md §8 Prochaines étapes.
 ```
