@@ -523,7 +523,7 @@ def _run_parquet_replay(args) -> None:
         max_daily_trades=999,
     )
 
-    broker = DryRunAdapter()
+    broker = DryRunAdapter(start_balance=args.balance)
     brokers = {"dry_run": broker}
 
     orchestrator = Orchestrator(config=cfg, brokers=brokers)
