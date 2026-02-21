@@ -62,7 +62,7 @@ Si tu lis dans le code, les docs, ou une proposition IA :
 - "WR ~52% compensé par avg_win de 2.3R" → **DÉRIVE, CORRIGER**
 - "l'edge vient des grands mouvements" → **DÉRIVE, CORRIGER**
 - "sensibilité aux outliers acceptée" → **DÉRIVE, CORRIGER**
-- "le module trend réduit le WR mais améliore l'expectancy" → **DÉRIVE, CORRIGER**
+- "le module trend réduit le WR mais améliore l'expectancy" → **DÉRIVE** — le trend est un bonus optionnel, pas une raison d'accepter un WR plus bas
 
 ### Contexte historique de la dérive (2026-02-21)
 
@@ -81,7 +81,7 @@ Ces décisions sont **définitives**. Ne pas revenir dessus sans raison forte et
 
 ### Stratégie
 - **Mean-reversion est l’edge principal**, pas le breakout. Justification : asymétrie de slippage. Le MR achète quand le prix descend (slippage neutre ou favorable). Le breakout achète quand ça monte (slippage adverse).
-- **`combined` est la seule stratégie autorisée en production.** `mean_reversion` seule donne WR ~35% sur crypto volatile (trop permissif, pas de filtre de tendance). Ne jamais la déployer seule.
+- **`mean_reversion` est la base de production.** Le module trend (`combined`) est un bonus optionnel — utile s'il améliore le WR sans ajouter de complexité, à mettre en pause sinon. ⚠️ Le WR ~35% historique de `mean_reversion` seule date d'une période sans filtre de qualité propre (données Yahoo, paramètres non calibrés) — à re-mesurer sur données Parquet propres avant toute conclusion définitive.
 - **Timeframe signal : H1.** Le LTF (M15/M5) a été évalué : gain estimé +2-5% d’expectancy max, complexité élevée (refonte `load_ohlc`, gestion gaps, 4× plus de données). Écarté tant que l’edge n’est pas validé en live.
 - **Timeframe régime HTF : 4H.** Filtre directionnel sur le signal H1.
 
@@ -105,9 +105,9 @@ Ces décisions sont **définitives**. Ne pas revenir dessus sans raison forte et
 Toutes les configs validées en IS (In-Sample) sont devenues négatives après correction des biais d’exécution (anti-lookahead, slippage sur gaps). La stratégie breakout Donchian n’a pas d’edge exploitable sur les instruments testés.  
 **Note** : le projet Envolées peut être réutilisé pour son **connecteur cTrader** uniquement. La stratégie elle-même est à ignorer.
 
-### `mean_reversion` seule
-**Abandonnée en production.**  
-WR ~35% sur crypto volatile. Trop permissif sans filtre de tendance (régime HTF). Ne jamais déployer seule.
+### `mean_reversion` seule sans filtre
+**Suspendue, pas définitivement abandonnée.**  
+Le WR ~35% mesuré date d'une période avec données Yahoo et paramètres non calibrés. À re-mesurer sur données Parquet propres sur 2 ans avant de conclure. Le module trend (`combined`) est un bonus optionnel : à conserver s'il améliore le WR, à mettre en pause s'il ajoute de la complexité sans gain mesurable.
 
 ### `mr_shallow_wide` comme signal universel
 **Abandonné sauf commodities/energy.**  
