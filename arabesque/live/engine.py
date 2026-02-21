@@ -420,26 +420,137 @@ class LiveEngine:
 # CLI
 # =============================================================================
 
+# Instruments FTMO viables par défaut (résultat pipeline 2026-02-20)
+_DEFAULT_INSTRUMENTS = [
+    "AAVUSD","ALGUSD","BCHUSD","DASHUSD","GRTUSD","ICPUSD","IMXUSD",
+    "LNKUSD","NEOUSD","NERUSD","SOLUSD","UNIUSD","VECUSD","XAUUSD",
+    "XLMUSD","XRPUSD","XTZUSD",
+]
+
+
 def main():
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    parser = argparse.ArgumentParser(description="Arabesque Live Engine")
-    parser.add_argument("--dry-run", action="store_true", default=False)
+    parser = argparse.ArgumentParser(
+        description="Arabesque Live Engine",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Modes d'utilisation :
+  Dry-run parquet (offline, P2) :
+    python -m arabesque.live.engine \
+      --source parquet --start 2025-10-01 --end 2026-01-01
+
+  Dry-run cTrader (vrais ticks, P3) :
+    python -m arabesque.live.engine --dry-run
+
+  Live (P4, compte test seulement) :
+    python -m arabesque.live.engine
+""",
+    )
+    parser.add_argument(
+        "--source", choices=["parquet", "ctrader"], default="ctrader",
+        help="Source de barres : parquet=replay local offline, ctrader=stream live",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", default=False,
+        help="Dry-run cTrader : vrais ticks, zéro ordre envoyé",
+    )
+    parser.add_argument(
+        "--start", default=None,
+        help="Début du replay parquet (YYYY-MM-DD)",
+    )
+    parser.add_argument(
+        "--end", default=None,
+        help="Fin du replay parquet (YYYY-MM-DD, défaut=aujourd'hui)",
+    )
+    parser.add_argument(
+        "--instruments", nargs="+", default=None,
+        help="Instruments à trader (défaut: 17 viables du pipeline)",
+    )
+    parser.add_argument(
+        "--strategy", choices=["mean_reversion", "trend", "combined"],
+        default="combined",
+        help="Stratégie de signal (défaut: combined)",
+    )
     parser.add_argument("--config", default="config/settings.yaml")
     parser.add_argument("--secrets", default="config/secrets.yaml")
-    parser.add_argument("--instruments", default="config/instruments.yaml")
+    parser.add_argument("--instruments-cfg", default="config/instruments.yaml",
+                        dest="instruments_cfg")
+    parser.add_argument("--balance", type=float, default=100_000.0,
+                        help="Balance de départ pour le dry-run parquet")
+    parser.add_argument("--data-root", default=None, dest="data_root",
+                        help="Répertoire Parquet (défaut: auto-détection)")
     args = parser.parse_args()
 
-    engine = LiveEngine.from_config(
-        settings_path=args.config,
-        secrets_path=args.secrets,
-        instruments_path=args.instruments,
-        dry_run=args.dry_run,
+    if args.source == "parquet":
+        _run_parquet_replay(args)
+    else:
+        engine = LiveEngine.from_config(
+            settings_path=args.config,
+            secrets_path=args.secrets,
+            instruments_path=args.instruments_cfg,
+            dry_run=args.dry_run,
+        )
+        asyncio.run(engine.run_forever())
+
+
+def _run_parquet_replay(args) -> None:
+    """Lance un replay complet sur données Parquet — aucune connexion réseau."""
+    import logging
+    from arabesque.broker.adapters import DryRunAdapter
+    from arabesque.guards import PropConfig, ExecConfig, AccountState
+    from arabesque.live.parquet_clock import ParquetClock
+    from arabesque.webhook.orchestrator import Orchestrator
+    from arabesque.config import ArabesqueConfig
+
+    logger = logging.getLogger("arabesque.engine.replay")
+
+    instruments = args.instruments or _DEFAULT_INSTRUMENTS
+    logger.info(f"[Replay] Source: parquet | {len(instruments)} instruments")
+    logger.info(f"[Replay] Période: {args.start or 'début'} → {args.end or 'fin'}")
+    logger.info(f"[Replay] Stratégie: {args.strategy}")
+
+    cfg = ArabesqueConfig(
+        mode="dry_run",
+        start_balance=args.balance,
+        max_daily_dd_pct=4.0,
+        max_total_dd_pct=9.0,
+        max_positions=5,
+        max_open_risk_pct=2.0,
+        risk_per_trade_pct=0.5,
+        max_daily_trades=999,
     )
-    asyncio.run(engine.run_forever())
+
+    broker = DryRunAdapter(balance=args.balance)
+    brokers = {"dry_run": broker}
+
+    orchestrator = Orchestrator(config=cfg, brokers=brokers)
+
+    if args.strategy == "mean_reversion":
+        from arabesque.backtest.signal_gen import BacktestSignalGenerator, SignalGenConfig
+        sig_gen = BacktestSignalGenerator(SignalGenConfig(), live_mode=False)
+    elif args.strategy == "trend":
+        from arabesque.backtest.signal_gen_trend import TrendSignalGenerator, TrendSignalConfig
+        sig_gen = TrendSignalGenerator(TrendSignalConfig())
+    else:
+        from arabesque.backtest.signal_gen_combined import CombinedSignalGenerator
+        sig_gen = CombinedSignalGenerator()
+
+    clock = ParquetClock(
+        instruments=instruments,
+        start=args.start,
+        end=args.end,
+        replay_speed=0.0,
+        signal_generator=sig_gen,
+        data_root=args.data_root,
+    )
+
+    logger.info("[Replay] Démarrage du replay Parquet (Ctrl+C pour arrêter)...")
+    clock.run(orchestrator, blocking=True)
+    logger.info("[Replay] ✅ Terminé")
 
 
 if __name__ == "__main__":
