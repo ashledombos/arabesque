@@ -106,6 +106,14 @@ class BrokerAdapter(ABC):
         """
         ...
 
+    def on_trade_closed(self, pnl: float) -> None:
+        """Callback appelé par l'orchestrator quand une position se ferme.
+
+        Implémentation par défaut : no-op.  Surcharger dans les adapters
+        qui ont besoin de tracker l'equity localement (ex: DryRunAdapter).
+        """
+        pass
+
 
 class CTraderAdapter(BrokerAdapter):
     """Adapter pour cTrader (FTMO).
@@ -217,19 +225,27 @@ class TradeLockerAdapter(BrokerAdapter):
 
 
 class DryRunAdapter(BrokerAdapter):
-    """Adapter dry-run pour tests sans broker réel."""
-    
-    def __init__(self, config: dict | None = None):
+    """Adapter dry-run pour tests sans broker réel.
+
+    Tracks equity and balance in real time so that get_account_info()
+    returns the actual account state (important for _refresh_account_state
+    in the live engine and for P3 cTrader dry-run mode).
+    """
+
+    def __init__(self, config: dict | None = None, start_balance: float = 100_000.0):
         self.name = "dry_run"
+        self._start_balance = start_balance
+        self._equity: float = start_balance
+        self._balance: float = start_balance
         self._orders: list[dict] = []
         self._last_prices: dict[str, float] = {}   # symbol → last known price
-    
+
     def connect(self) -> bool:
         return True
-    
+
     def get_quote(self, symbol: str, reference_price: float = 0.0) -> dict:
         """Fournit un quote réaliste basé sur le prix de référence.
-        
+
         Si reference_price=0, utilise le dernier prix connu pour ce symbole.
         Spread simulé = 0.01% du prix (typique FX majeurs).
         """
@@ -238,9 +254,22 @@ class DryRunAdapter(BrokerAdapter):
         self._last_prices[symbol] = reference_price
         spread = reference_price * 0.0001
         return {"bid": reference_price, "ask": reference_price + spread, "spread": spread}
-    
+
     def get_account_info(self) -> dict:
-        return {"balance": 100_000, "equity": 100_000, "margin_used": 0}
+        """Retourne l'état réel du compte simulé (equity mise à jour à chaque trade)."""
+        return {"balance": self._balance, "equity": self._equity, "margin_used": 0}
+
+    def on_trade_closed(self, pnl: float) -> None:
+        """Appelé par l'orchestrator après chaque clôture de position.
+
+        Met à jour equity et balance pour que get_account_info() reflète
+        l'état réel du compte dry-run.  Sans cet appel, _refresh_account_state()
+        en mode P3 (cTrader dry-run) aurait écrasé l'AccountState avec 100 000 $
+        fixes, rendant les guards DD aveugles.
+        """
+        self._equity += pnl
+        self._balance += pnl
+        logger.debug(f"[dry_run] on_trade_closed pnl={pnl:+.2f} → equity={self._equity:.2f}")
     
     def compute_volume(self, symbol: str, risk_cash: float, risk_distance: float) -> float:
         if risk_distance == 0:
