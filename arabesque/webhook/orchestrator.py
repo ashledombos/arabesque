@@ -315,6 +315,7 @@ class Orchestrator:
                     logger.error(f"Failed to close position: {result}")
 
     def _update_account_on_close(self, pos):
+        pnl = 0.0
         if pos.result_r is not None:
             pnl = pos.result_r * pos.risk_cash
             self.account.equity += pnl
@@ -324,6 +325,10 @@ class Orchestrator:
         self.account.open_risk_cash = max(0.0, self.account.open_risk_cash - pos.risk_cash)
         if pos.instrument in self.account.open_instruments:
             self.account.open_instruments.remove(pos.instrument)
+        # Synchronise les adapters qui trackent l'equity localement (ex: DryRunAdapter)
+        # afin que get_account_info() reste cohérent avec l'AccountState.
+        for broker in self.brokers.values():
+            broker.on_trade_closed(pnl)
 
     def _create_rejection_counterfactual(self, signal, decision, bid, ask):
         from arabesque.models import Counterfactual
