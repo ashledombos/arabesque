@@ -3,7 +3,7 @@
 
 > **Repo** : https://github.com/ashledombos/arabesque  
 > **Branche principale** : `main`  
-> **Dernière mise à jour** : 2026-02-20 (session matin)
+> **Dernière mise à jour** : 2026-02-21 (session replay P2)
 
 > 📖 **Lire aussi** :
 > - `docs/decisions_log.md` — pourquoi chaque décision a été prise, bugs connus, ce qui a été abandonné
@@ -159,6 +159,9 @@ docs/
 
 | Date | Bug | Fix |
 |---|---|---|
+| 2026-02-21 | `DryRunAdapter.get_account_info()` retournait 100 000 $ fixes → risque d'écrasement de l'AccountState en P3 (TD-012) | `on_trade_closed(pnl)` dans BrokerAdapter + DryRunAdapter track equity réelle |
+| 2026-02-21 | Spike de données UNIUSD → R=663.5 fantôme (84% des profits replay) | Filtre anti-spike `_clean_ohlc` : median_close × 3.0 (TD-013) |
+| 2026-02-21 | Résultat replay P2 corrigé : 999 trades, +770R bruts mais **invalides** (UNIUSD spike non filtré) | Relancer après fix |
 | 2026-02-18 | `sig.tp` → AttributeError | `sig.tp_indicative` |
 | 2026-02-18 | RR calculé sur close courant | `df.iloc[idx]["Close"]` |
 | 2026-02-18 | `np.float64` dans le dict signal | Cast `float()` natif |
@@ -224,6 +227,23 @@ for inst in AAVUSD ALGUSD BCHUSD DASHUSD GRTUSD ICPUSD IMXUSD LNKUSD \
 done
 # Garder si bootstrap 95% CI borne basse > 0R
 # Reporter dans config/instruments.yaml (follow: true)
+```
+
+### P0 — ✅ FAIT — Corriger TD-012 et TD-013 (session 2026-02-21)
+
+- `DryRunAdapter` : equity tracking réel via `on_trade_closed(pnl)`
+- `_clean_ohlc` : filtre anti-spike (median × 3.0)
+- Cause du R=663.5 UNIUSD identifiée : bougie corrompue High ~56 (prix réel ~6.5)
+
+### P2b — Relancer le replay avec les correctifs
+
+```bash
+python -m arabesque.live.engine \
+  --source parquet --start 2025-10-01 --end 2026-01-01 \
+  --strategy combined --balance 100000 \
+  --data-root ~/dev/barres_au_sol/data
+# Vérifier : UNIUSD total_r devrait être ~5-20R (pas 653R)
+# Vérifier : guards DAILY_DD et MAX_DD déclenchés dans les logs si applicable
 ```
 
 ### P2 — Valider les guards DD sur replay parquet (dry-run offline)
