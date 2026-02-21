@@ -122,12 +122,17 @@ def main():
     print(sep)
     if all_signals:
         try:
-            from arabesque.live.bar_poller import _signal_to_webhook_dict
-            row = df_prep.iloc[-1]
-            close = float(row.get("Close", row.get("close", 0)))
-            atr   = float(row["atr"]) if "atr" in row.index else 0.0
             _, sig = all_signals[-1]
-            d = _signal_to_webhook_dict(sig, instrument, close, atr, df_row=row)
+            # Affichage direct du signal (Signal.from_webhook_json compatible)
+            d = {
+                "instrument": sig.instrument, "side": sig.side.value,
+                "close": sig.close, "sl": sig.sl, "tp_indicative": sig.tp_indicative,
+                "atr": sig.atr, "rsi": sig.rsi, "cmf": sig.cmf,
+                "bb_lower": sig.bb_lower, "bb_mid": sig.bb_mid, "bb_upper": sig.bb_upper,
+                "bb_width": sig.bb_width, "rr": sig.rr,
+                "strategy_type": sig.strategy_type, "sub_type": sig.sub_type,
+                "regime": sig.regime, "htf_adx": sig.htf_adx,
+            }
             print(f"  {len(d)} clés :")
             for k, v in d.items():
                 print(f"    {k:20s} = {v!r}")
