@@ -27,7 +27,10 @@ import os
 from pathlib import Path
 from typing import Optional
 
+import logging
 import pandas as pd
+
+_clean_logger = logging.getLogger("arabesque.data.clean")
 
 
 # ── Configuration ────────────────────────────────────────────────────────────
@@ -303,7 +306,24 @@ def _load_from_yahoo(
 
 
 def _clean_ohlc(df: pd.DataFrame) -> pd.DataFrame:
-    """Nettoie les données OHLC (NaN, zéros, cohérence H/L)."""
+    """Nettoie les données OHLC (NaN, zéros, cohérence H/L, spikes).
+
+    Un spike est une bougie dont le High ou Low s'écarte anormalement
+    du niveau de prix courant (artefact de données : tick erroné,
+    réindexation, erreur de source).
+
+    Critère anti-spike : si High > median_close_20 × SPIKE_FACTOR
+                    ou  Low  < median_close_20 / SPIKE_FACTOR
+    → la bougie est retirée et un warning est loggé.
+
+    SPIKE_FACTOR = 3.0 : conservateur mais détecte tout multiplement
+    de prix impossible sur une seule bougie H1, même en altcoin volatile.
+    C'est ce filtre qui aurait éliminé le spike UNIUSD du replay 2026-02-21
+    (high ~56 alors que le prix était ~6.5 → R=663 fantôme).
+    """
+    SPIKE_FACTOR = 3.0
+    SPIKE_WINDOW = 20  # barres pour le median de référence
+
     mask = (
         df["Open"].notna() & df["High"].notna() &
         df["Low"].notna() & df["Close"].notna() &
@@ -312,11 +332,29 @@ def _clean_ohlc(df: pd.DataFrame) -> pd.DataFrame:
     df = df[mask].copy()
     df["High"] = df[["Open", "High", "Low", "Close"]].max(axis=1)
     df["Low"]  = df[["Open", "High", "Low", "Close"]].min(axis=1)
+
+    # Filtre anti-spike basé sur le median glissant des Close
+    median_close = df["Close"].rolling(SPIKE_WINDOW, min_periods=1, center=True).median()
+    spike_mask = (
+        (df["High"] > median_close * SPIKE_FACTOR) |
+        (df["Low"]  < median_close / SPIKE_FACTOR)
+    )
+    n_spikes = int(spike_mask.sum())
+    if n_spikes > 0:
+        _clean_logger.warning(
+            f"Spike filter: {n_spikes} bougie(s) retirée(s) "
+            f"(H ou L dévie de >{SPIKE_FACTOR}× le median_close_{SPIKE_WINDOW})"
+        )
+        for ts, row in df[spike_mask].iterrows():
+            _clean_logger.warning(
+                f"  Spike @ {ts}: O={row['Open']:.4f} H={row['High']:.4f} "
+                f"L={row['Low']:.4f} C={row['Close']:.4f} "
+                f"(median_ref={median_close[ts]:.4f})"
+            )
+        df = df[~spike_mask].copy()
+
     df["date"] = df.index.date
     return df
-
-
-# ── Utilitaires ───────────────────────────────────────────────────────────────
 
 def split_in_out_sample(
     df: pd.DataFrame,
