@@ -27,6 +27,11 @@ import pandas as pd
 
 from arabesque.models import Signal, Side
 from arabesque.backtest.signal_labeler import label_mr_signal
+from arabesque.indicators import (
+    compute_rsi, compute_atr, compute_adx,
+    compute_bollinger, compute_cmf, compute_williams_r,
+    compute_ema, compute_htf_regime,
+)
 
 
 @dataclass
@@ -61,19 +66,25 @@ class BacktestSignalGenerator:
         self.live_mode = live_mode
 
     def prepare(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Calcule tous les indicateurs. Utilise arabesque/indicators.py."""
         df = df.copy()
-        df["bb_mid"] = df["Close"].rolling(self.cfg.bb_period).mean()
-        bb_std = df["Close"].rolling(self.cfg.bb_period).std()
-        df["bb_lower"] = df["bb_mid"] - self.cfg.bb_std * bb_std
-        df["bb_upper"] = df["bb_mid"] + self.cfg.bb_std * bb_std
-        df["bb_width"] = (df["bb_upper"] - df["bb_lower"]) / df["bb_mid"]
-        df["ema_fast"] = df["Close"].ewm(span=self.cfg.ema_fast, adjust=False).mean()
-        df["ema_slow"] = df["Close"].ewm(span=self.cfg.ema_slow, adjust=False).mean()
-        df["rsi"] = self._rsi(df["Close"], self.cfg.rsi_period)
-        df["cmf"] = self._cmf(df, self.cfg.cmf_period)
-        df["atr"] = self._atr(df, self.cfg.atr_period)
-        df["wr_14"] = self._williams_r(df, self.cfg.wr_period)
-        df = self._compute_htf_regime(df)
+        bb = compute_bollinger(df, self.cfg.bb_period, self.cfg.bb_std)
+        df["bb_mid"] = bb["mid"]
+        df["bb_lower"] = bb["lower"]
+        df["bb_upper"] = bb["upper"]
+        df["bb_width"] = bb["width"]
+        df["ema_fast"] = compute_ema(df["Close"], self.cfg.ema_fast)
+        df["ema_slow"] = compute_ema(df["Close"], self.cfg.ema_slow)
+        df["rsi"] = compute_rsi(df["Close"], self.cfg.rsi_period)
+        df["cmf"] = compute_cmf(df, self.cfg.cmf_period)
+        df["atr"] = compute_atr(df, self.cfg.atr_period)
+        df["wr_14"] = compute_williams_r(df, self.cfg.wr_period)
+        df = compute_htf_regime(
+            df,
+            ema_fast=self.cfg.htf_ema_fast,
+            ema_slow=self.cfg.htf_ema_slow,
+            adx_period=self.cfg.htf_adx_period,
+        )
         df["swing_low"] = df["Low"].rolling(self.cfg.sl_swing_bars).min()
         df["swing_high"] = df["High"].rolling(self.cfg.sl_swing_bars).max()
         return df
@@ -222,81 +233,3 @@ class BacktestSignalGenerator:
         if side == Side.LONG:
             return close - max(self.cfg.sl_atr_mult * atr, min_dist)
         return close + max(self.cfg.sl_atr_mult * atr, min_dist)
-
-    @staticmethod
-    def _rsi(series, period):
-        delta = series.diff()
-        gain = delta.clip(lower=0).ewm(alpha=1/period, adjust=False).mean()
-        loss = (-delta.clip(upper=0)).ewm(alpha=1/period, adjust=False).mean()
-        rs = gain / loss.replace(0, np.nan)
-        return 100 - 100 / (1 + rs)
-
-    @staticmethod
-    def _cmf(df, period):
-        hl_range = (df["High"] - df["Low"]).replace(0, np.nan)
-        mf_mult = ((df["Close"] - df["Low"]) - (df["High"] - df["Close"])) / hl_range
-        mf_volume = mf_mult * df.get("Volume", pd.Series(1, index=df.index))
-        return mf_volume.rolling(period).sum() / df.get("Volume", pd.Series(1, index=df.index)).rolling(period).sum()
-
-    @staticmethod
-    def _atr(df, period):
-        high, low, close = df["High"], df["Low"], df["Close"]
-        tr = pd.concat([
-            high - low,
-            (high - close.shift()).abs(),
-            (low - close.shift()).abs(),
-        ], axis=1).max(axis=1)
-        return tr.rolling(period).mean()
-
-    @staticmethod
-    def _williams_r(df, period):
-        hh = df["High"].rolling(period).max()
-        ll = df["Low"].rolling(period).min()
-        return ((hh - df["Close"]) / (hh - ll).replace(0, np.nan)) * -100
-
-    def _compute_htf_regime(self, df):
-        df_4h = df.resample("4h").agg({"Open": "first", "High": "max", "Low": "min", "Close": "last"}).dropna()
-        if len(df_4h) < self.cfg.htf_ema_slow + 10:
-            df["regime"] = "bull_range"
-            df["htf_ema_fast_val"] = df["Close"]
-            df["htf_ema_slow_val"] = df["Close"]
-            df["htf_adx"] = 0
-            return df
-        df_4h["ema_fast"] = df_4h["Close"].ewm(span=self.cfg.htf_ema_fast, adjust=False).mean()
-        df_4h["ema_slow"] = df_4h["Close"].ewm(span=self.cfg.htf_ema_slow, adjust=False).mean()
-        df_4h["adx"] = self._adx(df_4h, self.cfg.htf_adx_period)
-        def _regime(r):
-            bull = r["ema_fast"] > r["ema_slow"]
-            strong = r["adx"] > 25 if not pd.isna(r["adx"]) else False
-            if bull and strong: return "bull_trend"
-            elif not bull and strong: return "bear_trend"
-            elif bull: return "bull_range"
-            else: return "bear_range"
-        df_4h["regime"] = df_4h.apply(_regime, axis=1)
-        htf_cols = df_4h[["regime", "ema_fast", "ema_slow", "adx"]].copy()
-        htf_cols.columns = ["regime", "htf_ema_fast_val", "htf_ema_slow_val", "htf_adx"]
-        htf_reindexed = htf_cols.reindex(df.index, method="ffill")
-        df["regime"] = htf_reindexed["regime"].fillna("bull_range")
-        df["htf_ema_fast_val"] = htf_reindexed["htf_ema_fast_val"].fillna(df["Close"])
-        df["htf_ema_slow_val"] = htf_reindexed["htf_ema_slow_val"].fillna(df["Close"])
-        df["htf_adx"] = htf_reindexed["htf_adx"].fillna(0)
-        return df
-
-    @staticmethod
-    def _adx(df, period):
-        high, low, close = df["High"], df["Low"], df["Close"]
-        plus_dm = high.diff().clip(lower=0)
-        minus_dm = (-low.diff()).clip(lower=0)
-        mask = plus_dm <= minus_dm
-        plus_dm[mask] = 0
-        minus_dm[~mask] = 0
-        tr = pd.concat([
-            high - low,
-            (high - close.shift()).abs(),
-            (low - close.shift()).abs(),
-        ], axis=1).max(axis=1)
-        atr = tr.ewm(span=period, adjust=False).mean()
-        plus_di = 100 * (plus_dm.ewm(span=period, adjust=False).mean() / atr)
-        minus_di = 100 * (minus_dm.ewm(span=period, adjust=False).mean() / atr)
-        dx = (abs(plus_di - minus_di) / (plus_di + minus_di).replace(0, np.nan)) * 100
-        return dx.ewm(span=period, adjust=False).mean()
