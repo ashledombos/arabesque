@@ -1,325 +1,331 @@
 """
-Arabesque v2 — Chargement des données OHLCV.
+Arabesque v2 — Backtest data loader.
 
-Priorité : Parquet (barres_au_sol) > Yahoo Finance (fallback).
+PRIORITÉ DES SOURCES :
+  1. Parquet barres_au_sol (Dukascopy/CCXT) — données FTMO exactes
+  2. Yahoo Finance — fallback si pas de Parquet
 
-Fonctions publiques :
-    load_ohlc(instrument, period, start, end, data_root) → DataFrame
-    split_in_out_sample(df, split_pct)                   → (df_in, df_out)
-    yahoo_symbol(instrument)                             → str
-    list_available_parquet(data_root)                    → list[str]
-    list_all_ftmo_instruments()                          → list[str]
-    generate_synthetic_ohlc(n_bars, ...)                 → DataFrame
-    get_last_source_info()                               → dict
-    _categorize(instrument)                              → str
+Le chemin vers les données Parquet est configurable :
+  - Env var ARABESQUE_DATA_ROOT (ex: /home/user/dev/barres_au_sol/data)
+  - Argument data_root dans load_ohlc()
+  - Défaut : ../barres_au_sol/data (relatif au repo arabesque)
 
-Format de sortie :
-    Index : DatetimeIndex UTC (freq ≈ 1h)
-    Colonnes : Open, High, Low, Close, Volume (majuscules — convention pandas)
+Mapping instruments :
+  - Priorité 1 : config/prop_firms.yaml (arabesque) — yahoo, category, broker symbols
+  - Priorité 2 : barres_au_sol/instruments.csv — résolution du chemin Parquet
+  - Fallback   : heuristiques (_categorize)
+
+Gère :
+  - Gaps weekend (vendredi close → lundi open)
+  - Barres manquantes (forward-fill limité)
+  - Détection jours de trading pour reset daily DD
 """
+
 from __future__ import annotations
 
-import re
-from datetime import datetime, timezone
+import os
 from pathlib import Path
-from typing import Iterator
+from typing import Optional
 
-import numpy as np
 import pandas as pd
 
-# ── Chemins Parquet par défaut ────────────────────────────────────────────────
-_DEFAULT_DATA_ROOTS = [
-    Path("data/parquet"),
-    Path("~/dev/barres_au_sol/data/parquet").expanduser(),
-    Path("~/dev/arabesque/data/parquet").expanduser(),
-    Path("/home/raphael/dev/barres_au_sol/data/parquet"),
-]
 
-# Contexte de la dernière source chargée
-_LAST_SOURCE: dict = {"source": "unknown", "path": "", "rows": 0}
+# ── Configuration ────────────────────────────────────────────────────────────
 
-
-# ── Catégories ────────────────────────────────────────────────────────────────
-_FX_CURRENCIES = {
-    "EUR", "USD", "GBP", "JPY", "CHF", "CAD", "AUD", "NZD",
-    "CNH", "CZK", "HKD", "HUF", "ILS", "MXN", "NOK", "PLN",
-    "SEK", "SGD", "ZAR", "TRY", "DKK",
-}
-_METALS  = {"XAU", "XAG", "XPT", "XPD"}
-_ENERGY  = {"XBR", "XTI", "NGAS", "USOIL", "UKOIL"}
-_INDICES = {
-    "SPX","NAS","DJI","DAX","FTSE","CAC","NI225","HSI",
-    "US30","US500","US100","DE40","UK100","FR40","JP225",
-}
+def _default_data_root() -> str:
+    """Chemin par défaut vers les données barres_au_sol."""
+    env = os.environ.get("ARABESQUE_DATA_ROOT")
+    if env:
+        return env
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    return str(repo_root.parent / "barres_au_sol" / "data")
 
 
-def _categorize(instrument: str) -> str:
-    """Retourne la catégorie : fx | metals | energy | indices | crypto | other."""
-    inst = instrument.upper().replace(".CASH","").replace(".C","")
-    # Métaux : XAU/XAG/XPT/XPD en base
-    if len(inst) >= 6 and inst[:3] in _METALS:
-        return "metals"
-    # Énergie
-    if inst in _ENERGY or inst[:4] in _ENERGY or inst[:3] in _ENERGY:
-        return "energy"
-    # Indices
-    if inst in _INDICES or any(inst.startswith(x) for x in _INDICES):
-        return "indices"
-    # FX : 6 chars, base ET quote dans les devises connues
-    if len(inst) == 6:
-        base, quote = inst[:3], inst[3:]
-        if base in _FX_CURRENCIES and quote in _FX_CURRENCIES:
-            return "fx"
-        # Sinon (ex: XRPUSD, ETHUSD à 6 chars) → crypto si quote = USD/EUR/BTC
-        if quote in ("USD","EUR","BTC","ETH","USDT"):
-            return "crypto"
-    # Crypto long format : LINKUSD, ALGOUSD, etc.
-    if inst.endswith(("USD","USDT","BTC","ETH")) and len(inst) > 6:
-        return "crypto"
-    return "other"
+def _instruments_csv_path() -> str:
+    """Chemin vers instruments.csv de barres_au_sol."""
+    env = os.environ.get("ARABESQUE_DATA_ROOT")
+    if env:
+        return str(Path(env).parent / "instruments.csv")
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    return str(repo_root.parent / "barres_au_sol" / "instruments.csv")
 
 
-# ── Mapping symboles ──────────────────────────────────────────────────────────
-_YAHOO_MAP: dict[str, str] = {
-    # Crypto
-    "BTCUSD":"BTC-USD","ETHUSD":"ETH-USD","BNBUSD":"BNB-USD",
-    "XRPUSD":"XRP-USD","SOLUSD":"SOL-USD","ADAUSD":"ADA-USD",
-    "DOTUSD":"DOT-USD","AVAXUSD":"AVAX-USD","MATICUSD":"MATIC-USD",
-    "LINKUSD":"LINK-USD","LNKUSD":"LINK-USD","UNIUSD":"UNI-USD",
-    "LTCUSD":"LTC-USD","BCHUSD":"BCH-USD","XLMUSD":"XLM-USD",
-    "ATOMUSD":"ATOM-USD","ALGOUSD":"ALGO-USD","ALGUSD":"ALGO-USD",
-    "VETUSD":"VET-USD","VECUSD":"VET-USD","XTZUSD":"XTZ-USD",
-    "DASHUSD":"DASH-USD","ZECUSD":"ZEC-USD","XMRUSD":"XMR-USD",
-    "FILUSD":"FIL-USD","AAVUSD":"AAVE-USD","AAVEUSD":"AAVE-USD",
-    "GRTUSD":"GRT-USD","ICPUSD":"ICP-USD","IMXUSD":"IMX-USD",
-    "NEOUSD":"NEO-USD","NERUSD":"NER-USD","HBARUSD":"HBAR-USD",
-    "SUSHIUSD":"SUSHI-USD","COMPUSD":"COMP-USD","SNXUSD":"SNX-USD",
-    "MKRUSD":"MKR-USD","YFIUSD":"YFI-USD","ENJUSD":"ENJ-USD",
-    "MANAUSD":"MANA-USD","SANDUSD":"SAND-USD","AXSUSD":"AXS-USD",
-    "GALAUSD":"GALA-USD","APEUSD":"APE-USD","GMTUSD":"GMT-USD",
-    "OPUSD":"OP-USD","ARBUSD":"ARB-USD","STXUSD":"STX-USD",
-    # Metals
-    "XAUUSD":"GC=F","XAGUSD":"SI=F","XPTUSD":"PL=F",
-    # Energy
-    "XBRUSD":"BZ=F","XTIUSD":"CL=F","USOIL":"CL=F","UKOIL":"BZ=F",
-}
+def _prop_firms_yaml_path() -> str:
+    """Chemin vers config/prop_firms.yaml d'arabesque."""
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    return str(repo_root / "config" / "prop_firms.yaml")
 
 
-def yahoo_symbol(instrument: str) -> str:
-    """Traduit un symbole FTMO en symbole Yahoo Finance."""
-    key = instrument.upper()
-    if key in _YAHOO_MAP:
-        return _YAHOO_MAP[key]
-    if len(key) == 6 and not key.endswith("-USD"):
-        return f"{key}=X"   # FX standard
-    return instrument
+# ── Cache instruments ─────────────────────────────────────────────────────────
+
+_INSTRUMENTS_CSV_CACHE: Optional[pd.DataFrame] = None
+_PROP_FIRMS_CACHE: Optional[dict] = None
 
 
-def _normalize_to_ftmo(instrument: str) -> str:
-    return instrument.replace("-","").replace("=X","").upper()
+def _load_instruments_csv() -> Optional[pd.DataFrame]:
+    """Charge instruments.csv de barres_au_sol (cache en mémoire)."""
+    global _INSTRUMENTS_CSV_CACHE
+    if _INSTRUMENTS_CSV_CACHE is not None:
+        return _INSTRUMENTS_CSV_CACHE
+    csv_path = _instruments_csv_path()
+    if not os.path.exists(csv_path):
+        return None
+    df = pd.read_csv(csv_path).fillna("")
+    _INSTRUMENTS_CSV_CACHE = df
+    return df
 
 
-# ── Candidats Parquet ─────────────────────────────────────────────────────────
-def _parquet_candidates(instrument: str, root: Path) -> Iterator[Path]:
-    inst = instrument.upper()
-    yield root / f"{inst}_H1.parquet"
-    yield root / f"{inst.lower()}_H1.parquet"
-    yield root / f"{inst}_1h.parquet"
-    yield root / f"{inst.lower()}_1h.parquet"
-    # Crypto CCXT format : BTCUSD → BTC_USDT_1h.parquet
-    if inst.endswith("USD") and len(inst) > 6:
-        base = inst[:-3]
-        yield root / f"{base}_USDT_1h.parquet"
-        yield root / f"{base.lower()}_usdt_1h.parquet"
-    yield root / f"{inst}.parquet"
-    yield root / f"{inst.lower()}.parquet"
+def _load_prop_firms() -> dict:
+    """Charge config/prop_firms.yaml (cache en mémoire).
+
+    Retourne le dict 'instruments' du YAML, ou {} si introuvable.
+    """
+    global _PROP_FIRMS_CACHE
+    if _PROP_FIRMS_CACHE is not None:
+        return _PROP_FIRMS_CACHE
+    try:
+        import yaml
+        path = _prop_firms_yaml_path()
+        if not os.path.exists(path):
+            _PROP_FIRMS_CACHE = {}
+            return {}
+        with open(path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        _PROP_FIRMS_CACHE = data.get("instruments", {}) if data else {}
+    except Exception:
+        _PROP_FIRMS_CACHE = {}
+    return _PROP_FIRMS_CACHE
 
 
-def _find_data_root(data_root: str | None) -> Path | None:
-    if data_root:
-        p = Path(data_root)
-        return p if p.exists() else None
-    for p in _DEFAULT_DATA_ROOTS:
-        if p.exists():
-            return p
-    return None
+def reload_prop_firms() -> None:
+    """Force le rechargement de prop_firms.yaml (utile en tests)."""
+    global _PROP_FIRMS_CACHE
+    _PROP_FIRMS_CACHE = None
 
 
-# ── Chargement ────────────────────────────────────────────────────────────────
+# ── Résolution des chemins Parquet ────────────────────────────────────────────
+
+def _parquet_path_for(instrument: str, data_root: str, timeframe: str = "1h") -> Optional[str]:
+    """Trouve le chemin Parquet pour un instrument FTMO via instruments.csv.
+
+    instruments.csv (barres_au_sol) contient :
+      ftmo_symbol | source (dukascopy/ccxt) | data_symbol | exchange
+
+    Le chemin résolu est :
+      <data_root>/<source>/derived/<KEY>_<timeframe>.parquet
+
+    Où KEY est :
+      - dukascopy : data_symbol.upper()
+      - ccxt      : data_symbol.replace("/","").upper() + "_" + exchange.upper()
+    """
+    csv = _load_instruments_csv()
+    if csv is None:
+        return None
+
+    matches = csv[csv["ftmo_symbol"].str.upper() == instrument.upper()]
+    if matches.empty:
+        return None
+
+    row = matches.iloc[0]
+    source = str(row["source"]).strip().lower()
+    data_symbol = str(row["data_symbol"]).strip()
+    exchange = str(row.get("exchange", "")).strip() or "binance"
+
+    if source == "dukascopy":
+        key = data_symbol.upper()
+    elif source == "ccxt":
+        key = data_symbol.replace("/", "").upper() + "_" + exchange.upper()
+    else:
+        return None
+
+    path = os.path.join(data_root, source, "derived", f"{key}_{timeframe}.parquet")
+    return path if os.path.exists(path) else None
+
+
+# ── Métadonnées source ────────────────────────────────────────────────────────
+
+class DataSourceInfo:
+    """Métadonnées sur la source de données utilisée."""
+    def __init__(self, source: str, path_or_symbol: str, bars: int):
+        self.source = source        # "parquet" ou "yahoo"
+        self.path_or_symbol = path_or_symbol
+        self.bars = bars
+
+    def __repr__(self):
+        return f"[{self.source}] {self.path_or_symbol} ({self.bars} bars)"
+
+
+_last_source_info: Optional[DataSourceInfo] = None
+
+
+def get_last_source_info() -> Optional[DataSourceInfo]:
+    """Retourne les infos de la dernière source de données chargée."""
+    return _last_source_info
+
+
+# ── Chargement principal ──────────────────────────────────────────────────────
+
 def load_ohlc(
-    instrument: str,
-    period: str = "730d",
+    symbol_or_instrument: str = "",
+    period: str = "2y",
+    interval: str = "1h",
     start: str | None = None,
     end: str | None = None,
     data_root: str | None = None,
+    prefer_parquet: bool = True,
+    *,
+    instrument: str | None = None,
 ) -> pd.DataFrame:
-    """Charge les données OHLCV — Parquet prioritaire, Yahoo Finance en fallback.
+    """Charge les données OHLC.
+
+    PRIORITÉ :
+      1. Si prefer_parquet=True → cherche dans barres_au_sol (Parquet)
+      2. Si pas trouvé (ou prefer_parquet=False) → Yahoo Finance
 
     Args:
-        instrument : Symbole FTMO (ex: « XRPUSD ») ou Yahoo (ex: « XRP-USD »).
-        period     : Durée au format NNd/NNm/NNy (ex: « 730d », « 2y »).
-        start      : Date début ISO (ex: « 2024-01-01 ») — prioritaire sur period.
-        end        : Date fin ISO (optionnel, défaut = aujourd'hui).
-        data_root  : Répertoire Parquet (None = auto-détection).
+        symbol_or_instrument : Nom FTMO (ex: "XRPUSD") ou Yahoo (ex: "XRP-USD")
+        period               : Durée Yahoo (ex: "2y", "730d"). Ignoré si start/end.
+        interval             : Intervalle cible ("1h" pour Arabesque)
+        start / end          : Dates optionnelles "YYYY-MM-DD"
+        data_root            : Chemin vers <barres_au_sol>/data (défaut: auto)
+        prefer_parquet       : True → Parquet d'abord (défaut)
+        instrument           : kwarg alternatif pour le symbole (rétrocompat)
 
     Returns:
-        DataFrame avec index DatetimeIndex UTC, colonnes Open/High/Low/Close/Volume.
+        DataFrame avec colonnes [Open, High, Low, Close, Volume],
+        index DatetimeIndex UTC.
     """
-    ftmo = _normalize_to_ftmo(instrument)
+    global _last_source_info
 
-    # 1. Essai Parquet
-    df = _load_parquet(ftmo, data_root)
-    if df is not None:
-        df = _filter_period(df, period, start, end)
-        _LAST_SOURCE.update({"source":"parquet","path":ftmo,"rows":len(df)})
-        return df
+    effective_instrument = instrument or symbol_or_instrument
+
+    if data_root is None:
+        data_root = _default_data_root()
+
+    # 1. Tentative Parquet
+    if prefer_parquet:
+        normalized = _normalize_instrument(effective_instrument)
+        pq_path = _parquet_path_for(normalized, data_root, timeframe=interval)
+        if pq_path:
+            try:
+                df = _load_from_parquet(pq_path, start=start, end=end)
+                if df is not None and len(df) > 100:
+                    _last_source_info = DataSourceInfo("parquet", pq_path, len(df))
+                    return df
+            except Exception:
+                pass  # fallback Yahoo
 
     # 2. Fallback Yahoo Finance
-    yahoo_sym = yahoo_symbol(ftmo)
-    df = _load_yahoo(yahoo_sym, period, start, end)
-    _LAST_SOURCE.update({"source":"yahoo","path":yahoo_sym,"rows":len(df)})
+    yahoo_sym = yahoo_symbol(effective_instrument)
+    df = _load_from_yahoo(yahoo_sym, period=period, interval=interval, start=start, end=end)
+    _last_source_info = DataSourceInfo("yahoo", yahoo_sym, len(df))
     return df
 
 
-def _load_parquet(instrument: str, data_root: str | None) -> pd.DataFrame | None:
-    root = _find_data_root(data_root)
-    if root is None:
-        return None
-    for path in _parquet_candidates(instrument, root):
-        if path.exists():
-            try:
-                df = pd.read_parquet(path)
-                return _normalize(_ensure_utc(df))
-            except Exception:
-                continue
-    return None
+def _normalize_instrument(s: str) -> str:
+    """Normalise vers un nom interne FTMO (sans suffixes Yahoo)."""
+    s = s.strip().upper()
+    for suffix in ("=X", "-USD", "=F"):
+        if s.endswith(suffix):
+            s = s[: -len(suffix)]
+    return s
 
 
-def _load_yahoo(
-    symbol: str,
-    period: str = "730d",
+def _load_from_parquet(
+    path: str,
     start: str | None = None,
     end: str | None = None,
-) -> pd.DataFrame:
-    try:
-        import yfinance as yf
-    except ImportError:
-        raise ImportError("pip install yfinance --break-system-packages")
-    ticker = yf.Ticker(symbol)
-    if start:
-        t_end = end or datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        df = ticker.history(start=start, end=t_end, interval="1h", auto_adjust=True)
-    else:
-        df = ticker.history(period=period, interval="1h", auto_adjust=True)
-    if df.empty:
-        raise ValueError(f"Aucune donnée Yahoo Finance pour {symbol!r}")
-    return _normalize(_ensure_utc(df))
+) -> Optional[pd.DataFrame]:
+    """Charge un fichier Parquet barres_au_sol et normalise les colonnes."""
+    df = pd.read_parquet(path)
+    if df is None or df.empty:
+        return None
 
-
-def _normalize(df: pd.DataFrame) -> pd.DataFrame:
-    col_map = {}
-    for c in df.columns:
-        cl = c.lower()
-        if cl in ("open","o"):       col_map[c] = "Open"
-        elif cl in ("high","h"):     col_map[c] = "High"
-        elif cl in ("low","l"):      col_map[c] = "Low"
-        elif cl in ("close","c"):    col_map[c] = "Close"
-        elif cl in ("volume","vol","v"): col_map[c] = "Volume"
+    col_map = {
+        "open": "Open", "high": "High", "low": "Low",
+        "close": "Close", "volume": "Volume",
+    }
     df = df.rename(columns=col_map)
-    keep = [c for c in ["Open","High","Low","Close","Volume"] if c in df.columns]
-    df = df[keep].copy()
+
+    required = ["Open", "High", "Low", "Close"]
+    if not all(c in df.columns for c in required):
+        return None
+
     if "Volume" not in df.columns:
-        df["Volume"] = 1.0
-    return df
+        df["Volume"] = 0
 
-
-def _ensure_utc(df: pd.DataFrame) -> pd.DataFrame:
-    if not isinstance(df.index, pd.DatetimeIndex):
-        df.index = pd.to_datetime(df.index)
     if df.index.tz is None:
         df.index = df.index.tz_localize("UTC")
     else:
         df.index = df.index.tz_convert("UTC")
-    df = df.sort_index()
-    return df[~df.index.duplicated(keep="last")]
+
+    if start:
+        df = df[df.index >= pd.Timestamp(start, tz="UTC")]
+    if end:
+        df = df[df.index <= pd.Timestamp(end, tz="UTC")]
+
+    df = _clean_ohlc(df)
+    return df
 
 
-def _filter_period(
-    df: pd.DataFrame,
-    period: str = "730d",
+def _load_from_yahoo(
+    symbol: str,
+    period: str = "2y",
+    interval: str = "1h",
     start: str | None = None,
     end: str | None = None,
 ) -> pd.DataFrame:
-    now = pd.Timestamp.now(tz="UTC")
-    if start:
-        t_start = pd.Timestamp(start, tz="UTC")
+    """Charge les données OHLC depuis Yahoo Finance."""
+    import yfinance as yf
+
+    ticker = yf.Ticker(symbol)
+    kwargs: dict = {"interval": interval}
+    if start and end:
+        kwargs["start"] = start
+        kwargs["end"] = end
     else:
-        m = re.match(r"(\d+)([dmy])", period.lower())
-        if m:
-            n, u = int(m.group(1)), m.group(2)
-            days = n if u=="d" else n*30 if u=="m" else n*365
-        else:
-            days = 730
-        t_start = now - pd.Timedelta(days=days)
-    t_end = pd.Timestamp(end, tz="UTC") if end else now
-    return df[(df.index >= t_start) & (df.index <= t_end)]
+        kwargs["period"] = period
+
+    df = ticker.history(**kwargs)
+
+    if df.empty:
+        raise ValueError(f"Aucune donnée pour {symbol} ({kwargs})")
+
+    cols = ["Open", "High", "Low", "Close", "Volume"]
+    df = df[[c for c in cols if c in df.columns]].copy()
+
+    if df.index.tz is None:
+        df.index = df.index.tz_localize("UTC")
+    else:
+        df.index = df.index.tz_convert("UTC")
+
+    return _clean_ohlc(df)
+
+
+def _clean_ohlc(df: pd.DataFrame) -> pd.DataFrame:
+    """Nettoie les données OHLC (NaN, zéros, cohérence H/L)."""
+    mask = (
+        df["Open"].notna() & df["High"].notna() &
+        df["Low"].notna() & df["Close"].notna() &
+        (df["Open"] > 0) & (df["Close"] > 0)
+    )
+    df = df[mask].copy()
+    df["High"] = df[["Open", "High", "Low", "Close"]].max(axis=1)
+    df["Low"]  = df[["Open", "High", "Low", "Close"]].min(axis=1)
+    df["date"] = df.index.date
+    return df
 
 
 # ── Utilitaires ───────────────────────────────────────────────────────────────
+
 def split_in_out_sample(
     df: pd.DataFrame,
-    split_pct: float = 0.70,
+    in_sample_pct: float = 0.70,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Divise chronologiquement en in-sample / out-of-sample."""
+    """Split en in-sample / out-of-sample par date (chronologique)."""
     n = len(df)
-    split_idx = int(n * split_pct)
-    if split_idx < 10 or n - split_idx < 10:
-        raise ValueError(f"Trop peu de données ({n} barres) pour split {split_pct:.0%}")
+    split_idx = int(n * in_sample_pct)
     return df.iloc[:split_idx].copy(), df.iloc[split_idx:].copy()
-
-
-def list_available_parquet(data_root: str | None = None) -> list[str]:
-    """Liste les instruments disponibles dans le répertoire Parquet."""
-    root = _find_data_root(data_root)
-    if root is None:
-        return []
-    instruments = []
-    for p in sorted(root.glob("*.parquet")):
-        name = p.stem.upper()
-        if "_H1" in name:
-            instruments.append(name.replace("_H1",""))
-        elif "_1H" in name:
-            parts = name.replace("_1H","").split("_")
-            # BTC_USDT → BTCUSD
-            if len(parts) >= 2 and parts[-1] in ("USDT","BTC","ETH"):
-                instruments.append(parts[0] + "USD")
-            else:
-                instruments.append("_".join(parts))
-        else:
-            instruments.append(name)
-    return [i for i in instruments if i]
-
-
-def list_all_ftmo_instruments() -> list[str]:
-    """Liste de tous les instruments FTMO connus (référence statique)."""
-    return [
-        # FX Majors
-        "EURUSD","GBPUSD","USDJPY","USDCHF","AUDUSD","NZDUSD","USDCAD",
-        # FX Crosses
-        "EURGBP","EURJPY","EURCHF","EURCAD","EURAUD","EURNZD",
-        "GBPJPY","GBPCHF","GBPCAD","GBPAUD","GBPNZD",
-        "AUDJPY","AUDNZD","AUDCAD","AUDCHF",
-        "NZDJPY","NZDCAD","NZDCHF","CADJPY","CADCHF","CHFJPY",
-        # FX Exotiques
-        "USDSGD","USDCNH","USDNOK","USDCZK","USDHKD","EURNOK",
-        # Métaux
-        "XAUUSD","XAGUSD",
-        # Crypto
-        "BTCUSD","ETHUSD","BNBUSD","XRPUSD","SOLUSD","ADAUSD",
-        "LNKUSD","UNIUSD","LTCUSD","BCHUSD","XLMUSD","XTZUSD",
-        "DASHUSD","NEOUSD","ALGOUSD","ALGUSD","AAVUSD","GRTUSD",
-        "ICPUSD","IMXUSD","NERUSD","VECUSD",
-    ]
 
 
 def generate_synthetic_ohlc(
@@ -327,22 +333,184 @@ def generate_synthetic_ohlc(
     start_price: float = 1.0800,
     volatility: float = 0.0008,
     trend: float = 0.0,
-    seed: int = 42,
+    freq: str = "1h",
+    start_date: str = "2024-02-01",
+    instrument: str = "SYNTH",
 ) -> pd.DataFrame:
-    """Génère des données OHLCV synthétiques pour les tests."""
-    rng = np.random.default_rng(seed)
-    returns = rng.normal(trend, volatility, n_bars)
-    closes = start_price * np.exp(np.cumsum(returns))
-    highs = closes * (1 + abs(rng.normal(0, volatility * 0.5, n_bars)))
-    lows  = closes * (1 - abs(rng.normal(0, volatility * 0.5, n_bars)))
-    opens = np.roll(closes, 1); opens[0] = start_price
-    idx = pd.date_range("2023-01-01", periods=n_bars, freq="1h", tz="UTC")
-    return pd.DataFrame({
-        "Open":opens,"High":highs,"Low":lows,"Close":closes,
-        "Volume":rng.integers(100,10000,n_bars).astype(float),
-    }, index=idx)
+    """Génère des données OHLC synthétiques réalistes pour tester le pipeline."""
+    import numpy as np
+
+    np.random.seed(42)
+    dates = pd.date_range(start=start_date, periods=n_bars * 2, freq=freq, tz="UTC")
+    dates = dates[dates.dayofweek < 5][:n_bars]
+
+    prices = [start_price]
+    vol = volatility
+    mr_level = start_price
+    mr_speed = 0.02
+    for _ in range(n_bars - 1):
+        vol = 0.95 * vol + 0.05 * volatility * (1 + 0.5 * abs(np.random.randn()))
+        mr_pull = mr_speed * (mr_level - prices[-1])
+        prices.append(prices[-1] + trend + mr_pull + np.random.randn() * vol)
+        mr_level += trend * 0.5
+
+    prices = np.array(prices)
+    opens = prices.copy()
+    closes = np.roll(prices, -1); closes[-1] = prices[-1]
+    highs = np.maximum(opens, closes) + np.abs(np.random.randn(n_bars)) * volatility * 0.6
+    lows  = np.minimum(opens, closes) - np.abs(np.random.randn(n_bars)) * volatility * 0.6
+    vols  = np.random.randint(100, 10000, n_bars).astype(float)
+
+    df = pd.DataFrame(
+        {"Open": opens, "High": highs, "Low": lows, "Close": closes, "Volume": vols},
+        index=dates[:n_bars],
+    )
+    df["date"] = df.index.date
+    return df
 
 
-def get_last_source_info() -> dict:
-    """Retourne les informations sur la dernière source de données chargée."""
-    return dict(_LAST_SOURCE)
+# ── Mapping Yahoo Finance ──────────────────────────────────────────────────────
+
+def yahoo_symbol(instrument: str) -> str:
+    """Convertit un symbole FTMO en symbole Yahoo Finance.
+
+    Source de vérité : config/prop_firms.yaml (champ 'yahoo').
+    Fallback : heuristiques (FX → XXXYYY=X, crypto → XXX-USD).
+    """
+    key = instrument.upper().replace(".CASH", "").replace(".C", "")
+
+    # 1. prop_firms.yaml
+    pf = _load_prop_firms()
+    if key in pf and pf[key] and pf[key].get("yahoo"):
+        return pf[key]["yahoo"]
+
+    # 2. Heuristiques
+    #    FX 6 chars → XXXYYY=X
+    if len(key) == 6 and key.isalpha():
+        return f"{key}=X"
+    #    Crypto avec base connue → BASE-USD
+    if key.endswith("USD") and len(key) > 6:
+        return f"{key[:-3]}-USD"
+    if key.endswith("USDT") and len(key) > 7:
+        return f"{key[:-4]}-USD"
+
+    return instrument
+
+
+# ── Listing instruments ────────────────────────────────────────────────────────
+
+def list_available_parquet(
+    data_root: str | None = None,
+    timeframe: str = "1h",
+) -> dict[str, str]:
+    """Liste tous les instruments disponibles en Parquet.
+
+    Source : barres_au_sol/instruments.csv (résolution chemins).
+
+    Returns:
+        Dict {symbole_ftmo: chemin_parquet}
+    """
+    if data_root is None:
+        data_root = _default_data_root()
+
+    csv = _load_instruments_csv()
+    if csv is None:
+        return {}
+
+    available = {}
+    for _, row in csv.iterrows():
+        ftmo = str(row["ftmo_symbol"]).strip()
+        if not ftmo:
+            continue
+        path = _parquet_path_for(ftmo, data_root, timeframe)
+        if path:
+            available[ftmo] = path
+    return available
+
+
+def list_all_ftmo_instruments() -> list[dict]:
+    """Liste tous les instruments depuis config/prop_firms.yaml.
+
+    Returns:
+        Liste de dicts {ftmo_symbol, gft_symbol, category, yahoo}
+    """
+    pf = _load_prop_firms()
+    result = []
+    for symbol, data in pf.items():
+        if not data:
+            continue
+        ftmo = data.get("ftmo") or symbol
+        if ftmo is None:
+            continue
+        result.append({
+            "ftmo_symbol": ftmo,
+            "gft_symbol":  data.get("gft"),
+            "category":    data.get("category", "other"),
+            "yahoo":       data.get("yahoo", ""),
+        })
+    return result
+
+
+# ── Catégorisation ────────────────────────────────────────────────────────────
+
+def _categorize(instrument: str) -> str:
+    """Catégorise un instrument FTMO.
+
+    Source de vérité : config/prop_firms.yaml.
+    Fallback : heuristiques (pour les instruments non référencés).
+    """
+    key = instrument.upper().replace(".CASH", "").replace(".C", "")
+
+    # 1. prop_firms.yaml
+    pf = _load_prop_firms()
+    if key in pf and pf[key] and pf[key].get("category"):
+        return pf[key]["category"]
+
+    # 2. Heuristiques (ordre important)
+
+    # Métaux : XAU, XAG, XPT, XPD, XCU
+    if key in ("XAUUSD","XAGUSD","XAUEUR","XAGEUR","XAUAUD","XAGAUD",
+               "XCUUSD","XPTUSD","XPDUSD"):
+        return "metals"
+
+    # Énergie
+    if key in ("USOIL","UKOIL","NATGAS","HEATOIL"):
+        return "energy"
+
+    # Commodities
+    if key in ("COCOA","COFFEE","CORN","COTTON","SOYBEAN","SUGAR","WHEAT"):
+        return "commodities"
+
+    # Indices
+    _INDICES = {
+        "US30","US500","US100","US2000","USTEC","DE40","GER40",
+        "UK100","JP225","AU200","AUS200","EU50","FRA40","SPN35",
+        "HK50","N25","DXY",
+    }
+    if key in _INDICES:
+        return "indices"
+
+    # Crypto : base connue + USD
+    _CRYPTO_BASES = {
+        "BTC","ETH","LTC","SOL","BNB","BCH","XRP","ADA","DOGE","DOT",
+        "UNI","XLM","VET","VEC","MANA","MAN","SAND","SAN","XTZ","AVAX",
+        "AVA","LINK","LNK","AAVE","AAV","ALGO","ALG","NEAR","NER","IMX",
+        "GRT","GAL","FET","ICP","BAR","NEO","XMR","DASH","DAS","ETC",
+    }
+    if key.endswith("USD") and len(key) >= 6:
+        base = key[:-3]
+        if base in _CRYPTO_BASES:
+            return "crypto"
+
+    # FX : 6 chars, base ET quote dans devises connues
+    _FX_CURRENCIES = {
+        "EUR","USD","GBP","JPY","CHF","CAD","AUD","NZD",
+        "CNH","CZK","HKD","HUF","ILS","MXN","NOK","PLN",
+        "SEK","SGD","ZAR","TRY","DKK",
+    }
+    if len(key) == 6:
+        base, quote = key[:3], key[3:]
+        if base in _FX_CURRENCIES and quote in _FX_CURRENCIES:
+            return "fx"
+
+    return "other"
