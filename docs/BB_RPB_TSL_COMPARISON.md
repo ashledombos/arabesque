@@ -48,9 +48,9 @@ C'est exactement le profil qu'une prop firm veut voir. C'est exactement le profi
 
 ## État de la divergence (mesuré en replay Oct 2025 → Jan 2026)
 
-### Chiffres mesurés
+### v2 — AVANT correction (trailing 5 paliers, SL 0.8 ATR)
 
-| Métrique | BB_RPB_TSL (live) | Arabesque (replay net) | Écart |
+| Métrique | BB_RPB_TSL (live) | Arabesque v2 (replay net) | Écart |
 |---|---|---|---|
 | Win Rate | 90.8% | **52.0%** | **−38.8 pts** |
 | Variance par trade | ~0.43R (std) | ~1.64R (std) | **3.8× plus volatile** |
@@ -58,24 +58,34 @@ C'est exactement le profil qu'une prop firm veut voir. C'est exactement le profi
 | Expectancy | ~+0.36R | +0.035R (non sig.) | **Non mesurable** |
 | Score prop firm | N/A (pas de prop) | **0/4** | Pas prêt |
 
-### Cause principale identifiée : le trailing SL 5 paliers
+### Cause principale identifiée : absence du `minimal_roi`
 
-BB_RPB_TSL utilise probablement un TP fixe ou un trailing très court. Arabesque a été configuré avec un trailing long (5 paliers, premier à +0.5R → BE), ce qui :
+L'analyse détaillée de `BB_RPB_TSL.py` (session Opus 4.6, 2026-02-21) a révélé que le mécanisme clé du WR 90.8% n'est pas dans les entrées mais dans les sorties :
 
-1. **Réduit le WR** : les trades qui auraient touché le TP (gagnants) redeviennent parfois perdants si le prix revient avant le palier BE
-2. **Augmente l'avg_win** sur les trades qui restent gagnants (ils vont plus loin)
-3. **Net** : WR ~52% avec avg_win ~2.3R au lieu de WR ~90% avec avg_win ~0.5R
+```python
+# BB_RPB_TSL — le vrai moteur du WR
+minimal_roi = {
+    "0": 0.205,    # vend si profit ≥ 20.5%
+    "81": 0.038,   # après 81h : vend si profit ≥ 3.8%
+    "292": 0.005,  # après 292h : vend si profit ≥ 0.5%
+}
+stoploss = -0.99   # SL quasi inexistant — laisse respirer
+# custom_stoploss ne trail qu'au-dessus de +3%
+```
 
-Ces deux profils ont une espérance mathématique comparable (+0.36R vs +0.35R théorique), mais une variance radicalement différente. Pour les prop firms, la variance est l'ennemi.
+**Ce mécanisme était totalement absent dans Arabesque v2.** Les trades devaient soit toucher le TP fixe (bb_mid) soit être trailés, alors que BB_RPB_TSL capture les petits profits dès qu'ils sont disponibles.
 
-### Autres facteurs possibles
+### v3.0 — Correction appliquée (ROI dégressif)
 
-| Facteur | Impact estimé | À tester |
-|---|---|---|
-| Module trend trop restrictif | Filtre des trades gagnants | Comparer `mean_reversion` vs `combined` sur même période |
-| Spreads CFDs FTMO | Réduit le WR de ~2-5% | Mesurer dans les logs fill vs signal |
-| Paramètres BB différents | Signaux de moins bonne qualité | Comparer avec les paramètres BB_RPB_TSL exacts |
-| Période défavorable (trend Oct-Jan) | Résultats sur-pessimistes | Tester sur 2 ans |
+| Dimension | Avant (v2) | Après (v3.0) | BB_RPB_TSL |
+|---|---|---|---|
+| TP temps-dépendant | ❌ Absent | ✅ ROI 4 paliers (0→3R, 48→1R, 120→0.5R, 240→0.15R) | ✅ `minimal_roi` 3 paliers |
+| SL effectif | 0.8×ATR (serré) | 1.5×ATR (large) | -99% (quasi absent) |
+| Trailing activation | +0.5R (5 paliers) | +1.5R (3 paliers) | +3% (~1.5R) |
+| Break-even | +0.5R | +1.0R | Implicite via trailing |
+| Time-stop | 48 barres | 336 barres | 292h via minimal_roi |
+
+**Résultats v3.0 : À MESURER (P3a)**
 
 ---
 

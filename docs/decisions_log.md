@@ -73,6 +73,33 @@ Le système a dérivé vers WR 52% à cause de l'introduction d'un trailing SL l
 
 La correction est en cours. Ne pas retomber dans cette dérive.
 
+### Correction v3.0 — ROI dégressif (2026-02-21, session Opus 4.6)
+
+**Analyse racine de la divergence** : lecture détaillée de `BB_RPB_TSL.py` → la pièce manquante identifiée est le `minimal_roi`, le mécanisme de TP dégressif dans le temps. C'est ce mécanisme qui produit le WR 90.8%, pas les entrées.
+
+**BB_RPB_TSL utilise** :
+- `minimal_roi = {"0": 0.205, "81": 0.038, "292": 0.005}` → prend le profit disponible
+- `stoploss = -0.99` → SL quasi inexistant (laisse respirer)
+- Trailing custom uniquement au-dessus de +3% → ne trail que les "bonus"
+- `custom_exit` ferme les trades avec petits profits quand le momentum faiblit
+
+**Arabesque v2 avait** :
+- Pas de ROI dégressif → les trades devaient toucher le TP fixe (bb_mid) ou être trailés
+- Trailing dès +0.5R → interférait avec les profits MR normaux
+- SL à 0.8×ATR → trop serré pour le mean-reversion
+- Time-stop à 48h → coupait les trades trop tôt (BB_RPB_TSL donne 292h)
+
+**Arabesque v3.0 corrige** :
+1. ROI dégressif en R (0→3R, 48→1R, 120→0.5R, 240→0.15R)
+2. Trailing réservé aux bonus trades (>= 1.5R MFE, 3 paliers au lieu de 5)
+3. SL minimum élargi (0.8 → 1.5 ATR)
+4. BE relevé (+0.5R → +1.0R)
+5. Time-stop étendu (48 → 336 barres)
+
+**Valeurs ROI volontairement rondes** pour éviter la sur-optimisation. Le principe (TP dégressif dans le temps) est l'insight clé, pas les valeurs exactes.
+
+**À valider** : replay P3a pour mesurer l'impact sur le WR.
+
 ---
 
 ## 1. Fondamentaux non négociables

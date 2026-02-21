@@ -55,7 +55,7 @@ class SignalGenConfig:
     sl_method: str = "swing"
     sl_atr_mult: float = 1.5
     sl_swing_bars: int = 10
-    min_sl_atr: float = 0.8
+    min_sl_atr: float = 1.5  # v3.0: élargi de 0.8 → 1.5 ATR (BB_RPB_TSL donne beaucoup d'espace)
 
 
 class BacktestSignalGenerator:

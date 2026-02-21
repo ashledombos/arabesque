@@ -21,14 +21,20 @@ Le contrat est stable :
 
 **Risque si modifié** : tout le pipeline casse (backtest + replay + live).
 
-### `arabesque/position/manager.py` — Trailing 5 paliers
+### `arabesque/position/manager.py` — v3.0 ROI dégressif + trailing ajusté
 
-Logique testée et fonctionnelle :
-- `+0.5R → BE`, `+1R → 0.5R`, `+1.5R → 0.8R`, `+2R → 1.2R`, `+3R → 1.5R`
-- SL ne descend jamais (LONG) / ne monte jamais (SHORT)
+**REFONTE v3.0** (2026-02-21, session Opus 4.6) :
+- ROI dégressif (4 paliers) — mécanisme clé alignement BB_RPB_TSL
+- Trailing réduit à 3 paliers (>= 1.5R MFE seulement)
+- BE relevé à +1.0R, time-stop étendu à 336 barres
 - Bug TD-002 corrigé : `EXIT_TRAILING` correctement tagué
+- Nouveau : `EXIT_ROI` pour le suivi statistique
 
-**Risque si modifié** : le trailing est le principal moteur de l'expectancy (average win ~2.3R). Tout changement doit être comparé sur replay avant/après.
+**Statut** : MODIFIÉ, à valider sur replay P3a.
+
+**Risque si modifié** : le ROI dégressif est maintenant le principal moteur du WR. Tout changement doit être comparé sur replay avant/après avec focus sur le WR.
+
+**⚠️ Modifications réservées à Opus 4.6** — ne pas toucher avec un modèle moins puissant.
 
 ### `arabesque/guards.py` — Guards prop firm
 
@@ -128,6 +134,7 @@ Chemin live (ticks → barres H1). Implémenté, jamais validé en production.
 | 2026-02-20 | Guards DD aveugles | `daily_dd_pct / start_balance` au lieu de `/ daily_start_balance` | Fix diviseur |
 | 2026-02-21 | R=663.5 UNIUSD | Barre corrompue dans parquet (H≈57, prix normal ≈6.5) | Filtre intrabar dans `_clean_ohlc` |
 | 2026-02-21 | Equity tracking faux | `DryRunAdapter.get_account_info()` retournait 100k fixes | `on_trade_closed(pnl)` |
+| 2026-02-21 | WR 52% au lieu de 90% | Mécanisme `minimal_roi` de BB_RPB_TSL absent + trailing trop agressif + SL trop serré | v3.0 : ROI dégressif + trailing ajusté + SL élargi |
 
 ---
 

@@ -51,6 +51,7 @@ class DecisionType(str, Enum):
     EXIT_SL = "exit_sl"
     EXIT_TP = "exit_tp"
     EXIT_TRAILING = "exit_trailing"
+    EXIT_ROI = "exit_roi"
     EXIT_GIVEBACK = "exit_giveback"
     EXIT_DEADFISH = "exit_deadfish"
     EXIT_TIME_STOP = "exit_time_stop"
