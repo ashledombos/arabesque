@@ -37,7 +37,90 @@ from typing import Callable
 import pandas as pd
 
 from arabesque.backtest.data import load_ohlc
-from arabesque.live.bar_poller import DEFAULT_INSTRUMENTS, _generate_signals_from_cache
+# DEFAULT_INSTRUMENTS : instruments viables selon le pipeline 2026-02-20
+DEFAULT_INSTRUMENTS = [
+    "AAVUSD","ALGUSD","BCHUSD","DASHUSD","GRTUSD","ICPUSD","IMXUSD",
+    "LNKUSD","NEOUSD","NERUSD","SOLUSD","UNIUSD","VECUSD","XAUUSD",
+    "XLMUSD","XRPUSD","XTZUSD",
+]
+
+
+def _generate_signals_from_cache(
+    instrument: str,
+    bars: list[dict],
+    sig_gen,
+    only_last_bar: bool = True,
+) -> list[dict]:
+    """Génère des signaux à partir du cache de barres OHLCV.
+
+    Args:
+        instrument   : Symbole (ex: XRPUSD)
+        bars         : Liste de dicts {open, high, low, close, volume, ts}
+        sig_gen      : Instance de signal generator (BacktestSignalGenerator, etc.)
+        only_last_bar: True = seulement la dernière bougie (mode live),
+                       False = toutes les bougies (mode replay)
+
+    Returns:
+        Liste de dicts représentant les signaux (format dict compatible handle_signal).
+    """
+    import pandas as pd
+
+    if len(bars) < 50:
+        return []
+
+    try:
+        df = pd.DataFrame(bars)
+        df = df.rename(columns={
+            "open": "Open", "high": "High", "low": "Low",
+            "close": "Close", "volume": "Volume",
+        })
+        if "ts" in df.columns:
+            df.index = pd.to_datetime(df["ts"], utc=True)
+            df = df.drop(columns=["ts"], errors="ignore")
+        else:
+            df.index = pd.date_range(end=pd.Timestamp.now(tz="UTC"), periods=len(df), freq="1h")
+
+        df_prep = sig_gen.prepare(df)
+        raw_signals = sig_gen.generate_signals(df_prep, instrument)
+
+        if only_last_bar:
+            # Filtrer : garder seulement la dernière bougie confirmée
+            if not raw_signals:
+                return []
+            last_idx = max(i for i, _ in raw_signals)
+            raw_signals = [(i, s) for i, s in raw_signals if i == last_idx]
+
+        result = []
+        for bar_idx, signal in raw_signals:
+            bar_ts = df.index[bar_idx].isoformat() if bar_idx < len(df) else ""
+            result.append({
+                "instrument": signal.instrument,
+                "side": signal.side.value,
+                "close": signal.close,
+                "sl": signal.sl,
+                "tp_indicative": signal.tp_indicative,
+                "atr": signal.atr,
+                "rsi": signal.rsi,
+                "cmf": signal.cmf,
+                "bb_lower": signal.bb_lower,
+                "bb_mid": signal.bb_mid,
+                "bb_upper": signal.bb_upper,
+                "bb_width": signal.bb_width,
+                "ema200_ltf": signal.ema200_ltf,
+                "htf_adx": signal.htf_adx,
+                "regime": signal.regime,
+                "rr": signal.rr,
+                "strategy_type": signal.strategy_type,
+                "sub_type": signal.sub_type,
+                "ts": bar_ts,
+            })
+        return result
+    except Exception as e:
+        import logging
+        logging.getLogger("arabesque.live.parquet_clock").warning(
+            f"[{instrument}] _generate_signals_from_cache error: {e}"
+        )
+        return []
 
 logger = logging.getLogger("arabesque.live.parquet_clock")
 
@@ -49,6 +132,7 @@ class ParquetClockConfig:
     end:   str | None        = None
     replay_speed: float      = 0.0
     min_bars_for_signal: int = 50
+    data_root: str | None    = None   # Répertoire Parquet (None = auto-détection)
 
 
 class ParquetClock:
@@ -69,6 +153,7 @@ class ParquetClock:
         on_bar_closed: Callable | None = None,
         config: ParquetClockConfig | None = None,
         signal_generator=None,
+        data_root: str | None = None,
     ):
         if config:
             self.cfg = config
@@ -78,6 +163,7 @@ class ParquetClock:
                 start=start,
                 end=end,
                 replay_speed=replay_speed,
+                data_root=data_root,
             )
         self.on_bar_closed = on_bar_closed
 
@@ -138,10 +224,9 @@ class ParquetClock:
             try:
                 df = load_ohlc(
                     inst,
-                    instrument=inst,
                     start=self.cfg.start,
                     end=end_extended,  # +1 jour
-                    prefer_parquet=True,
+                    data_root=self.cfg.data_root,
                 )
                 if df is None or len(df) < self.cfg.min_bars_for_signal + 10:
                     logger.warning(
