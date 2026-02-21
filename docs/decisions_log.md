@@ -11,6 +11,7 @@
 
 ## Table des matières
 
+0. [Boussole stratégique — IMMUABLE](#0-boussole-stratégique--immuable-prioritaire-sur-tout)
 1. [Fondamentaux non négociables](#1-fondamentaux-non-négociables)
 2. [Stratégie : ce qui a été abandonné et pourquoi](#2-stratégie--ce-qui-a-été-abandonné-et-pourquoi)
 3. [Bugs connus, corrigés, et non corrigés](#3-bugs-connus-corrigés-et-non-corrigés)
@@ -19,6 +20,58 @@
 6. [Pipeline de sélection des instruments](#6-pipeline-de-sélection-des-instruments)
 7. [Infrastructure et données](#7-infrastructure-et-données)
 8. [Questions ouvertes](#8-questions-ouvertes)
+
+---
+
+## 0. Boussole stratégique — IMMUABLE, PRIORITAIRE SUR TOUT
+
+> **Cette section prime sur toutes les décisions de développement.**  
+> Si tu es une IA qui reprend ce projet : lis cette section en premier et relis-la avant chaque suggestion.  
+> Si quelque chose que tu t'apprêtes à proposer contredit ce qui est écrit ici : c'est ta proposition qui est fausse.
+
+### L'objectif en lettres de feu
+
+```
+GAINS PETITS, FRÉQUENTS, CONSISTANTS.
+PEU DE PERTES. PETITES QUAND ELLES ARRIVENT.
+WIN RATE ÉLEVÉ : CIBLE ≥ 70%, IDÉAL ≥ 85%.
+COURBE D'ÉQUITÉ RÉGULIÈRE ET PRÉVISIBLE.
+```
+
+Arabesque est une **stratégie prop firm**. Les prop firms évaluent la **consistance**, pas la performance brute. Une courbe d'équité régulière avec WR 85% passe un challenge. Une courbe en dents de scie avec WR 52% et quelques trades à +10R ne passe pas.
+
+### La référence : BB_RPB_TSL
+
+La stratégie dont Arabesque est dérivé tourne en live depuis ~527 jours :
+- Win Rate : **90.8%**
+- CAGR : ~48%
+- Profil : petits gains fréquents, pertes bien délimitées
+
+C'est **la preuve empirique que ce profil est atteignable** sur les altcoins crypto H1. Arabesque doit reproduire ce profil sur les instruments FTMO, avec les guards prop firm en plus.
+
+### Ce qui est hors scope même si c'est "plus rentable"
+
+- Stratégies avec WR < 65% (même si expectancy positive) → trop de variance pour les limites DD
+- Trailing SL long au détriment du WR → transforme des gagnants en perdants potentiels
+- Optimisation de l'avg_win au prix du WR → profil incompatible prop firm
+- TP à 2R, 3R, ou plus → WR chute mécaniquement
+
+### Signal d'alarme à déclencher
+
+Si tu lis dans le code, les docs, ou une proposition IA :
+- "WR ~52% compensé par avg_win de 2.3R" → **DÉRIVE, CORRIGER**
+- "l'edge vient des grands mouvements" → **DÉRIVE, CORRIGER**
+- "sensibilité aux outliers acceptée" → **DÉRIVE, CORRIGER**
+- "le module trend réduit le WR mais améliore l'expectancy" → **DÉRIVE, CORRIGER**
+
+### Contexte historique de la dérive (2026-02-21)
+
+Le système a dérivé vers WR 52% à cause de l'introduction d'un trailing SL long (5 paliers, premier palier BE à +0.5R). Cette configuration :
+- Transforme des trades gagnants (auraient touché le TP) en trades incertains (le prix peut revenir)
+- Multiplie la variance par trade par 3.8× vs le profil BB_RPB_TSL
+- Rend les résultats statistiquement non mesurables sur 3 mois de données
+
+La correction est en cours. Ne pas retomber dans cette dérive.
 
 ---
 
