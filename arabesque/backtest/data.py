@@ -333,12 +333,24 @@ def _clean_ohlc(df: pd.DataFrame) -> pd.DataFrame:
     df["High"] = df[["Open", "High", "Low", "Close"]].max(axis=1)
     df["Low"]  = df[["Open", "High", "Low", "Close"]].min(axis=1)
 
-    # Filtre anti-spike basé sur le median glissant des Close
+    # Filtre anti-spike — deux mécanismes complémentaires :
+    # 1. Ratio High ou Low vs median glissant des Close (capte les spikes isolés)
     median_close = df["Close"].rolling(SPIKE_WINDOW, min_periods=1, center=True).median()
-    spike_mask = (
+    spike_ratio = (
         (df["High"] > median_close * SPIKE_FACTOR) |
         (df["Low"]  < median_close / SPIKE_FACTOR)
     )
+    # 2. Ratio intrabar High/Close ou Close/Low (capte les mèches aberrantes
+    #    même quand le Close lui-même est déjà élevé — invisible pour le median)
+    #    Seuil : wick > SPIKE_FACTOR × taille du corps → purement aberrant sur H1
+    eps = 1e-10
+    spike_intrabar = (
+        (df["High"] / (df["Close"] + eps) > SPIKE_FACTOR) |
+        (df["High"] / (df["Open"]  + eps) > SPIKE_FACTOR) |
+        ((df["Open"]  + eps) / df["Low"]  > SPIKE_FACTOR) |
+        ((df["Close"] + eps) / df["Low"]  > SPIKE_FACTOR)
+    )
+    spike_mask = spike_ratio | spike_intrabar
     n_spikes = int(spike_mask.sum())
     if n_spikes > 0:
         _clean_logger.warning(
