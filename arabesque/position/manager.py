@@ -3,22 +3,18 @@ Arabesque v2 — Position Manager.
 
 v3.3 (2026-02-22) — Retour base v3.0 + améliorations chirurgicales.
 
-LEÇON MAJEURE v3.1/v3.2 :
-  ROI court-terme + SL réel = piège mortel.
-  BB_RPB_TSL n'a pas de SL (-99%) → peut couper tôt sans conséquence.
-  Arabesque a un SL à -1R → chaque SL hit doit être compensé par avg_win.
-  ROI court → avg_win effondré → expectancy négative.
+LEÇON v3.1/v3.2: ROI court + SL réel = expectancy négative (incompatible).
+LEÇON v3.3: BE 0.5/0.25 donne WR 60% mais avg_win 0.70R (324 trades
+  plafonnés à +0.25R). La grille analytique montre que BE 0.3/0.15
+  domine sur les 2 datasets (v3.0 + v3.3) avec WR~80%, Exp~+0.25R.
 
-v3.3 = v3.0 (rentable, +73.9R) PLUS :
-  1. BB sur typical_price (alignement BB_RPB_TSL, qualité signal)
-  2. BE à +0.5R trigger / +0.25R offset (convertit ~39% des losers)
-  3. Giveback abaissé MFE 1.0→0.5R (capture les profits qui érodent)
-
-v3.3 = v3.0 SANS :
-  - ROI court-terme (SUPPRIMÉ — tue avg_win)
-  - RSI 30 (retour à 35 — 30 filtrait trop de signaux)
-  - min_bb_width 0.02 (retour à 0.003)
-  - SL 2.0 ATR (retour à 1.5 ATR)
+Config finale v3.3 :
+  - BB typical_price (aligné BB_RPB_TSL)
+  - RSI 35, SL 1.5 ATR (v3.0 baseline)
+  - BE trigger=0.3R, offset=0.15R (analytiquement optimal)
+  - Giveback MFE=0.5R (momentum-based close, complémentaire au BE)
+  - Trailing 3 paliers (≥1.5R MFE) — inchangé
+  - ROI backstop long seulement (0:3R, 240:0.15R)
 """
 
 from __future__ import annotations
@@ -93,15 +89,17 @@ class ManagerConfig:
         default_factory=lambda: dict(TP_FIXED_SUBTYPES)
     )
 
-    # ── Break-even ──────────────────────────────────────────────────
-    # v3.1 avait abaissé BE trigger à 0.5R (bon — protège 39% des losers).
-    # v3.2 relève l'offset de 0.05R → 0.25R car les données v3.1 montrent
-    # que 165 trades (29%!) sortent à +0.05R sur des fluctuations normales.
-    # Le SL à entry+0.05R est trop serré pour survivre au bruit OHLC.
-    # Avec 0.25R d'offset, chaque BE exit donne un profit significatif
-    # au lieu d'un micro-gain qui pèse sur l'avg_win.
-    be_trigger_r: float = 0.5
-    be_offset_r: float = 0.25
+    # ── Break-even (le levier principal du WR) ─────────────────────
+    # MODÈLE ANALYTIQUE (testé sur v3.3 998 trades + v3.0 786 trades):
+    #   Trigger  Offset   WR     Exp      Robuste sur 2 datasets?
+    #   0.5      0.25    68.4%  +0.130R   oui (v3.3 actuel: +33.5R réel)
+    #   0.3      0.15    79.7%  +0.250R   OUI — domine partout
+    #   0.2      0.10    84.7%  +0.295R   non (offset trop serré)
+    #
+    # 80% des trades atteignent MFE ≥ 0.3R → WR ~80%.
+    # 0.15R offset = 0.225 ATR de marge (3× plus que le 0.05R v3.1).
+    be_trigger_r: float = 0.3
+    be_offset_r: float = 0.15
 
     # ── Giveback (seuils abaissés) ──────────────────────────────────
     # v3.0 : MFE ≥ 1.0R → trop haut, rate les profits qui s'érodent

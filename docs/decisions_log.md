@@ -179,6 +179,38 @@ v3.3 = v3.0 + 3 améliorations qui n'affectent PAS avg_win :
 
 **À valider** : replay P3a-quater.
 
+### Modèle analytique v3.3 — BE 0.3/0.15 (2026-02-22, session Opus 4.6)
+
+**Résultats v3.3 (BE 0.5/0.25)** : WR=60.2%, exp=+0.034R, +33.5R, 998 trades
+
+**Grille de simulation post-hoc** testée sur les 998 trades v3.3 ET les 786 trades v3.0 :
+
+Chaque trade a un MFE connu. Si MFE ≥ BE_trigger, le trade serait protégé.
+Si MFE < BE_trigger, le trade sortirait au SL (-1R).
+Si le trade revient sous BE_offset après trigger, il sort à +offset.
+Si le trade continue au-dessus, il sort au résultat réel.
+
+Résultats (robustes sur 2 datasets) :
+
+| Config | WR v3.3 | Exp v3.3 | WR v3.0 | Exp v3.0 |
+|---|---|---|---|---|
+| BE 0.3/0.15 | 79.7% | +0.250R | 78.5% | +0.414R |
+| BE 0.5/0.25 | 68.4% | +0.130R | 67.4% | +0.314R |
+| BE 1.0/0.05 | 36.9% | -0.294R | 49.0% | +0.021R |
+
+**Pourquoi BE 0.3 > BE 0.5** :
+- 80% des trades atteignent MFE ≥ 0.3R (vs 68% pour ≥ 0.5R)
+- La tranche [0.3, 0.5) = 112 trades convertis de -1R en +0.15R
+- Impact net : +128.8R supplémentaires
+
+**Risque offset 0.15R** :
+- v3.1 avait échoué à 0.05R (trop serré pour le bruit OHLC)
+- 0.15R = 3× plus = 0.225 ATR de marge
+- 74% des trades triggés restent au-dessus de 0.15R
+
+**Décision** : implémenter BE 0.3/0.15 dans manager.py.
+**À valider** : replay avec la nouvelle config.
+
 ---
 
 ## 1. Fondamentaux non négociables
