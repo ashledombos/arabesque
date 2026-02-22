@@ -1,27 +1,22 @@
 """
 Arabesque v2 — Position Manager.
 
-REFONTE v3.1 (2026-02-21) — Post-diagnostic replay v3.0 :
+v3.2 (2026-02-22) — Corrections post-replay v3.1 :
 
-v3.0 avait ajouté le ROI dégressif mais les tiers étaient trop longs
-(48/120/240h) pour des trades de durée médiane 3h → quasi inutile (2.3%).
+v3.1 a porté le WR de 50.6% → 63.9% (+13 pts) mais l'expectancy est
+tombée à -0.004R car avg_win a chuté de 1.14R → 0.55R.
 
-v3.1 corrige en se basant sur les données réelles du replay (786 trades) :
+Deux causes identifiées dans les données v3.1 (568 trades) :
 
-MODIFIÉ : ROI tiers courts (6/12/24/48/120h)
-  Adapté à la distribution réelle. WR naturel à 12h = 72%.
+1. BE offset 0.05R trop serré : 165 trades (29%) sortent à +0.05R
+   sur des fluctuations normales OHLC. MFE médiane de ces trades = 0.78R.
+   → Fix : BE offset relevé à 0.25R (+16.5R projeté)
 
-MODIFIÉ : BE abaissé de +1.0R → +0.5R
-  39% des SL-losers avaient MFE ≥ 0.5R — ce BE les protège.
+2. SL 2.0 ATR rend R trop grand : tous les profits sont divisés par
+   ~1.33 en R-multiples par rapport à SL 1.5 ATR.
+   → Fix : SL retour à 1.5 ATR (+63.9R projeté)
 
-MODIFIÉ : Giveback MFE abaissé de 1.0R → 0.5R
-  Capture les trades qui érodent leurs profits.
-
-CONSERVÉ de v3.0 : trailing 3 paliers (>= 1.5R), time-stop 336h, EXIT_ROI.
-
-Aussi modifié dans d'autres fichiers :
-  indicators.py : BB sur typical_price (H+L+C)/3 (aligné BB_RPB_TSL)
-  signal_gen.py : RSI 35→30, min_bb_width 0.003→0.02, SL 1.5→2.0 ATR
+Projection combinée : -2.3R → +107.9R (exp +0.190R)
 """
 
 from __future__ import annotations
@@ -105,14 +100,15 @@ class ManagerConfig:
         default_factory=lambda: dict(TP_FIXED_SUBTYPES)
     )
 
-    # ── Break-even (abaissé à +0.5R — données montrent que c'est critique) ──
-    # v3.0 avait relevé à +1.0R "pour laisser respirer", mais les données
-    # montrent que 39% des losers atteignent MFE ≥ 0.5R avant de revenir
-    # au SL. Protéger ces trades est le levier #1 pour le WR.
-    # Note : BE n'est pas un close — il déplace le SL à l'entry.
-    # Le trade reste ouvert et peut encore atteindre TP/ROI.
+    # ── Break-even ──────────────────────────────────────────────────
+    # v3.1 avait abaissé BE trigger à 0.5R (bon — protège 39% des losers).
+    # v3.2 relève l'offset de 0.05R → 0.25R car les données v3.1 montrent
+    # que 165 trades (29%!) sortent à +0.05R sur des fluctuations normales.
+    # Le SL à entry+0.05R est trop serré pour survivre au bruit OHLC.
+    # Avec 0.25R d'offset, chaque BE exit donne un profit significatif
+    # au lieu d'un micro-gain qui pèse sur l'avg_win.
     be_trigger_r: float = 0.5
-    be_offset_r: float = 0.05
+    be_offset_r: float = 0.25
 
     # ── Giveback (seuils abaissés) ──────────────────────────────────
     # v3.0 : MFE ≥ 1.0R → trop haut, rate les profits qui s'érodent

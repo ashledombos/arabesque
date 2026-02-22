@@ -1,42 +1,22 @@
-# PROMPT DE REPRISE — Arabesque (post v3.1)
+# PROMPT DE REPRISE — Arabesque (post v3.2)
 
-> Destiné à un modèle intermédiaire (Sonnet, GPT-5.2, etc.)
-> Créé le 2026-02-21.
+> Destiné à un modèle intermédiaire. Créé 2026-02-22.
 
-## Contexte
+## Lire : `HANDOFF.md` puis `docs/decisions_log.md`
 
-Arabesque adapte BB_RPB_TSL (WR 90.8%) aux prop firms FTMO.
-Session Opus 4.6 du 2026-02-21 : v3.1 appliquée avec BB sur typical_price,
-ROI court-terme, BE abaissé, RSI resserré, SL élargi.
+## Tâche : Replay P3a-ter
 
-## Fichiers à lire : `HANDOFF.md` puis `docs/decisions_log.md`
-
-## Ce que tu PEUX faire
-
-1. **Replay P3a-bis** :
 ```bash
 cd ~/dev/arabesque && git pull
 python -m arabesque.live.engine \
   --source parquet --start 2025-10-01 --end 2026-01-01 \
   --strategy combined --balance 100000 \
   --data-root ~/dev/barres_au_sol/data
-python scripts/analyze_replay.py dry_run_*.jsonl
+python scripts/analyze_replay.py dry_run_20*.jsonl  # le plus récent seulement
 ```
-Rapporter : WR, expectancy, IC95, exit breakdown, WR par durée, score prop firm.
 
-2. **Diagnostic spikes** (P2c) — voir HANDOFF.md
-3. **run_stats.py** — collecter résultats
-4. **Comparer** mean_reversion vs combined
+**Rapporter** : WR, expectancy, total R, exit breakdown, % BE exits à +0.25R.
 
-## ⛔ NE PAS MODIFIER
-- `arabesque/position/manager.py`
-- `arabesque/backtest/signal_gen*.py`
-- `arabesque/indicators.py`
-- `arabesque/guards.py`
-- `arabesque/models.py`
+**Comparer à** : v3.1 (WR=63.9%, exp=-0.004R, -2.3R, 165 BE exits à +0.05R)
 
-## Résultats attendus P3a-bis
-
-Comparer au v3.0 :
-- v3.0 : WR=50.6%, Exp=+0.094R, EXIT_ROI=2.3%, 786 trades
-- v3.1 : ? (attendu : WR ≥ 55%, EXIT_ROI >> 2.3%, moins de SL ≤3 barres)
+## ⛔ NE PAS MODIFIER de fichiers code

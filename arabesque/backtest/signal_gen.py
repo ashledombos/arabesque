@@ -53,9 +53,9 @@ class SignalGenConfig:
     htf_ema_slow: int = 26
     htf_adx_period: int = 14
     sl_method: str = "swing"
-    sl_atr_mult: float = 2.0     # v3.1: élargi de 1.5→2.0 pour fallback
+    sl_atr_mult: float = 1.5     # v3.2: réduit de 2.0→1.5 (2.0 rendait R trop grand → avg_win effondré)
     sl_swing_bars: int = 10
-    min_sl_atr: float = 2.0      # v3.1: élargi de 1.5→2.0 ATR (donne plus d'espace aux trades MR)
+    min_sl_atr: float = 1.5      # v3.2: réduit de 2.0→1.5 ATR (même raison)
     min_r_pct: float = 0.003     # v3.2: R minimum en % du prix (0.3%) — filtre les signaux phantom
 
 

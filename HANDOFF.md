@@ -1,16 +1,9 @@
-# ARABESQUE — Handoff v8
+# ARABESQUE — Handoff v9
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque  
 > **Branche principale** : `main`  
-> **Dernière mise à jour** : 2026-02-21 (session Opus 4.6 — v3.1 post-diagnostic replay)
->
-> 📖 **Lire aussi** :
-> - `docs/decisions_log.md` — pourquoi chaque décision a été prise (lire §0 en premier)
-> - `docs/SCRIPTS.md` — carte de tous les scripts
-> - `docs/STABLE_vs_FRAGILE.md` — ce qui est solide vs ce qui peut casser
-> - `docs/BB_RPB_TSL_COMPARISON.md` — écarts vs modèle cible
-> - `docs/RESUME_PROMPT.md` — prompt de reprise pour modèle intermédiaire
+> **Dernière mise à jour** : 2026-02-22 (session Opus 4.6 — v3.2)
 
 ---
 
@@ -22,50 +15,39 @@ OBJECTIF : gains petits, fréquents, consistants.
            Expectancy positive par le volume, pas par des grands mouvements rares.
 ```
 
-**Référence** : BB_RPB_TSL live ~527j, CAGR ~48%, WR 90.8%  
-**Signal d'alarme** : "WR ~52% compensé par avg_win" → **DÉRIVE**
+---
+
+## Historique des versions et résultats
+
+| Version | WR | Exp/trade | Total R | Trades | Changement clé |
+|---|---|---|---|---|---|
+| v2 (baseline) | 52.0% | +0.035R | +27.5R | 786 | Original |
+| v3.0 | 50.6% | +0.094R | +73.9R | 786 | ROI 48/120/240h, trailing 3 paliers, SL 1.5ATR |
+| v3.1 | **63.9%** | **-0.004R** | -2.3R | 568 | BB typical_price, RSI 30, ROI 6/12/24h, BE 0.5R, SL 2.0ATR |
+| v3.2 (proj.) | ~60%? | **+0.190R?** | +107R? | ~568 | BE offset 0.25R, SL retour 1.5ATR |
+
+### Diagnostic v3.1 → v3.2
+
+v3.1 a gagné +13 pts de WR mais perdu l'expectancy. Cause : **165 trades (29%) sortent à +0.05R** (BE exits phantômes). Le SL après BE est trop proche de l'entrée, touché par le bruit OHLC normal. En parallèle, SL 2.0 ATR rend R trop grand, comprimant tous les gains en R-multiples.
+
+Deux corrections :
+1. **BE offset 0.05R → 0.25R** : chaque BE exit donne +0.25R au lieu de +0.05R
+2. **SL 2.0 → 1.5 ATR** : R plus petit → même mouvement en $ = plus de R
 
 ---
 
-## 2. Historique des versions
+## Fichiers modifiés dans v3.2
 
-### v3.0 (2026-02-21, session 1)
-- Ajout ROI dégressif dans manager.py (tiers 48/120/240 barres)
-- Trailing réduit à 3 paliers (>= 1.5R MFE)
-- SL élargi de 0.8 → 1.5 ATR
+| Fichier | Changement |
+|---|---|
+| `arabesque/position/manager.py` | BE offset 0.05→0.25R |
+| `arabesque/backtest/signal_gen.py` | SL 2.0→1.5 ATR |
 
-### v3.0 — RÉSULTATS REPLAY
-| Métrique | v2 | v3.0 | Δ |
-|---|---|---|---|
-| Win Rate | 52.0% | **50.6%** | -1.4 pts ❌ |
-| Expectancy | +0.035R | **+0.094R** | +0.059R ✅ |
-| Total R | +27.5R | **+73.9R** | +46.4R ✅ |
-| EXIT_ROI | 0% | **2.3%** | Quasi inutile |
-| Score prop | 0/4 | ? | Non mesuré |
-
-**Diagnostic v3.0** (5 problèmes identifiés) :
-1. **42% des trades ferment en ≤3 barres, WR=34.8%** → SL touché trop vite
-2. **ROI inutile (2.3%)** → tiers trop longs (48-240h) pour trades de 3h médiane
-3. **BE à 1.0R trop haut** → 39% des SL-losers avaient MFE ≥ 0.5R
-4. **BB calculées sur Close, pas typical_price** → BB_RPB_TSL utilise (H+L+C)/3
-5. **RSI oversold=35 trop permissif** → BB_RPB_TSL utilise ~32
-
-### v3.1 (2026-02-21, session 2) — Corrections basées sur le diagnostic
-
-| Fichier | Changement | Justification (donnée) |
-|---|---|---|
-| `indicators.py` | BB sur typical_price (H+L+C)/3 | Alignement BB_RPB_TSL |
-| `signal_gen.py` | RSI 35→30, min_bb_width 0.003→0.02 | Filtrer entrées faibles |
-| `signal_gen.py` | SL 1.5→2.0 ATR | 72% des SL touchés en ≤5 barres |
-| `manager.py` | ROI tiers courts (6/12/24/48/120h) | Médiane trade = 3h |
-| `manager.py` | BE 1.0→0.5R | 39% losers avaient MFE ≥ 0.5R |
-| `manager.py` | Giveback MFE 1.0→0.5R | Capturer profits qui s'érodent |
+Fichiers inchangés depuis v3.1 : `indicators.py` (BB typical_price), `models.py` (EXIT_ROI).
 
 ---
 
-## 3. Prochaines étapes
-
-### P3a-bis — Replay v3.1 *(priorité absolue)*
+## Prochaine étape : P3a-ter — Replay v3.2
 
 ```bash
 cd ~/dev/arabesque && git pull
@@ -76,52 +58,29 @@ python -m arabesque.live.engine \
 python scripts/analyze_replay.py dry_run_*.jsonl
 ```
 
-**Métriques à rapporter :**
-- WR (cible ≥ 65%, idéal ≥ 70%)
-- Expectancy R + IC95
-- Breakdown EXIT_ROI vs EXIT_SL vs EXIT_TP vs EXIT_TRAILING
-- WR par bucket de durée (0-3h, 3-6h, 6-12h, 12-24h)
-- % losers avec MFE ≥ 0.5R (doit baisser vs 39%)
-- Score prop firm
+**Métriques clés à comparer :**
 
-**Décision :**
-- WR ≥ 65% → P3b (comparer MR vs combined)
-- WR 55-65% → le ROI court fonctionne, affiner les seuils
-- WR < 55% → problème d'entrée (RSI/BB pas assez sélectifs)
-
-### P2c — Spikes parquets *(en parallèle)*
-### P3b — MR seule vs combined
-### P4 — Connexion compte test FTMO (après score ≥ 3/4)
-
----
-
-## 4. Comptes FTMO
-
-| Compte | Solde | Statut |
+| Métrique | v3.1 | Cible v3.2 |
 |---|---|---|
-| Live test 15j | 100 000 USD | ✅ OK pour tests ordres |
-| Challenge 100k | ~94 989 USD | ⚠️ NE PAS connecter |
+| WR | 63.9% | ≥ 58% (peut baisser car SL plus serré) |
+| Expectancy | -0.004R | ≥ +0.10R |
+| Total R | -2.3R | ≥ +50R |
+| % BE exits à +0.05R | 29% (165 trades) | < 10% |
+| EXIT_ROI | 8.5% (48 trades) | ≥ 8% |
+
+**Décision post-replay :**
+- Exp ≥ +0.10R ET WR ≥ 58% → succès, passer à P3b
+- Exp > 0 mais WR < 55% → SL trop serré, essayer 1.7 ATR
+- Exp < 0 → problème structurel, besoin analyse Opus
 
 ---
 
-## 5. Règles non négociables
-
-1. Profil WR élevé en priorité
-2. Anti-lookahead : signal bougie `i`, exécution open `i+1`
-3. Guards toujours actifs (dry-run inclus)
-4. Même `CombinedSignalGenerator` backtest / replay / live
-5. Jamais `git push --force` sur `main`
-6. Ne connecter le challenge qu'après WR ≥ 70%
-7. Tout changement stratégique : mesurer WR d'abord
-
----
-
-## 6. Restrictions par niveau IA
+## Restrictions par niveau IA
 
 ### ⛔ Réservé Opus 4.6
 - `position/manager.py`, `signal_gen*.py`, `guards.py`, `indicators.py`
 - Tout changement affectant WR ou expectancy
 
 ### ✅ Modèle intermédiaire
-- Replay P3a-bis, analyse résultats, diagnostic spikes, run_stats
+- Replay P3a-ter, analyse résultats
 - Voir `docs/RESUME_PROMPT.md`

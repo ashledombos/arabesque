@@ -129,6 +129,33 @@ La correction est en cours. Ne pas retomber dans cette dérive.
 
 **À valider** : replay P3a-bis.
 
+### Correction v3.2 — BE offset + SL recalibration (2026-02-22, session Opus 4.6)
+
+**Résultats v3.1** : WR=63.9% (+13 pts ✅), exp=-0.004R ❌, 568 trades
+
+**Analyse des données v3.1 — le "BE phantom exit" :**
+- 165 trades (29%) sortent à exactement +0.05R (le BE offset)
+- Ces trades avaient un MFE médian de 0.78R
+- Le SL à entry+0.05R est touché par le bruit OHLC normal
+- Cas extrême : XAUUSD MFE=5.31R → sorti à +0.05R (1% capturé)
+- 45.7% de tous les gains sont < 0.1R → avg_win effondré à 0.548R
+
+**Deuxième problème — SL 2.0 ATR trop large :**
+- R = |entry - SL| = 2.0 × ATR → très grand
+- Un mouvement favorable de X$ donne X/(2×ATR) en R au lieu de X/(1.5×ATR)
+- avg_win comprimé d'un facteur 1.33
+
+**Simulations sur les données v3.1 :**
+- BE offset 0.25R seul → +30.7R (exp +0.054R)
+- SL 1.5 ATR seul → +63.9R (exp +0.113R)
+- **Combiné → +107.9R (exp +0.190R)**
+
+**Corrections appliquées :**
+1. BE offset : 0.05R → 0.25R (manager.py)
+2. SL : 2.0 → 1.5 ATR (signal_gen.py)
+
+**À valider** : replay P3a-ter.
+
 ---
 
 ## 1. Fondamentaux non négociables
