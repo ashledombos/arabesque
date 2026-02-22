@@ -156,6 +156,29 @@ La correction est en cours. Ne pas retomber dans cette dérive.
 
 **À valider** : replay P3a-ter.
 
+### Pivot v3.3 — Retour base v3.0 + chirurgie (2026-02-22, session Opus 4.6)
+
+**Résultats v3.2** : WR=60.6%, exp=-0.010R, total=-6.4R, 622 trades
+
+**Bilan des 4 itérations v3.0→v3.2** :
+- v3.0 : seule version rentable (+73.9R, exp=+0.094R)
+- v3.1/v3.2 : WR amélioré mais expectancy négative
+- Chaque tentative de copier le ROI court BB_RPB_TSL a tué l'avg_win
+
+**Insight clé — l'incompatibilité ROI court + SL réel** :
+BB_RPB_TSL n'a pas de SL réel (-99%) → couper les profits tôt ne coûte rien.
+Arabesque a SL = -1R → chaque SL doit être compensé par avg_win.
+ROI court → avg_win chute sous le seuil → exp négative.
+
+**Décision : ABANDONNER le ROI court-terme, revenir à v3.0**
+
+v3.3 = v3.0 + 3 améliorations qui n'affectent PAS avg_win :
+1. BB typical_price (qualité signal, n'affecte pas la durée des trades)
+2. BE 0.5R/0.25R (convertit des losers en +0.25R, augmente WR)
+3. Giveback 0.5R (capture les profits qui s'érodent, augmente WR)
+
+**À valider** : replay P3a-quater.
+
 ---
 
 ## 1. Fondamentaux non négociables

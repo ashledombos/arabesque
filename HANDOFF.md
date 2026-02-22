@@ -1,9 +1,8 @@
-# ARABESQUE — Handoff v9
+# ARABESQUE — Handoff v10
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque  
-> **Branche principale** : `main`  
-> **Dernière mise à jour** : 2026-02-22 (session Opus 4.6 — v3.2)
+> **Dernière mise à jour** : 2026-02-22 (session Opus 4.6 — v3.3)
 
 ---
 
@@ -17,37 +16,44 @@ OBJECTIF : gains petits, fréquents, consistants.
 
 ---
 
-## Historique des versions et résultats
+## Historique et résultats
 
-| Version | WR | Exp/trade | Total R | Trades | Changement clé |
+| Version | WR | Exp/tr | Total R | Trades | Changement clé |
 |---|---|---|---|---|---|
-| v2 (baseline) | 52.0% | +0.035R | +27.5R | 786 | Original |
-| v3.0 | 50.6% | +0.094R | +73.9R | 786 | ROI 48/120/240h, trailing 3 paliers, SL 1.5ATR |
-| v3.1 | **63.9%** | **-0.004R** | -2.3R | 568 | BB typical_price, RSI 30, ROI 6/12/24h, BE 0.5R, SL 2.0ATR |
-| v3.2 (proj.) | ~60%? | **+0.190R?** | +107R? | ~568 | BE offset 0.25R, SL retour 1.5ATR |
+| v2 base | 52.0% | +0.035R | +27.5R | 786 | Original |
+| **v3.0** | **50.6%** | **+0.094R** | **+73.9R** ✅ | 786 | ROI backstop, trailing 3t, SL 1.5 |
+| v3.1 | 63.9% | -0.004R | -2.3R ❌ | 568 | BB tp, RSI 30, ROI court, BE 0.05 |
+| v3.2 | 60.6% | -0.010R | -6.4R ❌ | 622 | BE 0.25, SL retour 1.5 |
+| **v3.3** | **?** | **?** | **?** | ~786? | **v3.0 + BB tp + BE 0.5/0.25 + giveback 0.5** |
 
-### Diagnostic v3.1 → v3.2
+### LEÇON MAJEURE v3.1/v3.2
 
-v3.1 a gagné +13 pts de WR mais perdu l'expectancy. Cause : **165 trades (29%) sortent à +0.05R** (BE exits phantômes). Le SL après BE est trop proche de l'entrée, touché par le bruit OHLC normal. En parallèle, SL 2.0 ATR rend R trop grand, comprimant tous les gains en R-multiples.
+**ROI court-terme + SL réel = piège mortel pour l'expectancy.**
 
-Deux corrections :
-1. **BE offset 0.05R → 0.25R** : chaque BE exit donne +0.25R au lieu de +0.05R
-2. **SL 2.0 → 1.5 ATR** : R plus petit → même mouvement en $ = plus de R
+BB_RPB_TSL a SL = -99% (jamais touché) → peut couper les profits tôt sans risque.
+Arabesque a SL = -1R (prop firm obligatoire) → chaque SL doit être compensé.
+
+Formule : `Exp = WR × avg_win - (1-WR) × 1.0`
+- WR=60% → avg_win minimum = 0.667R (v3.1 avait 0.548 → négatif)
+- WR=65% → avg_win minimum = 0.538R
+- WR=50% → avg_win minimum = 1.000R (v3.0 avait 1.14 → positif)
+
+### Stratégie v3.3 : v3.0 (rentable) + 3 améliorations chirurgicales
+
+| Paramètre | v3.0 | v3.3 | Raison |
+|---|---|---|---|
+| BB source | Close | **typical_price** | Alignement BB_RPB_TSL |
+| BE trigger/offset | 1.0R/0.05R | **0.5R/0.25R** | 39% losers avaient MFE ≥ 0.5R |
+| Giveback MFE | 1.0R | **0.5R** | Capture profits qui érodent |
+| RSI | 35 | 35 | Inchangé (30 filtrait trop) |
+| min_bb_width | 0.003 | 0.003 | Inchangé (0.02 filtrait trop) |
+| SL | 1.5 ATR | 1.5 ATR | Inchangé |
+| ROI | 3 tiers (48/120/240h) | 2 tiers (0/240h) | Simplifié, pas agressif |
+| Trailing | 3 tiers (≥1.5R) | 3 tiers (≥1.5R) | Inchangé |
 
 ---
 
-## Fichiers modifiés dans v3.2
-
-| Fichier | Changement |
-|---|---|
-| `arabesque/position/manager.py` | BE offset 0.05→0.25R |
-| `arabesque/backtest/signal_gen.py` | SL 2.0→1.5 ATR |
-
-Fichiers inchangés depuis v3.1 : `indicators.py` (BB typical_price), `models.py` (EXIT_ROI).
-
----
-
-## Prochaine étape : P3a-ter — Replay v3.2
+## Prochaine étape : P3a-quater — Replay v3.3
 
 ```bash
 cd ~/dev/arabesque && git pull
@@ -55,32 +61,22 @@ python -m arabesque.live.engine \
   --source parquet --start 2025-10-01 --end 2026-01-01 \
   --strategy combined --balance 100000 \
   --data-root ~/dev/barres_au_sol/data
-python scripts/analyze_replay.py dry_run_*.jsonl
+python scripts/analyze_replay.py dry_run_*.jsonl  # le plus récent
 ```
 
-**Métriques clés à comparer :**
-
-| Métrique | v3.1 | Cible v3.2 |
-|---|---|---|
-| WR | 63.9% | ≥ 58% (peut baisser car SL plus serré) |
-| Expectancy | -0.004R | ≥ +0.10R |
-| Total R | -2.3R | ≥ +50R |
-| % BE exits à +0.05R | 29% (165 trades) | < 10% |
-| EXIT_ROI | 8.5% (48 trades) | ≥ 8% |
-
-**Décision post-replay :**
-- Exp ≥ +0.10R ET WR ≥ 58% → succès, passer à P3b
-- Exp > 0 mais WR < 55% → SL trop serré, essayer 1.7 ATR
-- Exp < 0 → problème structurel, besoin analyse Opus
+**Métriques attendues vs v3.0 :**
+- Trades : ~786 (même RSI/bb_width que v3.0)
+- WR : > 50.6% (BE convertit des losers)
+- avg_win : ~1.0R (pas de ROI court)
+- Exp : > +0.094R
+- Total R : > +73.9R
 
 ---
 
 ## Restrictions par niveau IA
 
 ### ⛔ Réservé Opus 4.6
-- `position/manager.py`, `signal_gen*.py`, `guards.py`, `indicators.py`
-- Tout changement affectant WR ou expectancy
+`manager.py`, `signal_gen*.py`, `guards.py`, `indicators.py`
 
 ### ✅ Modèle intermédiaire
-- Replay P3a-ter, analyse résultats
-- Voir `docs/RESUME_PROMPT.md`
+Replay P3a-quater, analyse résultats. Voir `docs/RESUME_PROMPT.md`

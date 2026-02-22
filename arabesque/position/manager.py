@@ -1,22 +1,24 @@
 """
 Arabesque v2 — Position Manager.
 
-v3.2 (2026-02-22) — Corrections post-replay v3.1 :
+v3.3 (2026-02-22) — Retour base v3.0 + améliorations chirurgicales.
 
-v3.1 a porté le WR de 50.6% → 63.9% (+13 pts) mais l'expectancy est
-tombée à -0.004R car avg_win a chuté de 1.14R → 0.55R.
+LEÇON MAJEURE v3.1/v3.2 :
+  ROI court-terme + SL réel = piège mortel.
+  BB_RPB_TSL n'a pas de SL (-99%) → peut couper tôt sans conséquence.
+  Arabesque a un SL à -1R → chaque SL hit doit être compensé par avg_win.
+  ROI court → avg_win effondré → expectancy négative.
 
-Deux causes identifiées dans les données v3.1 (568 trades) :
+v3.3 = v3.0 (rentable, +73.9R) PLUS :
+  1. BB sur typical_price (alignement BB_RPB_TSL, qualité signal)
+  2. BE à +0.5R trigger / +0.25R offset (convertit ~39% des losers)
+  3. Giveback abaissé MFE 1.0→0.5R (capture les profits qui érodent)
 
-1. BE offset 0.05R trop serré : 165 trades (29%) sortent à +0.05R
-   sur des fluctuations normales OHLC. MFE médiane de ces trades = 0.78R.
-   → Fix : BE offset relevé à 0.25R (+16.5R projeté)
-
-2. SL 2.0 ATR rend R trop grand : tous les profits sont divisés par
-   ~1.33 en R-multiples par rapport à SL 1.5 ATR.
-   → Fix : SL retour à 1.5 ATR (+63.9R projeté)
-
-Projection combinée : -2.3R → +107.9R (exp +0.190R)
+v3.3 = v3.0 SANS :
+  - ROI court-terme (SUPPRIMÉ — tue avg_win)
+  - RSI 30 (retour à 35 — 30 filtrait trop de signaux)
+  - min_bb_width 0.02 (retour à 0.003)
+  - SL 2.0 ATR (retour à 1.5 ATR)
 """
 
 from __future__ import annotations
@@ -61,31 +63,22 @@ TP_FIXED_SUBTYPES: dict[str, float] = {
 
 @dataclass
 class ManagerConfig:
-    # ── ROI dégressif INTRABAR (v3.2 — le fix critique) ─────────────
-    # v3.0 : tiers à 48/120/240 barres, check sur close → 2.3% des trades
-    # v3.1 : tiers courts (6/12/24/48), check sur close → insuffisant
+    # ── ROI — QUASI-DÉSACTIVÉ (leçon v3.1/v3.2) ──────────────────
+    # v3.1/v3.2 ont prouvé que le ROI court-terme (6/12/24h) DÉTRUIT
+    # l'expectancy quand combiné avec un SL réel prop firm.
     #
-    # v3.2 : CHANGEMENT FONDAMENTAL — le ROI abaisse dynamiquement le TP
-    #         et est vérifié INTRABAR (high/low), pas sur close.
+    # BB_RPB_TSL peut se permettre des ROI courts car SL = -99%.
+    # Avec SL = -1R : Exp = WR × avg_win - (1-WR) × 1.0
+    #   WR=60% → avg_win minimum = 0.667R
+    #   ROI court → avg_win = 0.55R → Exp NÉGATIVE
     #
-    #         BB_RPB_TSL minimal_roi est vérifié intrabar dans Freqtrade.
-    #         Sans ça, un trade qui touche +0.5R intrabar (high) mais
-    #         clôture à -0.2R ne sera jamais capturé par le ROI.
-    #
-    #         156 trades dans le dernier replay avaient MFE > 0.15R
-    #         mais sont sortis en SL. Ce fix les transforme en gagnants.
-    #
-    # Mécanisme : avant chaque check SL/TP, on recalcule pos.tp
-    # comme min(tp_original, roi_level). Ensuite le SL/TP intrabar
-    # standard fait le reste (y compris la règle conservatrice).
+    # On garde UNIQUEMENT un backstop très long pour les trades zombies.
+    # Le mécanisme ROI intrabar (abaisse TP dynamiquement) reste codé
+    # mais ne se déclenche quasi jamais avec ces tiers.
     roi_enabled: bool = True
     roi_table: list[RoiTier] = field(default_factory=lambda: [
-        RoiTier(bars=0,   min_profit_r=3.0),   # Move exceptionnel immédiat
-        RoiTier(bars=6,   min_profit_r=1.0),    # Bon profit en 6h (WR naturel 60%)
-        RoiTier(bars=12,  min_profit_r=0.5),    # Profit modéré en 12h (WR naturel 72%)
-        RoiTier(bars=24,  min_profit_r=0.3),    # Petit profit en 1 jour
-        RoiTier(bars=48,  min_profit_r=0.15),   # Micro-profit en 2 jours
-        RoiTier(bars=120, min_profit_r=0.05),   # Quasi-breakeven en 5 jours
+        RoiTier(bars=0,   min_profit_r=3.0),   # Move exceptionnel (rare)
+        RoiTier(bars=240, min_profit_r=0.15),   # Backstop 10 jours
     ])
 
     # ── Trailing (uniquement pour les "bonus trades" > 1.5R) ────────
