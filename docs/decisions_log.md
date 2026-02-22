@@ -211,6 +211,31 @@ Résultats (robustes sur 2 datasets) :
 **Décision** : implémenter BE 0.3/0.15 dans manager.py.
 **À valider** : replay avec la nouvelle config.
 
+### Analyse diversifiée — 46 instruments, 319 trades (2026-02-22, session Opus 4.6)
+
+**Résultat global** : WR=64.3%, Exp=-0.044R, Total=-13.9R, 319 trades
+
+**DÉCOUVERTE MAJEURE** :
+- Mean Reversion perd sur TOUTES les catégories : crypto -35.2R, forex -7.1R, commodities -2.4R
+- Trend gagne sur TOUTES les catégories : crypto +19.1R, forex +2.5R, commodities +6.3R
+- MR LONG spécifiquement : 141 trades, -46.1R (le gouffre principal)
+- MR SHORT : 115 trades, +4.3R (marginal)
+
+**Cause racine MR** : le problème est l'ENTRÉE, pas la SORTIE.
+29% des trades MR n'atteignent jamais +0.3R MFE (le prix continue à chuter après le BB touch).
+Les 71% qui atteignent 0.3R MFE ont WR 81% et Exp +0.143R → le BE fonctionne correctement.
+
+**Tous les sub-types MR perdent** : shallow_narrow -17.8R, shallow_wide -14.1R, deep_wide -8.5R
+
+**Trend** : 63 trades, WR 84%, Exp +0.442R, Total +27.8R
+Sub-types trend_moderate (+16.7R) et trend_strong (+11.1R) tous les deux profitables.
+
+**Spikes de données** : 9 trades avec MFE > 10R sur 1 barre (XPTUSD 60.7R, UK100.cash 40R...).
+Ces instruments ont des données corrompues qui faussent les résultats.
+
+**Plan de validation** : 3 replays isolés (crypto BE 0.3/0.15, trend-only diversifié, MR-only crypto).
+L'objectif est de déterminer la config optimale : MR-crypto + Trend-tout, ou Trend-only.
+
 ---
 
 ## 1. Fondamentaux non négociables

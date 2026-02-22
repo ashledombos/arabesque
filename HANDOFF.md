@@ -65,6 +65,14 @@ Ajouter forex/indices réduirait le DD de manière significative.
 - Même code backtest et live (pas de divergence)
 - Le MFE ne prédit pas l'ordre intrabar (high ou low en premier inconnu)
 
+### L7 : MR perd partout sur diversifié, Trend gagne partout
+Test 46 instruments (crypto/forex/commodities/indices) — 319 trades :
+- MR : 256 trades, -41.8R (perd sur TOUTES catégories, TOUS sub-types)
+- Trend : 63 trades, +27.8R, WR 84% (gagne sur TOUTES catégories)
+- **MR LONG spécifiquement = -46.1R** (le gouffre principal)
+- Cause racine : 29% des trades MR n'atteignent jamais +0.3R MFE (mauvaise entrée)
+- **La stratégie optimale sera probablement MR-crypto + Trend-tout**
+
 ---
 
 ## 3. Configuration v3.3 détaillée
