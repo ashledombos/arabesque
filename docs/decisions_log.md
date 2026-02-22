@@ -100,6 +100,35 @@ La correction est en cours. Ne pas retomber dans cette dérive.
 
 **À valider** : replay P3a pour mesurer l'impact sur le WR.
 
+### Correction v3.1 — Diagnostic post-replay (2026-02-21, session Opus 4.6)
+
+**Résultats v3.0** : WR=50.6%, expectancy=+0.094R, 786 trades. ROI quasi inutile (2.3% des sorties).
+
+**5 problèmes identifiés par analyse du JSONL v3.0** :
+
+1. **42% des trades (328/786) ferment en ≤3 barres avec WR=34.8%**
+   - SL 1.5 ATR touché trop vite
+   - Solution : élargir à 2.0 ATR
+
+2. **ROI inutile (18 trades, 2.3%)**
+   - Tiers à 48/120/240 barres inadaptés : durée médiane des trades = 3h
+   - Solution : tiers courts (6/12/24/48/120h) adaptés à la distribution réelle
+
+3. **BE à 1.0R trop haut → 39% des losers avaient MFE ≥ 0.5R**
+   - Ces trades passent en positif puis reviennent au SL
+   - Solution : abaisser BE à 0.5R
+
+4. **BB sur Close au lieu de typical_price**
+   - BB_RPB_TSL utilise (H+L+C)/3 via qtpylib.typical_price()
+   - Solution : changer compute_bollinger() pour utiliser typical_price
+
+5. **RSI oversold=35 trop permissif**
+   - Solution : resserrer à 30 + min_bb_width de 0.003→0.02
+
+**Principe de décision** : chaque changement est justifié par une donnée mesurée dans le replay v3.0, pas par l'intuition.
+
+**À valider** : replay P3a-bis.
+
 ---
 
 ## 1. Fondamentaux non négociables

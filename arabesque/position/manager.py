@@ -1,32 +1,27 @@
 """
 Arabesque v2 — Position Manager.
 
-REFONTE v3.0 (2026-02-21) — Alignement profil BB_RPB_TSL :
+REFONTE v3.1 (2026-02-21) — Post-diagnostic replay v3.0 :
 
-NOUVEAU : ROI dégressif (inspiré BB_RPB_TSL minimal_roi)
-  Table ROI : plus un trade reste ouvert, moins on exige de profit.
-  C'est LE mécanisme clé du WR 90.8% de BB_RPB_TSL.
-  Valeurs en R-multiples (pas en %, invariant d'instrument).
+v3.0 avait ajouté le ROI dégressif mais les tiers étaient trop longs
+(48/120/240h) pour des trades de durée médiane 3h → quasi inutile (2.3%).
 
-MODIFIÉ : Trailing réservé aux "bonus trades" (>= 1.5R MFE)
-  Avant : 5 paliers dès +0.5R → interférait avec les profits MR normaux
-  Après : 3 paliers à partir de +1.5R → ne trail que les grands moves
+v3.1 corrige en se basant sur les données réelles du replay (786 trades) :
 
-MODIFIÉ : Break-even relevé de +0.5R à +1.0R
-  Laisse les trades MR respirer sans être coupés prématurément.
+MODIFIÉ : ROI tiers courts (6/12/24/48/120h)
+  Adapté à la distribution réelle. WR naturel à 12h = 72%.
 
-MODIFIÉ : Time-stop étendu de 48 à 336 barres (14 jours)
-  BB_RPB_TSL donne 292h pour trouver 0.5% de profit.
-  Le ROI dégressif gère les sorties graduelles, time-stop = backstop.
+MODIFIÉ : BE abaissé de +1.0R → +0.5R
+  39% des SL-losers avaient MFE ≥ 0.5R — ce BE les protège.
 
-CONSERVÉ : SL/TP intrabar, giveback, deadfish, trailing pour grands moves.
+MODIFIÉ : Giveback MFE abaissé de 1.0R → 0.5R
+  Capture les trades qui érodent leurs profits.
 
-CORRECTIONS CRITIQUES héritées de v2 :
-1. update() accepte high/low/close (pas juste close)
-2. SL/TP intrabar : si les deux touchés dans la même bougie → PIRE CAS
-3. SL ne descend JAMAIS (LONG) / ne monte JAMAIS (SHORT)
-4. Trailing calculé sur MFE (high/low), pas sur close
-5. Même code appelé par le live ET le backtest (pas de divergence)
+CONSERVÉ de v3.0 : trailing 3 paliers (>= 1.5R), time-stop 336h, EXIT_ROI.
+
+Aussi modifié dans d'autres fichiers :
+  indicators.py : BB sur typical_price (H+L+C)/3 (aligné BB_RPB_TSL)
+  signal_gen.py : RSI 35→30, min_bb_width 0.003→0.02, SL 1.5→2.0 ATR
 """
 
 from __future__ import annotations
@@ -71,48 +66,61 @@ TP_FIXED_SUBTYPES: dict[str, float] = {
 
 @dataclass
 class ManagerConfig:
-    # ── ROI dégressif (clé du profil WR élevé) ──────────────────────
-    # Principe : plus un trade reste ouvert, moins on exige de profit
-    # pour le clôturer. Cela transforme des trades "meh" en petites
-    # victoires, exactement comme BB_RPB_TSL minimal_roi.
+    # ── ROI dégressif INTRABAR (v3.2 — le fix critique) ─────────────
+    # v3.0 : tiers à 48/120/240 barres, check sur close → 2.3% des trades
+    # v3.1 : tiers courts (6/12/24/48), check sur close → insuffisant
     #
-    # Valeurs volontairement rondes et conservatrices (pas de
-    # hyperopt-fitting). Le principe compte plus que les chiffres.
+    # v3.2 : CHANGEMENT FONDAMENTAL — le ROI abaisse dynamiquement le TP
+    #         et est vérifié INTRABAR (high/low), pas sur close.
+    #
+    #         BB_RPB_TSL minimal_roi est vérifié intrabar dans Freqtrade.
+    #         Sans ça, un trade qui touche +0.5R intrabar (high) mais
+    #         clôture à -0.2R ne sera jamais capturé par le ROI.
+    #
+    #         156 trades dans le dernier replay avaient MFE > 0.15R
+    #         mais sont sortis en SL. Ce fix les transforme en gagnants.
+    #
+    # Mécanisme : avant chaque check SL/TP, on recalcule pos.tp
+    # comme min(tp_original, roi_level). Ensuite le SL/TP intrabar
+    # standard fait le reste (y compris la règle conservatrice).
     roi_enabled: bool = True
     roi_table: list[RoiTier] = field(default_factory=lambda: [
         RoiTier(bars=0,   min_profit_r=3.0),   # Move exceptionnel immédiat
-        RoiTier(bars=48,  min_profit_r=1.0),    # Bon profit en 2 jours
-        RoiTier(bars=120, min_profit_r=0.5),    # Profit modéré en 5 jours
-        RoiTier(bars=240, min_profit_r=0.15),   # Quasi tout profit en 10 jours
+        RoiTier(bars=6,   min_profit_r=1.0),    # Bon profit en 6h (WR naturel 60%)
+        RoiTier(bars=12,  min_profit_r=0.5),    # Profit modéré en 12h (WR naturel 72%)
+        RoiTier(bars=24,  min_profit_r=0.3),    # Petit profit en 1 jour
+        RoiTier(bars=48,  min_profit_r=0.15),   # Micro-profit en 2 jours
+        RoiTier(bars=120, min_profit_r=0.05),   # Quasi-breakeven en 5 jours
     ])
 
     # ── Trailing (uniquement pour les "bonus trades" > 1.5R) ────────
-    # Le trailing est désormais réservé aux trades qui dépassent
-    # largement le territoire ROI. En dessous de 1.5R MFE, c'est le
-    # ROI dégressif qui gère la sortie.
     trailing_tiers: list[TrailingTier] = field(default_factory=lambda: [
         TrailingTier(mfe_threshold_r=3.0, trail_distance_r=1.5),
         TrailingTier(mfe_threshold_r=2.0, trail_distance_r=1.0),
         TrailingTier(mfe_threshold_r=1.5, trail_distance_r=0.7),
     ])
 
-    # TP fixe par sub-type (None = utiliser trailing par défaut)
-    # Surcharge tp_r_by_subtype={} pour désactiver tous les TP fixes
+    # TP fixe par sub-type
     tp_r_by_subtype: dict[str, float] = field(
         default_factory=lambda: dict(TP_FIXED_SUBTYPES)
     )
 
-    # ── Break-even (relevé à +1.0R pour laisser respirer les MR) ──
-    # BB_RPB_TSL n'active le trailing qu'à +3%. Avec ROI, les petits
-    # profits sont capturés par la table ROI, donc BE n'est utile que
-    # pour protéger les profits significatifs.
-    be_trigger_r: float = 1.0
-    be_offset_r: float = 0.05     # buffer au-dessus de entry (couvre spread)
+    # ── Break-even (abaissé à +0.5R — données montrent que c'est critique) ──
+    # v3.0 avait relevé à +1.0R "pour laisser respirer", mais les données
+    # montrent que 39% des losers atteignent MFE ≥ 0.5R avant de revenir
+    # au SL. Protéger ces trades est le levier #1 pour le WR.
+    # Note : BE n'est pas un close — il déplace le SL à l'entry.
+    # Le trade reste ouvert et peut encore atteindre TP/ROI.
+    be_trigger_r: float = 0.5
+    be_offset_r: float = 0.05
 
-    # Giveback
+    # ── Giveback (seuils abaissés) ──────────────────────────────────
+    # v3.0 : MFE ≥ 1.0R → trop haut, rate les profits qui s'érodent
+    # v3.1 : MFE ≥ 0.5R → capture les trades qui ont fait +0.5R
+    #        puis reculent sous +0.15R avec momentum faible
     giveback_enabled: bool = True
-    giveback_mfe_min_r: float = 1.0
-    giveback_current_max_r: float = 0.2
+    giveback_mfe_min_r: float = 0.5
+    giveback_current_max_r: float = 0.15
     giveback_rsi_threshold: float = 46.0
     giveback_cmf_threshold: float = 0.0
 
@@ -123,12 +131,10 @@ class ManagerConfig:
     deadfish_current_max_r: float = 0.0
     deadfish_bb_width_threshold: float = 0.005
 
-    # ── Time-stop (étendu — le ROI gère la sortie graduelle) ──────
-    # BB_RPB_TSL donne jusqu'à 292h (12j) pour 0.5% de profit.
-    # Le time_stop est maintenant un backstop final, pas un exit actif.
+    # ── Time-stop (backstop) ──────────────────────────────────────
     time_stop_enabled: bool = True
-    time_stop_bars: int = 336       # 14 jours — backstop après ROI
-    time_stop_min_profit_r: float = 0.0  # ferme même à 0 (breakeven)
+    time_stop_bars: int = 336
+    time_stop_min_profit_r: float = 0.0
 
 
 # ── Position Manager ────────────────────────────────────────────────
@@ -189,6 +195,10 @@ class PositionManager:
                 pos.tp = pos.entry - tp_r * pos.R
             pos.signal_data["tp_fixed_r"] = tp_r
 
+        # Sauvegarder le TP original APRÈS toutes les modifications
+        # (sera utilisé pour distinguer EXIT_TP vs EXIT_ROI)
+        pos.tp_original = pos.tp
+
         self.positions.append(pos)
         return pos
 
@@ -230,40 +240,61 @@ class PositionManager:
         # Mettre à jour MFE/MAE avec high/low
         pos.update_price(high, low, close)
 
+        # ── 0. ROI abaisse dynamiquement le TP (AVANT SL/TP) ──
+        #    Le ROI ne génère pas un exit séparé : il ABAISSE pos.tp
+        #    puis le mécanisme SL/TP intrabar standard fait le reste.
+        #    Cela permet de capturer les profits intrabar (high/low)
+        #    et non pas seulement sur le close.
+        roi_lowered = False
+        if self.cfg.roi_enabled and pos.R > 0:
+            roi_tp = self._get_roi_tp(pos)
+            if roi_tp is not None:
+                is_long = pos.side == Side.LONG
+                # Pour LONG : TP plus bas = plus facile à atteindre
+                # Pour SHORT : TP plus haut = plus facile à atteindre
+                if is_long and (pos.tp == 0 or roi_tp < pos.tp):
+                    pos.tp = roi_tp
+                    roi_lowered = True
+                elif not is_long and (pos.tp == 0 or roi_tp > pos.tp):
+                    pos.tp = roi_tp
+                    roi_lowered = True
+
         # ── 1. SL/TP intrabar (AVANT trailing, sinon on rate des SL) ──
         exit_decision = self._check_sl_tp_intrabar(pos, high, low)
         if exit_decision:
+            # Si le TP a été abaissé par ROI et c'est un EXIT_TP → relabelliser
+            if (roi_lowered
+                    and exit_decision.decision_type == DecisionType.EXIT_TP):
+                exit_decision.decision_type = DecisionType.EXIT_ROI
+                exit_decision.reason = (
+                    f"ROI intrabar: {pos.current_r:.2f}R "
+                    f"(bars={pos.bars_open}, tp_roi={pos.tp:.5f})")
+                pos.exit_reason = DecisionType.EXIT_ROI.value
             return [exit_decision]
 
-        # ── 2. ROI dégressif (clé du profil WR élevé BB_RPB_TSL) ──
-        if self.cfg.roi_enabled:
-            roi_exit = self._check_roi_exit(pos, close)
-            if roi_exit:
-                return [roi_exit]
-
-        # ── 3. Break-even ──
+        # ── 2. Break-even ──
         be_decision = self._update_breakeven(pos, close)
         if be_decision:
             decisions.append(be_decision)
 
-        # ── 4. Trailing paliers (bonus trades uniquement) ──
+        # ── 3. Trailing paliers (bonus trades uniquement) ──
         trail_decision = self._update_trailing(pos, close)
         if trail_decision:
             decisions.append(trail_decision)
 
-        # ── 5. Giveback ──
+        # ── 4. Giveback ──
         if self.cfg.giveback_enabled:
             gb = self._check_giveback(pos, close)
             if gb:
                 return decisions + [gb]
 
-        # ── 6. Deadfish ──
+        # ── 5. Deadfish ──
         if self.cfg.deadfish_enabled:
             df = self._check_deadfish(pos, close)
             if df:
                 return decisions + [df]
 
-        # ── 7. Time-stop (backstop final) ──
+        # ── 6. Time-stop (backstop final) ──
         if self.cfg.time_stop_enabled:
             ts = self._check_time_stop(pos, close)
             if ts:
@@ -318,21 +349,16 @@ class PositionManager:
 
         return None
 
-    # ── ROI dégressif (inspiré BB_RPB_TSL minimal_roi) ──────────────
+    # ── ROI dynamique — calcul du TP abaissé ───────────────────────
 
-    def _check_roi_exit(self, pos: Position, current_price: float) -> Decision | None:
-        """Vérifie si le profit actuel atteint le seuil ROI pour ce nombre de barres.
+    def _get_roi_tp(self, pos: Position) -> float | None:
+        """Calcule le niveau TP correspondant au tier ROI applicable.
 
-        La table ROI est triée du plus exigeant (bars=0, high profit) au plus
-        permissif (bars=240, low profit). On itère dans l'ordre décroissant
-        de bars pour trouver le tier applicable.
-
-        Exemple : ROI table = [(0, 3.0), (48, 1.0), (120, 0.5), (240, 0.15)]
-        - À la barre 60 : on est dans le tier bars=48, il faut current_r >= 1.0
-        - À la barre 200 : on est dans le tier bars=120, il faut current_r >= 0.5
-        - À la barre 300 : on est dans le tier bars=240, il faut current_r >= 0.15
+        Retourne le prix TP (pas le R), ou None si aucun tier applicable.
+        Le TP ROI est toujours plus facile à atteindre (plus proche de entry)
+        que le TP original. L'appelant décide s'il abaisse pos.tp.
         """
-        if not self.cfg.roi_table:
+        if not self.cfg.roi_table or pos.R == 0:
             return None
 
         # Trouver le tier applicable (le dernier dont bars <= pos.bars_open)
@@ -344,13 +370,11 @@ class PositionManager:
         if applicable_tier is None:
             return None
 
-        if pos.current_r >= applicable_tier.min_profit_r:
-            return self._close_position(
-                pos, current_price, DecisionType.EXIT_ROI,
-                f"ROI exit: {pos.current_r:.2f}R >= {applicable_tier.min_profit_r}R "
-                f"(tier bars={applicable_tier.bars}, actual={pos.bars_open})")
-
-        return None
+        # Calculer le prix TP correspondant
+        if pos.side == Side.LONG:
+            return pos.entry + applicable_tier.min_profit_r * pos.R
+        else:
+            return pos.entry - applicable_tier.min_profit_r * pos.R
 
     # ── Break-even ───────────────────────────────────────────────────
 

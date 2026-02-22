@@ -1,103 +1,74 @@
-# ARABESQUE — Handoff v7
+# ARABESQUE — Handoff v8
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque  
 > **Branche principale** : `main`  
-> **Dernière mise à jour** : 2026-02-21 (session Opus 4.6 — refonte position manager v3.0)
+> **Dernière mise à jour** : 2026-02-21 (session Opus 4.6 — v3.1 post-diagnostic replay)
 >
 > 📖 **Lire aussi** :
 > - `docs/decisions_log.md` — pourquoi chaque décision a été prise (lire §0 en premier)
-> - `docs/SCRIPTS.md` — carte de tous les scripts (quoi utiliser quand)
+> - `docs/SCRIPTS.md` — carte de tous les scripts
 > - `docs/STABLE_vs_FRAGILE.md` — ce qui est solide vs ce qui peut casser
-> - `docs/BB_RPB_TSL_COMPARISON.md` — BB_RPB_TSL comme modèle cible et état des écarts
+> - `docs/BB_RPB_TSL_COMPARISON.md` — écarts vs modèle cible
+> - `docs/RESUME_PROMPT.md` — prompt de reprise pour modèle intermédiaire
 
 ---
 
-## ⭐ BOUSSOLE STRATÉGIQUE — À lire avant tout le reste
-
-> **Cette section est immuable. Elle prime sur toutes les autres.**
-
-### Le profil de gains cible
+## ⭐ BOUSSOLE STRATÉGIQUE — Immuable
 
 ```
 OBJECTIF : gains petits, fréquents, consistants.
-           Peu de pertes, et petites quand elles arrivent.
            Win Rate élevé (cible : ≥ 70%, idéal ≥ 85%).
            Expectancy positive par le volume, pas par des grands mouvements rares.
 ```
 
-### La référence : BB_RPB_TSL
-
-BB_RPB_TSL tourne en **live depuis ~527 jours** : CAGR ~48%, **Win Rate 90.8%**.
-
-**Mécanisme clé du WR identifié** (session Opus 4.6, 2026-02-21) :
-- `minimal_roi` : TP dégressif dans le temps (0h→20.5%, 81h→3.8%, 292h→0.5%)
-- Pas de SL serré (-99% effectif, jamais touché)
-- Trailing uniquement au-dessus de +3%
-- → Presque tout trade est capturé avec un petit gain
-
-### Signal d'alarme
-
-"WR ~52% compensé par avg_win de 2.3R" → **DÉRIVE, CORRIGER**
+**Référence** : BB_RPB_TSL live ~527j, CAGR ~48%, WR 90.8%  
+**Signal d'alarme** : "WR ~52% compensé par avg_win" → **DÉRIVE**
 
 ---
 
-## 2. Changements v3.0 (session Opus 4.6, 2026-02-21)
+## 2. Historique des versions
 
-### Fichiers modifiés
+### v3.0 (2026-02-21, session 1)
+- Ajout ROI dégressif dans manager.py (tiers 48/120/240 barres)
+- Trailing réduit à 3 paliers (>= 1.5R MFE)
+- SL élargi de 0.8 → 1.5 ATR
 
-| Fichier | Changement | Justification |
+### v3.0 — RÉSULTATS REPLAY
+| Métrique | v2 | v3.0 | Δ |
+|---|---|---|---|
+| Win Rate | 52.0% | **50.6%** | -1.4 pts ❌ |
+| Expectancy | +0.035R | **+0.094R** | +0.059R ✅ |
+| Total R | +27.5R | **+73.9R** | +46.4R ✅ |
+| EXIT_ROI | 0% | **2.3%** | Quasi inutile |
+| Score prop | 0/4 | ? | Non mesuré |
+
+**Diagnostic v3.0** (5 problèmes identifiés) :
+1. **42% des trades ferment en ≤3 barres, WR=34.8%** → SL touché trop vite
+2. **ROI inutile (2.3%)** → tiers trop longs (48-240h) pour trades de 3h médiane
+3. **BE à 1.0R trop haut** → 39% des SL-losers avaient MFE ≥ 0.5R
+4. **BB calculées sur Close, pas typical_price** → BB_RPB_TSL utilise (H+L+C)/3
+5. **RSI oversold=35 trop permissif** → BB_RPB_TSL utilise ~32
+
+### v3.1 (2026-02-21, session 2) — Corrections basées sur le diagnostic
+
+| Fichier | Changement | Justification (donnée) |
 |---|---|---|
-| `arabesque/models.py` | Ajout `EXIT_ROI` dans `DecisionType` | Nouveau type de sortie |
-| `arabesque/position/manager.py` | ROI dégressif, trailing ajusté, BE relevé, time-stop étendu | Alignement BB_RPB_TSL |
-| `arabesque/backtest/signal_gen.py` | `min_sl_atr` 0.8 → 1.5 | Laisser respirer les trades MR |
-
-### Détail des modifications manager.py
-
-**ROI dégressif** (clé de la correction) :
-```
-bars=0   → need ≥ 3.0R   (move exceptionnel)
-bars=48  → need ≥ 1.0R   (bon profit en 2j)
-bars=120 → need ≥ 0.5R   (profit modéré en 5j)
-bars=240 → need ≥ 0.15R  (quasi tout profit en 10j)
-```
-
-**Trailing** : réduit de 5 paliers (dès +0.5R) à 3 paliers (dès +1.5R MFE)
-**Break-even** : relevé de +0.5R → +1.0R
-**Time-stop** : étendu de 48 → 336 barres (backstop, pas exit actif)
-
-### Flux de sortie `update_position()` :
-```
-1. SL/TP intrabar     (sécurité)
-2. ROI dégressif       ← NOUVEAU
-3. Break-even          (relevé à +1.0R)
-4. Trailing            (seulement >= +1.5R MFE)
-5. Giveback
-6. Deadfish
-7. Time-stop           (backstop final 336 barres)
-```
+| `indicators.py` | BB sur typical_price (H+L+C)/3 | Alignement BB_RPB_TSL |
+| `signal_gen.py` | RSI 35→30, min_bb_width 0.003→0.02 | Filtrer entrées faibles |
+| `signal_gen.py` | SL 1.5→2.0 ATR | 72% des SL touchés en ≤5 barres |
+| `manager.py` | ROI tiers courts (6/12/24/48/120h) | Médiane trade = 3h |
+| `manager.py` | BE 1.0→0.5R | 39% losers avaient MFE ≥ 0.5R |
+| `manager.py` | Giveback MFE 1.0→0.5R | Capturer profits qui s'érodent |
 
 ---
 
-## 3. Résultats
+## 3. Prochaines étapes
 
-### AVANT v3.0 (replay Oct 2025 → Jan 2026)
-
-| Métrique | Valeur |
-|---|---|
-| Win Rate | 52.0% ❌ |
-| Expectancy | +0.035R (non significatif) |
-| Score prop firm | 0/4 |
-
-### APRÈS v3.0 : À MESURER (P3a)
-
----
-
-## 4. Prochaines étapes
-
-### P3a — Valider v3.0 sur replay *(priorité absolue)*
+### P3a-bis — Replay v3.1 *(priorité absolue)*
 
 ```bash
+cd ~/dev/arabesque && git pull
 python -m arabesque.live.engine \
   --source parquet --start 2025-10-01 --end 2026-01-01 \
   --strategy combined --balance 100000 \
@@ -105,18 +76,26 @@ python -m arabesque.live.engine \
 python scripts/analyze_replay.py dry_run_*.jsonl
 ```
 
-**Si WR ≥ 70% et score ≥ 3/4** → P3b  
-**Si WR 60-70%** → ajuster seuils ROI  
-**Si WR < 60%** → problème entry, pas sortie
+**Métriques à rapporter :**
+- WR (cible ≥ 65%, idéal ≥ 70%)
+- Expectancy R + IC95
+- Breakdown EXIT_ROI vs EXIT_SL vs EXIT_TP vs EXIT_TRAILING
+- WR par bucket de durée (0-3h, 3-6h, 6-12h, 12-24h)
+- % losers avec MFE ≥ 0.5R (doit baisser vs 39%)
+- Score prop firm
 
-### P2c — Diagnostiquer spikes parquets *(en parallèle)*
-### P3b — Comparer mean_reversion vs combined
-### P3c — `run_stats.py` 17 instruments × 2 ans
+**Décision :**
+- WR ≥ 65% → P3b (comparer MR vs combined)
+- WR 55-65% → le ROI court fonctionne, affiner les seuils
+- WR < 55% → problème d'entrée (RSI/BB pas assez sélectifs)
+
+### P2c — Spikes parquets *(en parallèle)*
+### P3b — MR seule vs combined
 ### P4 — Connexion compte test FTMO (après score ≥ 3/4)
 
 ---
 
-## 5. Comptes FTMO
+## 4. Comptes FTMO
 
 | Compte | Solde | Statut |
 |---|---|---|
@@ -125,7 +104,7 @@ python scripts/analyze_replay.py dry_run_*.jsonl
 
 ---
 
-## 6. Règles non négociables
+## 5. Règles non négociables
 
 1. Profil WR élevé en priorité
 2. Anti-lookahead : signal bougie `i`, exécution open `i+1`
@@ -137,20 +116,12 @@ python scripts/analyze_replay.py dry_run_*.jsonl
 
 ---
 
-## 7. Restrictions de modification par niveau IA
+## 6. Restrictions par niveau IA
 
-### ⛔ Réservé Opus 4.6 (ou modèle le plus puissant)
-
-- `position/manager.py` — architecture de sortie
-- `signal_gen*.py` — logique d'entrée
-- `guards.py` — protection prop firm
-- Refonte pipeline, stats, métriques
+### ⛔ Réservé Opus 4.6
+- `position/manager.py`, `signal_gen*.py`, `guards.py`, `indicators.py`
 - Tout changement affectant WR ou expectancy
 
-### ✅ Accessible à des modèles moins puissants
-
-- Exécution de replay et analyse (P3a)
-- Diagnostic spikes données (P2c)
-- `run_stats.py` et collecte résultats
-- Mise à jour cosmétique documentation
-- Comparaison résultats avant/après
+### ✅ Modèle intermédiaire
+- Replay P3a-bis, analyse résultats, diagnostic spikes, run_stats
+- Voir `docs/RESUME_PROMPT.md`

@@ -1,84 +1,42 @@
-# PROMPT DE REPRISE — Arabesque (post v3.0)
+# PROMPT DE REPRISE — Arabesque (post v3.1)
 
-> Ce prompt est destiné à un modèle IA de capacité intermédiaire (Sonnet, GPT-5.2, etc.)
-> pour continuer les tâches légères en attendant une session Opus 4.6.
+> Destiné à un modèle intermédiaire (Sonnet, GPT-5.2, etc.)
 > Créé le 2026-02-21.
 
 ## Contexte
 
-Arabesque est un système de trading algorithmique Python pour prop firms.
-Il adapte la stratégie BB_RPB_TSL (Freqtrade, WR 90.8% en live) aux marchés FTMO.
+Arabesque adapte BB_RPB_TSL (WR 90.8%) aux prop firms FTMO.
+Session Opus 4.6 du 2026-02-21 : v3.1 appliquée avec BB sur typical_price,
+ROI court-terme, BE abaissé, RSI resserré, SL élargi.
 
-**Dernière session (Opus 4.6, 2026-02-21)** : Refonte majeure v3.0 du Position Manager.
-Le mécanisme clé de BB_RPB_TSL (`minimal_roi` = TP dégressif dans le temps) a été
-identifié et implémenté sous forme de ROI dégressif en R-multiples.
-
-## Fichiers à lire
-
-```
-HANDOFF.md                      ← état actuel, prochaines étapes
-docs/decisions_log.md           ← historique des décisions (§0 = boussole)
-docs/STABLE_vs_FRAGILE.md       ← ce qui peut casser
-docs/BB_RPB_TSL_COMPARISON.md   ← écarts vs modèle cible
-```
+## Fichiers à lire : `HANDOFF.md` puis `docs/decisions_log.md`
 
 ## Ce que tu PEUX faire
 
-1. **Exécuter le replay P3a** et rapporter les résultats :
+1. **Replay P3a-bis** :
 ```bash
-cd ~/dev/arabesque
+cd ~/dev/arabesque && git pull
 python -m arabesque.live.engine \
   --source parquet --start 2025-10-01 --end 2026-01-01 \
   --strategy combined --balance 100000 \
   --data-root ~/dev/barres_au_sol/data
 python scripts/analyze_replay.py dry_run_*.jsonl
 ```
-Rapporter : WR, expectancy, IC95, score prop firm, breakdown par exit type.
-Chercher spécifiquement combien de trades sont EXIT_ROI vs EXIT_SL vs EXIT_TP.
+Rapporter : WR, expectancy, IC95, exit breakdown, WR par durée, score prop firm.
 
-2. **Diagnostiquer les spikes données** (P2c) :
-```bash
-python3 -c "
-import pandas as pd, os
-root = os.path.expanduser('~/dev/barres_au_sol/data/ccxt/derived/')
-for f in sorted(os.listdir(root)):
-    if not f.endswith('.parquet'): continue
-    df = pd.read_parquet(root + f)
-    bad = df[(df['high']/df['close'] > 5) | (df['close']/df['low'] > 5)]
-    if len(bad): print(f, len(bad), 'barres suspectes')
-"
-```
+2. **Diagnostic spikes** (P2c) — voir HANDOFF.md
+3. **run_stats.py** — collecter résultats
+4. **Comparer** mean_reversion vs combined
 
-3. **Lancer `run_stats.py`** sur les instruments et collecter les résultats.
+## ⛔ NE PAS MODIFIER
+- `arabesque/position/manager.py`
+- `arabesque/backtest/signal_gen*.py`
+- `arabesque/indicators.py`
+- `arabesque/guards.py`
+- `arabesque/models.py`
 
-4. **Comparer mean_reversion vs combined** sur la même période.
+## Résultats attendus P3a-bis
 
-## Ce que tu NE DOIS PAS faire
-
-⛔ **Ne JAMAIS modifier ces fichiers :**
-- `arabesque/position/manager.py` — architecture de sortie (v3.0 en validation)
-- `arabesque/backtest/signal_gen*.py` — logique d'entrée
-- `arabesque/guards.py` — protection prop firm
-- `arabesque/models.py` — structures de données
-
-⛔ **Ne JAMAIS proposer :**
-- De réduire le WR en échange d'un avg_win plus élevé
-- D'ajouter du trailing en dessous de +1.5R
-- De resserrer le SL en dessous de 1.5 ATR
-- D'utiliser `git push --force`
-
-## Si tu trouves un bug
-
-Document le dans HANDOFF.md § "Bugs trouvés en session intermédiaire"
-avec : symptôme, fichier concerné, reproduction. NE PAS le corriger.
-Marquer "À corriger en session Opus 4.6".
-
-## Résultat attendu de P3a
-
-Après le replay, rapporter ces métriques (copier/coller la sortie) :
-- Win Rate (cible ≥ 70%)
-- Expectancy en R + IC95
-- Score prop firm (cible ≥ 3/4)
-- Breakdown exit types (combien EXIT_ROI vs EXIT_SL vs EXIT_TP etc.)
-- Top 5 instruments par expectancy
-- Top 5 instruments par WR
+Comparer au v3.0 :
+- v3.0 : WR=50.6%, Exp=+0.094R, EXIT_ROI=2.3%, 786 trades
+- v3.1 : ? (attendu : WR ≥ 55%, EXIT_ROI >> 2.3%, moins de SL ≤3 barres)

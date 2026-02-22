@@ -45,17 +45,18 @@ class SignalGenConfig:
     cmf_period: int = 20
     atr_period: int = 14
     wr_period: int = 14
-    rsi_oversold: float = 35.0
-    rsi_overbought: float = 65.0
-    min_bb_width: float = 0.003
+    rsi_oversold: float = 30.0   # v3.1: resserré de 35→30 (BB_RPB_TSL utilise ~32 pour dip)
+    rsi_overbought: float = 70.0  # v3.1: resserré de 65→70 (symétrique)
+    min_bb_width: float = 0.02    # v3.1: relevé de 0.003→0.02 (filtre les BB trop serrées)
     min_rr: float = 0.5
     htf_ema_fast: int = 12
     htf_ema_slow: int = 26
     htf_adx_period: int = 14
     sl_method: str = "swing"
-    sl_atr_mult: float = 1.5
+    sl_atr_mult: float = 2.0     # v3.1: élargi de 1.5→2.0 pour fallback
     sl_swing_bars: int = 10
-    min_sl_atr: float = 1.5  # v3.0: élargi de 0.8 → 1.5 ATR (BB_RPB_TSL donne beaucoup d'espace)
+    min_sl_atr: float = 2.0      # v3.1: élargi de 1.5→2.0 ATR (donne plus d'espace aux trades MR)
+    min_r_pct: float = 0.003     # v3.2: R minimum en % du prix (0.3%) — filtre les signaux phantom
 
 
 class BacktestSignalGenerator:
@@ -215,7 +216,9 @@ class BacktestSignalGenerator:
     def _compute_sl(self, row, df, idx, side):
         atr = row["atr"]
         close = row["Close"]
-        min_dist = self.cfg.min_sl_atr * atr
+        # v3.2: min_dist = max(ATR-based, percentage-based)
+        # Prevents phantom-R trades where ATR → 0 during low volatility
+        min_dist = max(self.cfg.min_sl_atr * atr, close * self.cfg.min_r_pct)
         if self.cfg.sl_method == "swing":
             if side == Side.LONG:
                 sl = row.get("swing_low", 0)

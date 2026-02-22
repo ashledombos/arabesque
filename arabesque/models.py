@@ -221,6 +221,7 @@ class Position:
     sl: float = 0.0
     sl_initial: float = 0.0
     tp: float = 0.0
+    tp_original: float = 0.0  # v3.1: TP original avant abaissement ROI
     exit_price: float = 0.0
     exit_reason: str = ""
 
@@ -316,6 +317,7 @@ class Position:
                 self.sl = fill_price + original_sl_dist
             self.sl_initial = self.sl
         self.tp = signal.tp_indicative
+        self.tp_original = signal.tp_indicative  # v3.1: sauvegarder TP original
         self.max_favorable_price = fill_price
         self.max_adverse_price = fill_price
         self.current_price = fill_price

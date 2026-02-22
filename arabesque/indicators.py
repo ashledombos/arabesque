@@ -127,11 +127,16 @@ def compute_bollinger(
 ) -> dict[str, pd.Series]:
     """Bandes de Bollinger.
 
+    v3.1: source = typical_price (H+L+C)/3, aligné sur BB_RPB_TSL.
+    Avant: source = Close seul (produisait des signaux de moindre qualité).
+    BB_RPB_TSL utilise qtpylib.typical_price() qui est (H+L+C)/3.
+
     Retourne un dict : { "mid", "lower", "upper", "width" }
     bb_width = (upper - lower) / mid  (mesure de la volatilité normalisée)
     """
-    mid = df["Close"].rolling(period, min_periods=period).mean()
-    std = df["Close"].rolling(period, min_periods=period).std()
+    tp = (df["High"] + df["Low"] + df["Close"]) / 3.0
+    mid = tp.rolling(period, min_periods=period).mean()
+    std = tp.rolling(period, min_periods=period).std()
     lower = mid - std_mult * std
     upper = mid + std_mult * std
     width = (upper - lower) / mid.replace(0, np.nan)
