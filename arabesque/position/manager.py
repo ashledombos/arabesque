@@ -1,20 +1,21 @@
 """
 Arabesque v2 — Position Manager.
 
-v3.3 (2026-02-22) — Retour base v3.0 + améliorations chirurgicales.
+v3.3 (2026-02-23) — Trend-only + BE optimisé.
 
-LEÇON v3.1/v3.2: ROI court + SL réel = expectancy négative (incompatible).
-LEÇON v3.3: BE 0.5/0.25 donne WR 60% mais avg_win 0.70R (324 trades
-  plafonnés à +0.25R). La grille analytique montre que BE 0.3/0.15
-  domine sur les 2 datasets (v3.0 + v3.3) avec WR~80%, Exp~+0.25R.
+PARCOURS COMPLET (4 replays, 2 périodes):
+  v3.0 combined crypto  Oct→Jan: +73.9R  (seul MR rentable, mais fragile)
+  v3.3 combined crypto  Oct→Jan: +33.5R  (BE 0.5/0.25)
+  v3.3 combined crypto  Avr→Jul: -14.1R  (MR perd sur 2e période)
+  v3.3 combined divers  Oct→Jan: -13.9R  (MR perd sur forex/commo)
+  v3.3 TREND diversifié Avr→Jul: +21.2R  ← SEUL gagnant sur 2 périodes
 
-Config finale v3.3 :
-  - BB typical_price (aligné BB_RPB_TSL)
-  - RSI 35, SL 1.5 ATR (v3.0 baseline)
-  - BE trigger=0.3R, offset=0.15R (analytiquement optimal)
-  - Giveback MFE=0.5R (momentum-based close, complémentaire au BE)
-  - Trailing 3 paliers (≥1.5R MFE) — inchangé
-  - ROI backstop long seulement (0:3R, 240:0.15R)
+DÉCISIONS DÉFINITIVES:
+  1. TREND-ONLY (MR abandonné — perd sur toutes les catégories)
+  2. BE 0.3R trigger / 0.20R offset (pas 0.15 — trop serré,
+     323/339 trailing exits étaient des BE à +0.15R exact)
+  3. Univers diversifié forex + commodités + crypto
+     (forex le plus robuste, crypto questionnable)
 """
 
 from __future__ import annotations
@@ -90,16 +91,15 @@ class ManagerConfig:
     )
 
     # ── Break-even (le levier principal du WR) ─────────────────────
-    # MODÈLE ANALYTIQUE (testé sur v3.3 998 trades + v3.0 786 trades):
-    #   Trigger  Offset   WR     Exp      Robuste sur 2 datasets?
-    #   0.5      0.25    68.4%  +0.130R   oui (v3.3 actuel: +33.5R réel)
-    #   0.3      0.15    79.7%  +0.250R   OUI — domine partout
-    #   0.2      0.10    84.7%  +0.295R   non (offset trop serré)
-    #
-    # 80% des trades atteignent MFE ≥ 0.3R → WR ~80%.
-    # 0.15R offset = 0.225 ATR de marge (3× plus que le 0.05R v3.1).
+    # MODÈLE ANALYTIQUE (testé sur 4 replays, 2 périodes):
+    #   Trigger 0.3R: ~75% des trades l'atteignent → WR ~75%
+    #   Offset 0.15R: trop serré — 323/339 trailing exits sont des BE
+    #     exits à exactement +0.15R avec MFE moyen 0.68R (170R perdu)
+    #   Offset 0.20R: chaque BE exit rapporte +0.05R de plus
+    #     = +16R net sur 570 trades. Le risque additionnel (trades qui
+    #     auraient survécu à 0.15R mais pas 0.20R) est minime (0.05R).
     be_trigger_r: float = 0.3
-    be_offset_r: float = 0.15
+    be_offset_r: float = 0.20
 
     # ── Giveback (seuils abaissés) ──────────────────────────────────
     # v3.0 : MFE ≥ 1.0R → trop haut, rate les profits qui s'érodent

@@ -1,8 +1,8 @@
-# ARABESQUE — Handoff v11
+# ARABESQUE — Handoff v12
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque  
-> **Dernière mise à jour** : 2026-02-22, session Opus 4.6 (v3.3 final)
+> **Dernière mise à jour** : 2026-02-23, session Opus 4.6 (4 replays, pivot TREND-ONLY)
 
 ---
 
@@ -10,183 +10,111 @@
 
 ```
 OBJECTIF : gains petits, fréquents, consistants.
-           Win Rate élevé (cible : ≥ 70%, idéal ≥ 85%).
+           Win Rate élevé (cible ≥ 70%, idéal ≥ 85%).
            Expectancy positive par le volume, pas par des grands mouvements rares.
+STRATÉGIE : TREND-ONLY sur instruments Dukascopy (forex + métaux).
 ```
 
 ---
 
-## 1. Résultats cumulés (tous sur Oct 2025 → Jan 2026, combined, 17 instruments)
+## 1. Résultats cumulés — 4 replays, 2 périodes
 
-| Version | WR | Exp/trade | Total R | Trades | Config clé | Statut |
-|---|---|---|---|---|---|---|
-| v2 base | 52.0% | +0.035R | +27.5R | 786 | Original | ✅ positif |
-| v3.0 | 50.6% | +0.094R | +73.9R | 786 | ROI backstop, SL 1.5 | ✅ meilleur |
-| v3.1 | 63.9% | -0.004R | -2.3R | 568 | ROI court, RSI 30, SL 2.0 | ❌ |
-| v3.2 | 60.6% | -0.010R | -6.4R | 622 | BE 0.25, SL 1.5 | ❌ |
-| v3.3 (BE 0.5/0.25) | 60.2% | +0.034R | +33.5R | 998 | BB tp, BE 0.5/0.25, giveback 0.5 | ✅ |
-| **v3.3 (BE 0.3/0.15)** | **~80%?** | **~+0.25R?** | **~+250R?** | ~998 | **BE 0.3/0.15** | **⏳ à tester** |
-
-### Résultats des 3 replays de validation (2026-02-23)
-
-| Replay | Config | N | WR | Exp | Total | DD | Score |
+| Version | Période | Univers | N | WR | Exp | Total R | Score |
 |---|---|---|---|---|---|---|---|
-| 1 | Combined crypto BE0.3 | 999 | 68.6% | +0.050R | +49.9R | 14.1% | 3/5 |
-| 2 | **Trend diversifié** | **429** | **70.9%** | **+0.065R** | **+27.7R** | **8.8%** | **2/5** |
-| 3 | MR-only crypto | 29 | 31% | -0.374R | -10.9R | 5.8% | INVALIDE |
+| v3.3 combined (BE 0.5/0.25) | Oct→Jan | crypto 17 | 998 | 60% | +0.034 | +33.5 | ? |
+| v3.3 combined (BE 0.3) | Oct→Jan | diversifié 46 | 319 | 64% | -0.044 | -13.9 | 1/5 |
+| Replay A: combined crypto | Avr→Jul | crypto 17 | 169 | 65% | -0.083 | -14.1 | 1/5 |
+| **Replay B: TREND diversifié** | **Avr→Jul** | **diversifié 39** | **570** | **71%** | **+0.037** | **+21.2** | **3/5** |
 
-**Replay 3 invalide** : `BacktestSignalGenerator` ≠ MR dans `CombinedSignalGenerator` (29 vs 873 trades).
+**Replay B décomposé par source de données** (la découverte clé) :
+
+| Source | Instruments | N | WR | Exp | Total R | Spikes |
+|---|---|---|---|---|---|---|
+| **Dukascopy (forex+metals)** | **19** | **229** | **79%** | **+0.128** | **+29.3** | **0** |
+| CCXT (crypto) | 12 | 223 | 67% | -0.050 | -11.0 | 2 |
+| Sans 1min (indices/energy/agri) | 8 | 118 | 66% | +0.025 | +3.0 | 5 |
 
 ---
 
 ## 2. Leçons majeures — IMMUTABLES
 
 ### L1 : ROI court-terme + SL réel = piège mortel
-BB_RPB_TSL a SL=-99% (jamais touché). Arabesque a SL=-1R (prop firm).
-Avec SL=-1R : `Exp = WR × avg_win - (1-WR) × 1.0`.
-ROI court → coupe les winners tôt → avg_win < seuil → Exp négative.
-**Ne plus jamais utiliser de ROI court-terme.**
+BB_RPB_TSL a SL=-99% (jamais touché). Arabesque a SL=-1R.
+ROI court → avg_win effondré → Exp négative. **Ne plus jamais utiliser de ROI CT.**
 
 ### L2 : Le BE est LE levier principal du WR
-Le mécanisme BE crée un filtre binaire :
-- MFE < trigger → SL hit → -1R
-- MFE ≥ trigger → exit à offset (si comeback) ou plus (si continuation)
-- **WR ≈ % des trades atteignant le trigger MFE**
+WR ≈ % des trades atteignant le trigger MFE.
+~75% des trades trend atteignent MFE ≥ 0.3R → WR ~75%.
 
-### L3 : Données montrant la robustesse de BE 0.3/0.15
-Testé sur 2 datasets indépendants (entrées v3.0 et v3.3) :
-- **80% des trades atteignent MFE ≥ 0.3R** → WR ~80%
-- 26% reviennent sous 0.15R (BE exit) / 74% continuent (avg +0.71R)
-- Expectancy analytique : +0.250R
-- 0.15R offset = 0.225 ATR de marge (3× plus que le 0.05R qui avait échoué)
+### L3 : Mean Reversion ne fonctionne pas avec nos paramètres
+MR perd sur TOUTES les catégories (crypto -35R, forex -7R, commo -2R)
+et TOUS les sub-types. Cause : 29% des signaux MR n'atteignent jamais
++0.3R MFE (le rebond Bollinger ne se produit pas).
 
-### L4 : BB typical_price génère ~27% plus de signaux
-Passage de Close → (H+L+C)/3 a fait passer de 786 → 998 trades.
-Les signaux supplémentaires sont de qualité comparable.
+### L4 : Trend gagne partout — mais surtout sur Dukascopy
+Trend forex Dukascopy : WR 79%, Exp +0.128R, 0 spikes.
+Trend crypto CCXT : WR 67%, Exp -0.050R (net négatif).
+**La qualité des données est aussi importante que la stratégie.**
 
-### L5 : La diversification d'instruments est CRITIQUE
-17 instruments actuels = 16 cryptos + 1 or. Corrélation très élevée.
-Les pires journées voient TOUS les cryptos perdre simultanément.
-Ajouter forex/indices réduirait le DD de manière significative.
+### L5 : Les spikes de données corrompent les résultats
+TOUS les spikes (MFE > 10R sur 1 barre) viennent d'instruments sans
+données 1-minute fiables (indices, energy, agri via Yahoo).
 
 ### L6 : Anti-biais — les règles non négociables
-- Signal bougie `i`, exécution open bougie `i+1` (jamais pendant la bougie)
-- Si SL ET TP touchés sur la même bougie → SL pris (pessimiste)
-- Même code backtest et live (pas de divergence)
-- Le MFE ne prédit pas l'ordre intrabar (high ou low en premier inconnu)
+- Signal bougie `i`, exécution open bougie `i+1`
+- Si SL ET TP touchés sur même bougie → SL pris (pessimiste)
+- Le MFE ne prédit pas l'ordre intrabar
 
-### L7 : MR perd partout sur diversifié, Trend gagne partout
-Test 46 instruments (crypto/forex/commodities/indices) — 319 trades :
-- MR : 256 trades, -41.8R (perd sur TOUTES catégories, TOUS sub-types)
-- Trend : 63 trades, +27.8R, WR 84% (gagne sur TOUTES catégories)
-- **MR LONG spécifiquement = -46.1R** (le gouffre principal)
-- Cause racine : 29% des trades MR n'atteignent jamais +0.3R MFE (mauvaise entrée)
-- **La stratégie optimale sera probablement MR-crypto + Trend-tout**
+### L7 : BE offset 0.15R est trop serré
+323/339 trailing exits étaient des BE à exactement +0.15R.
+Offset 0.20R donne +0.05R par trade × 323 = +16R net supplémentaire.
 
-### L8 : Les spikes de données sont le bottleneck n°1
-Sur Replay 1, 124 SL losers (41%) avaient MFE ≥ 0.3R — TOUS sur 1 seule barre.
-Ce sont des bougies H1 aberrantes (range 7R+) où la règle pessimiste prend le SL.
-Impact : ~143R perdus. Avec données 1-min, on saurait si high ou low arrive en premier.
-**Résoudre les spikes de données est plus important qu'optimiser les paramètres.**
-
-### L9 : Trend standalone libère +303 signaux
-En mode combined, MR occupe des slots → seulement 126 trend exécutés sur 429 possibles.
-Trend seul : 429 trades, WR 71%, DD 8.8% (le meilleur DD de tous les replays).
-
-### L10 : SHORT >> LONG sur Oct-Jan (biais à vérifier)
-Constant dans les 3 replays. Peut être saisonnier (risk-off hivernal)
-ou structurel (entrées LONG sur faux rebonds). **Tester sur une autre période avant d'agir.**
+### L8 : Le rapport deep-research confirme notre direction
+Trend/swing following = stratégie la plus compatible prop firms (overnight).
+Points d'action restants : daily loss limit, kill switch, news filter.
 
 ---
 
 ## 3. Configuration v3.3 détaillée
 
 ### Entrées (signal_gen.py)
-- BB période 20, std 2.0, **source typical_price** (H+L+C)/3
+- BB période 20, std 2.0, source typical_price (H+L+C)/3
 - RSI 14, oversold=35, overbought=65
 - SL : swing 10 bars, fallback 1.5 ATR, min 1.5 ATR
-- min_bb_width=0.003, min_rr=0.5
 
 ### Sorties (manager.py)
-- **BE** : trigger=0.3R, offset=0.15R (levier principal WR)
-- **Giveback** : MFE≥0.5R, current<0.15R, RSI<46, CMF<0 → close
-- **Trailing** : 3 paliers (MFE≥1.5R:0.7R, ≥2.0R:1.0R, ≥3.0R:1.5R)
-- **ROI** : backstop seulement (0:3.0R, 240:0.15R)
-- **Deadfish** : 24 bars, MFE<0.5R, BB width < 0.005
-- **Time-stop** : 336 barres (14j backstop)
-
-### Indicateurs (indicators.py)
-- BB : **typical_price** (H+L+C)/3
-- RSI : Wilder's smoothing (correct)
-- ATR : Wilder's smoothing (correct)
+- **BE** : trigger=0.3R, offset=0.20R
+- **Giveback** : MFE≥0.5R, current<0.15R, RSI<46, CMF<0
+- **Trailing** : 3 paliers (≥1.5R:0.7R, ≥2.0R:1.0R, ≥3.0R:1.5R)
+- **ROI** : backstop (0:3.0R, 240:0.15R)
 
 ---
 
 ## 4. Prochaines étapes
 
-### P1 : Replay sur période différente — PRIORITÉ ABSOLUE
-Tester la même config sur Avr-Jul 2025 ou Jul-Oct 2025.
-But : vérifier si le biais SHORT est saisonnier ou structurel.
-Si SHORT domine aussi en été → problème structurel LONG à investiguer.
-Si LONG/SHORT équilibrés en été → biais saisonnier, ne pas filtrer.
+### P1 : TREND-ONLY Dukascopy, Oct→Jan (VALIDATION CROISÉE) — PRIORITÉ
 
 ```bash
+cd ~/dev/arabesque && git pull
 python -m arabesque.live.engine \
-  --source parquet --start 2025-04-01 --end 2025-07-01 \
-  --strategy combined --balance 100000 \
-  --data-root ~/dev/barres_au_sol/data
-python scripts/analyze_replay_v2.py dry_run_XXX.jsonl --grid
-```
-
-```bash
-python -m arabesque.live.engine \
-  --source parquet --start 2025-04-01 --end 2025-07-01 \
+  --source parquet --start 2025-10-01 --end 2026-01-01 \
   --strategy trend --balance 100000 \
   --data-root ~/dev/barres_au_sol/data \
   --instruments EURUSD GBPUSD USDJPY AUDUSD USDCAD USDCHF NZDUSD \
     EURGBP EURJPY GBPJPY AUDJPY EURCAD AUDCAD GBPCAD \
-    USDMXN USDZAR USDSGD \
-    XAUUSD XAGUSD XPTUSD XCUUSD \
-    USOIL.cash UKOIL.cash NATGAS.cash \
-    WHEAT.c CORN.c COCOA.c \
-    BTCUSD ETHUSD LTCUSD BNBUSD BCHUSD SOLUSD \
-    XRPUSD ADAUSD AVAUSD NERUSD DOTUSD ALGUSD
-python scripts/analyze_replay_v2.py dry_run_XXX.jsonl --grid
+    USDMXN USDZAR USDSGD XAUUSD XAGUSD
+python scripts/analyze_replay_v2.py dry_run_XXXXXXXX_XXXXXX.jsonl --grid
 ```
 
-### P2 : Intégration données 1-minute
-Les données 1-min permettraient de résoudre l'ambiguïté intrabar.
-Impact estimé : 124 trades correctement classifiés → ~70-100R récupérés.
-Question à poser : ces données sont-elles disponibles dans barres_au_sol ?
+Cibles : WR ≥ 70%, Exp ≥ +0.05R, score prop ≥ 3/5
 
-### P3 : Filtre spike dans le pipeline
-Écarter les bougies dont le range (high-low) dépasse X × ATR_14.
-À implémenter dans le replay engine (pre-processing des données).
-
-### P4 : Connexion FTMO test (seulement si Trend score ≥ 3/5 sur 2 périodes)
+### P2 : Données 1-minute pour lever le biais pessimiste intrabar
+### P3 : Moteur de risque prop firm (daily loss limit, kill switch, news filter)
+### P4 : Walk-forward structuré (4+ fenêtres glissantes)
 
 ---
 
-## 5. Scripts
+## 5. Restrictions
 
-| Script | Usage |
-|---|---|
-| `scripts/analyze_replay_v2.py FILE` | Analyse complète d'un replay |
-| `scripts/analyze_replay_v2.py FILE --grid` | + grille simulation BE/TP |
-| `scripts/analyze_replay_v2.py FILE --compare FILE2` | Comparaison 2 replays |
-
----
-
-## 6. Restrictions par niveau IA
-
-### ⛔ Réservé Opus 4.6
-- `position/manager.py`, `signal_gen*.py`, `guards.py`, `indicators.py`
-- Tout changement de paramètre affectant WR ou expectancy
-- Interprétation des résultats replay (décision de modifier la stratégie)
-
-### ✅ Modèle intermédiaire
-- Exécuter replay, collecter résultats
-- Lancer `analyze_replay_v2.py`
-- Diagnostics data (spikes parquet)
-- Ajout d'instruments au pipeline `barres_au_sol`
-- Voir `docs/RESUME_PROMPT.md`
+**⛔ Opus 4.6** : manager.py, signal_gen.py, guards.py, indicators.py, décisions stratégiques.
+**✅ Intermédiaire** : exécuter replay, analyze_replay_v2.py, diagnostics data.

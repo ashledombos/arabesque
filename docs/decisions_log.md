@@ -236,6 +236,33 @@ Ces instruments ont des données corrompues qui faussent les résultats.
 **Plan de validation** : 3 replays isolés (crypto BE 0.3/0.15, trend-only diversifié, MR-only crypto).
 L'objectif est de déterminer la config optimale : MR-crypto + Trend-tout, ou Trend-only.
 
+### Replay A+B — Pivot TREND-ONLY + Découverte données (2026-02-23, session Opus 4.6)
+
+**Replay A** (combined crypto, Avr→Jul): 169 trades, WR 65%, Exp -0.083R, -14.1R. Score 1/5.
+MR crypto sur 2e période = négatif. Confirme que MR crypto n'est pas robuste.
+
+**Replay B** (trend-only diversifié, Avr→Jul): 570 trades, WR 71%, Exp +0.037R, +21.2R. Score 3/5.
+DD 6.9%, +8.4% equity. Seule stratégie profitable sur les 2 périodes testées.
+
+**DÉCOUVERTE MAJEURE — Qualité des données × Performance** :
+Les instruments Dukascopy (forex + métaux avec données 1min) font +29.3R sur 229 trades (WR 79%).
+Les instruments CCXT (crypto) font -11.0R (net négatif en trend).
+Les instruments sans données 1min (indices/energy/agri) sont responsables de TOUS les spikes.
+
+La performance n'est pas uniforme : 14/19 instruments Dukascopy sont rentables vs 4/12 crypto.
+
+**Décision : BE offset 0.15 → 0.20R**
+323/339 trailing exits étaient des BE à exactement +0.15R (MFE moyen 0.68R).
+L'offset est trop serré : 95% des trades triggés ressortent au plancher.
+Simulation BE 0.3/0.20 sur Replay B: +60.1R vs +42.8R avec 0.15, vs +21.2R réel.
+
+**Décision : TREND-ONLY comme stratégie principale**
+MR abandonné après échec sur 3 configurations différentes (2 périodes, 2 univers).
+Trend gagne sur forex, métaux, commodités — perd seulement sur crypto.
+
+**Prochaine étape** : Replay TREND-ONLY sur instruments Dukascopy seulement, période Oct→Jan,
+pour validation croisée sur 2e période.
+
 ### Résultats des 3 replays de validation (2026-02-23, session Opus 4.6)
 
 **Replay 1 — Combined crypto, BE 0.3/0.15** : 999 trades, WR 68.6%, Exp +0.050R, Total +49.9R, DD 14.1%, Score 3/5.
