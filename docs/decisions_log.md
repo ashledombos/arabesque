@@ -236,6 +236,34 @@ Ces instruments ont des données corrompues qui faussent les résultats.
 **Plan de validation** : 3 replays isolés (crypto BE 0.3/0.15, trend-only diversifié, MR-only crypto).
 L'objectif est de déterminer la config optimale : MR-crypto + Trend-tout, ou Trend-only.
 
+### Résultats des 3 replays de validation (2026-02-23, session Opus 4.6)
+
+**Replay 1 — Combined crypto, BE 0.3/0.15** : 999 trades, WR 68.6%, Exp +0.050R, Total +49.9R, DD 14.1%, Score 3/5.
+  BE 0.3/0.15 confirme l'amélioration vs BE 0.5/0.25 (+8pts WR, +16.4R).
+  Écart simulation/réalité : +181R prédit vs +50R réel.
+  Cause : 124 SL losers avaient MFE ≥ 0.3R mais TOUS sur 1 seule barre (spikes).
+  Règle pessimiste = SL pris avant le high quand les deux sont dans la même barre.
+
+**Replay 2 — Trend-only diversifié** : 429 trades, WR 70.9%, Exp +0.065R, Total +27.7R, DD 8.8%, Score 2/5.
+  Le trend fonctionne sur crypto (+17.3R), forex (+10.3R), commodities (+0.1R).
+  En mode combined, 303 signaux trend étaient bloqués par des positions MR.
+  Le DD de 8.8% est le meilleur de tous les replays (prop-firm compatible).
+
+**Replay 3 — MR-only crypto** : 29 trades, WR 31%, Total -10.9R. TEST INVALIDE.
+  BacktestSignalGenerator ≠ MR component de CombinedSignalGenerator.
+  29 vs 873 trades = générateurs complètement différents.
+
+**Découverte : SHORT >> LONG dans tous les replays** (Oct 2025 → Jan 2026).
+  R1: SHORT +64.3R vs LONG -14.4R
+  R2: SHORT +30.9R vs LONG -3.2R
+  R3: SHORT +5.1R vs LONG -16.0R
+  → Biais possiblement saisonnier, à vérifier sur une autre période.
+
+**Prochaines étapes** :
+  1. Replay sur période différente (Avr-Jul 2025) pour vérifier biais SHORT
+  2. Intégrer données 1-min pour résoudre ambiguïté intrabar (124 SL fantômes = ~143R)
+  3. Filtre spike : écarter bougies range > X ATR
+
 ---
 
 ## 1. Fondamentaux non négociables

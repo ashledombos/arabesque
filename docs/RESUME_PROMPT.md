@@ -1,29 +1,29 @@
 # PROMPT DE REPRISE — Arabesque (v3.3, BE 0.3/0.15)
 
-> Destiné à un modèle intermédiaire. Créé 2026-02-22.
+> Destiné à un modèle intermédiaire. Créé 2026-02-23.
 
 ## Lire : `HANDOFF.md` (obligatoire avant toute action)
 
-## Tâche : 3 REPLAYS DE VALIDATION
+## Tâche : Replays sur période Avr-Jul 2025
 
-### Replay 1 : BE 0.3/0.15 sur crypto-only
+But : vérifier si le biais SHORT (constant sur Oct-Jan) persiste ou est saisonnier.
+
+### Replay A : Combined crypto, période différente
 
 ```bash
 cd ~/dev/arabesque && git pull
 python -m arabesque.live.engine \
-  --source parquet --start 2025-10-01 --end 2026-01-01 \
+  --source parquet --start 2025-04-01 --end 2025-07-01 \
   --strategy combined --balance 100000 \
   --data-root ~/dev/barres_au_sol/data
 python scripts/analyze_replay_v2.py dry_run_XXXXXXXX_XXXXXX.jsonl --grid
 ```
-Comparer à v3.3 (BE 0.5/0.25): WR=60.2%, exp=+0.034R, total=+33.5R, 998 trades.
-Cible: WR≥70%, exp≥+0.10R.
 
-### Replay 2 : TREND-ONLY sur diversifié
+### Replay B : Trend diversifié, période différente
 
 ```bash
 python -m arabesque.live.engine \
-  --source parquet --start 2025-10-01 --end 2026-01-01 \
+  --source parquet --start 2025-04-01 --end 2025-07-01 \
   --strategy trend --balance 100000 \
   --data-root ~/dev/barres_au_sol/data \
   --instruments EURUSD GBPUSD USDJPY AUDUSD USDCAD USDCHF NZDUSD \
@@ -36,20 +36,17 @@ python -m arabesque.live.engine \
     XRPUSD ADAUSD AVAUSD NERUSD DOTUSD ALGUSD
 python scripts/analyze_replay_v2.py dry_run_XXXXXXXX_XXXXXX.jsonl --grid
 ```
-Baseline trend: 63 trades, WR=84%, exp=+0.442R.
 
-### Replay 3 : MR-ONLY sur crypto
+## Métriques clés à reporter
 
-```bash
-python -m arabesque.live.engine \
-  --source parquet --start 2025-10-01 --end 2026-01-01 \
-  --strategy mean_reversion --balance 100000 \
-  --data-root ~/dev/barres_au_sol/data
-python scripts/analyze_replay_v2.py dry_run_XXXXXXXX_XXXXXX.jsonl --grid
-```
-But: confirmer que MR fonctionne sur crypto et pas ailleurs.
+| Métrique | Oct-Jan (ref) | Avr-Jul |
+|---|---|---|
+| LONG total R | -14.4R (combined) / -3.2R (trend) | ? |
+| SHORT total R | +64.3R (combined) / +30.9R (trend) | ? |
+| WR global | 68.6% / 70.9% | ? |
+| Exp | +0.050R / +0.065R | ? |
+| Total R | +49.9R / +27.7R | ? |
 
 ⚠️ **Utiliser `analyze_replay_v2.py`** — un seul fichier JSONL à la fois.
 
 ## ⛔ NE PAS MODIFIER de fichiers code
-## ⛔ NE PAS interpréter les résultats pour décider de modifier la stratégie

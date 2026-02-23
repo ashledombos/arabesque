@@ -27,6 +27,16 @@ OBJECTIF : gains petits, fréquents, consistants.
 | v3.3 (BE 0.5/0.25) | 60.2% | +0.034R | +33.5R | 998 | BB tp, BE 0.5/0.25, giveback 0.5 | ✅ |
 | **v3.3 (BE 0.3/0.15)** | **~80%?** | **~+0.25R?** | **~+250R?** | ~998 | **BE 0.3/0.15** | **⏳ à tester** |
 
+### Résultats des 3 replays de validation (2026-02-23)
+
+| Replay | Config | N | WR | Exp | Total | DD | Score |
+|---|---|---|---|---|---|---|---|
+| 1 | Combined crypto BE0.3 | 999 | 68.6% | +0.050R | +49.9R | 14.1% | 3/5 |
+| 2 | **Trend diversifié** | **429** | **70.9%** | **+0.065R** | **+27.7R** | **8.8%** | **2/5** |
+| 3 | MR-only crypto | 29 | 31% | -0.374R | -10.9R | 5.8% | INVALIDE |
+
+**Replay 3 invalide** : `BacktestSignalGenerator` ≠ MR dans `CombinedSignalGenerator` (29 vs 873 trades).
+
 ---
 
 ## 2. Leçons majeures — IMMUTABLES
@@ -73,6 +83,20 @@ Test 46 instruments (crypto/forex/commodities/indices) — 319 trades :
 - Cause racine : 29% des trades MR n'atteignent jamais +0.3R MFE (mauvaise entrée)
 - **La stratégie optimale sera probablement MR-crypto + Trend-tout**
 
+### L8 : Les spikes de données sont le bottleneck n°1
+Sur Replay 1, 124 SL losers (41%) avaient MFE ≥ 0.3R — TOUS sur 1 seule barre.
+Ce sont des bougies H1 aberrantes (range 7R+) où la règle pessimiste prend le SL.
+Impact : ~143R perdus. Avec données 1-min, on saurait si high ou low arrive en premier.
+**Résoudre les spikes de données est plus important qu'optimiser les paramètres.**
+
+### L9 : Trend standalone libère +303 signaux
+En mode combined, MR occupe des slots → seulement 126 trend exécutés sur 429 possibles.
+Trend seul : 429 trades, WR 71%, DD 8.8% (le meilleur DD de tous les replays).
+
+### L10 : SHORT >> LONG sur Oct-Jan (biais à vérifier)
+Constant dans les 3 replays. Peut être saisonnier (risk-off hivernal)
+ou structurel (entrées LONG sur faux rebonds). **Tester sur une autre période avant d'agir.**
+
 ---
 
 ## 3. Configuration v3.3 détaillée
@@ -100,42 +124,46 @@ Test 46 instruments (crypto/forex/commodities/indices) — 319 trades :
 
 ## 4. Prochaines étapes
 
-### P1 : Replay v3.3 (BE 0.3/0.15) — PRIORITÉ ABSOLUE
+### P1 : Replay sur période différente — PRIORITÉ ABSOLUE
+Tester la même config sur Avr-Jul 2025 ou Jul-Oct 2025.
+But : vérifier si le biais SHORT est saisonnier ou structurel.
+Si SHORT domine aussi en été → problème structurel LONG à investiguer.
+Si LONG/SHORT équilibrés en été → biais saisonnier, ne pas filtrer.
 
 ```bash
-cd ~/dev/arabesque && git pull
 python -m arabesque.live.engine \
-  --source parquet --start 2025-10-01 --end 2026-01-01 \
+  --source parquet --start 2025-04-01 --end 2025-07-01 \
   --strategy combined --balance 100000 \
   --data-root ~/dev/barres_au_sol/data
-python scripts/analyze_replay_v2.py dry_run_20*.jsonl --grid
+python scripts/analyze_replay_v2.py dry_run_XXX.jsonl --grid
 ```
 
-⚠️ **Utiliser `analyze_replay_v2.py`** (pas `analyze_replay.py`).
-⚠️ Passer **un seul fichier**, pas `dry_run_*.jsonl` (le glob passe tous les fichiers).
+```bash
+python -m arabesque.live.engine \
+  --source parquet --start 2025-04-01 --end 2025-07-01 \
+  --strategy trend --balance 100000 \
+  --data-root ~/dev/barres_au_sol/data \
+  --instruments EURUSD GBPUSD USDJPY AUDUSD USDCAD USDCHF NZDUSD \
+    EURGBP EURJPY GBPJPY AUDJPY EURCAD AUDCAD GBPCAD \
+    USDMXN USDZAR USDSGD \
+    XAUUSD XAGUSD XPTUSD XCUUSD \
+    USOIL.cash UKOIL.cash NATGAS.cash \
+    WHEAT.c CORN.c COCOA.c \
+    BTCUSD ETHUSD LTCUSD BNBUSD BCHUSD SOLUSD \
+    XRPUSD ADAUSD AVAUSD NERUSD DOTUSD ALGUSD
+python scripts/analyze_replay_v2.py dry_run_XXX.jsonl --grid
+```
 
-**Cibles :**
-| Métrique | v3.3 (BE 0.5/0.25) | Cible BE 0.3/0.15 |
-|---|---|---|
-| WR | 60.2% | **≥ 70%** |
-| Exp | +0.034R | **≥ +0.10R** |
-| Total R | +33.5R | **≥ +100R** |
-| Score prop | ? | **≥ 3/5** |
+### P2 : Intégration données 1-minute
+Les données 1-min permettraient de résoudre l'ambiguïté intrabar.
+Impact estimé : 124 trades correctement classifiés → ~70-100R récupérés.
+Question à poser : ces données sont-elles disponibles dans barres_au_sol ?
 
-### P2 : Diversification instruments
-Ajouter au pipeline parquet avec `barres_au_sol` :
-- Forex prioritaire : EURUSD, GBPUSD, USDJPY, AUDUSD
-- Indices : NAS100, SP500, DAX40
-- Commodités : XAGUSD (argent), USOIL
-Même période Oct 2025 → Jan 2026 pour comparabilité.
+### P3 : Filtre spike dans le pipeline
+Écarter les bougies dont le range (high-low) dépasse X × ATR_14.
+À implémenter dans le replay engine (pre-processing des données).
 
-### P3 : Données 1-minute (si P1 montre des résultats prometteurs)
-Les données 1-min permettraient de lever l'ambiguïté intrabar :
-- Savoir si high ou low est touché en premier dans chaque bougie H1
-- Transformer le biais pessimiste en observation réelle
-- Impact estimé : +5-15% de trades correctement classifiés
-
-### P4 : Connexion FTMO test (seulement si score prop ≥ 3/5)
+### P4 : Connexion FTMO test (seulement si Trend score ≥ 3/5 sur 2 périodes)
 
 ---
 
