@@ -1,0 +1,121 @@
+# Arabesque — Profils Prop Firms
+# Chaque profil définit les contraintes d'un type de compte spécifique.
+# En mode multi-compte, chaque compte utilise un profil différent
+# avec un sous-ensemble d'instruments pour éviter les doublons.
+#
+# IMPORTANT: les prop firms interdisent souvent les positions identiques
+# entre comptes du même trader. La distribution des instruments est
+# la méthode la plus sûre pour y remédier.
+
+profiles:
+
+  ftmo_swing:
+    description: "FTMO Swing — overnight autorisé, levier 1:30"
+    max_daily_dd_pct: 5.0
+    max_total_dd_pct: 10.0
+    risk_per_trade_pct: 0.40
+    max_positions: 5
+    max_open_risk_pct: 2.0
+    max_daily_trades: 10
+    dd_safety_margin_pct: 1.5
+    # Fenêtre news: ±2min sur funded, libre en évaluation
+    news_filter: true
+    news_window_min: 2
+    overnight_allowed: true
+    instruments:
+      - EURUSD
+      - GBPUSD
+      - USDJPY
+      - XAUUSD
+      - XAGUSD
+      - GBPJPY
+      - EURCAD
+      - NZDUSD
+      - USDMXN
+      - CHFJPY
+
+  ftmo_standard:
+    description: "FTMO Standard — pas d'overnight, levier 1:100"
+    max_daily_dd_pct: 5.0
+    max_total_dd_pct: 10.0
+    risk_per_trade_pct: 0.40
+    max_positions: 5
+    max_open_risk_pct: 2.0
+    max_daily_trades: 10
+    dd_safety_margin_pct: 1.5
+    news_filter: true
+    news_window_min: 2
+    overnight_allowed: false
+    instruments:
+      - AUDUSD
+      - USDCAD
+      - EURGBP
+      - GBPCAD
+      - EURCAD
+      - AUDCAD
+      - EURJPY
+      - AUDJPY
+      - USDCHF
+      - EURCHF
+
+  gft_challenge:
+    description: "GFT — règles variables selon type de challenge"
+    max_daily_dd_pct: 4.0
+    max_total_dd_pct: 8.0
+    risk_per_trade_pct: 0.35
+    max_positions: 4
+    max_open_risk_pct: 1.5
+    max_daily_trades: 8
+    dd_safety_margin_pct: 1.0
+    news_filter: false
+    overnight_allowed: true
+    instruments:
+      - GBPAUD
+      - EURNZD
+      - CADJPY
+      - USDPLN
+      - EURPLN
+      - USDCZK
+      - GBPPLN
+      - NZDJPY
+      - EURAUD
+      - USDDKK
+
+  crypto_swing:
+    description: "Compte crypto — prop firms autorisant crypto"
+    max_daily_dd_pct: 5.0
+    max_total_dd_pct: 10.0
+    risk_per_trade_pct: 0.40
+    max_positions: 5
+    max_open_risk_pct: 2.0
+    max_daily_trades: 10
+    dd_safety_margin_pct: 1.5
+    news_filter: false
+    overnight_allowed: true
+    instruments:
+      - SOLUSD
+      - ETHUSD
+      - DOTUSD
+      - ALGOUSD
+      - BTCUSD
+      - BNBUSD
+      - XRPUSD
+      - NEOUSD
+      - DOGEUSD
+      - XLMUSD
+
+# Distribution des instruments entre comptes:
+# - Aucun instrument en double entre comptes de la MÊME prop firm
+# - Les instruments sont assignés par rentabilité (top performers distribués)
+# - Crypto séparé des forex pour décorréler les comptes
+#
+# Classement des instruments par P&L sur 20 mois (top 30):
+#   SOLUSD +14.8R | XAGUSD +12.3R | DOTUSD +12.1R | NEOUSD +11.1R
+#   ALGOUSD +11.0R | USDMXN +10.6R | ETHUSD +10.3R | XAUEUR +9.2R
+#   USDCZK +8.8R | MANAUSD +8.7R | XAUUSD +8.3R | SANDUSD +8.0R
+#   GRTUSD +7.6R | BNBUSD +7.3R | IMXUSD +7.1R | NZDUSD +7.1R
+#   CHFJPY +7.0R | GBPJPY +7.0R | DOGEUSD +6.9R | NEARUSD +6.9R
+#
+# Instruments à éviter (perdants sur 20 mois):
+#   USDZAR -7.7R | GBPNZD -5.5R | ICPUSD -5.0R | USDCNH -4.8R
+#   USDNOK -4.6R

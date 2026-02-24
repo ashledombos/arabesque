@@ -1,39 +1,43 @@
-# PROMPT DE REPRISE — Arabesque (v3.3, TREND-ONLY, BE 0.3/0.20)
+# PROMPT DE REPRISE — Arabesque v3.3 (TREND-ONLY, BE 0.3/0.20, risk 0.40%)
 
-> Destiné à un modèle intermédiaire. Créé 2026-02-23.
+> Destiné à un modèle intermédiaire. Créé 2026-02-24.
 
 ## Lire : `HANDOFF.md` (obligatoire avant toute action)
 
-## Tâche : VALIDATION CROISÉE — Trend Dukascopy, 2e période
+## STRATÉGIE VALIDÉE
+- 20 mois, 1998 trades, WR 75.5%, +260R, IC99 > 0
+- TREND-ONLY sur 76 instruments (forex + metals + crypto)
+- BE 0.3R trigger / 0.20R offset
+- Risk 0.40%/trade (DD max 8.2% < FTMO 10%)
 
-Le Replay B (Avr→Jul) a montré que trend Dukascopy = WR 79%, +29.3R.
-Il faut valider sur la 2e période (Oct→Jan) pour confirmer la robustesse.
+## Tâche A : REPLAY DE CONFIRMATION (risk 0.40%)
+
+Vérifier que le DD diminue bien avec le nouveau risk 0.40%.
 
 ```bash
 cd ~/dev/arabesque && git pull
 
 python -m arabesque.live.engine \
-  --source parquet --start 2025-10-01 --end 2026-01-01 \
+  --source parquet --start 2024-07-01 --end 2026-02-20 \
   --strategy trend --balance 100000 \
   --data-root ~/dev/barres_au_sol/data \
   --instruments EURUSD GBPUSD USDJPY AUDUSD USDCAD USDCHF NZDUSD \
     EURGBP EURJPY GBPJPY AUDJPY EURCAD AUDCAD GBPCAD \
-    USDMXN USDZAR USDSGD XAUUSD XAGUSD
+    USDMXN USDZAR USDSGD XAUUSD XAGUSD \
+    AUDCHF AUDNZD CADCHF CADJPY CHFJPY EURAUD EURCHF \
+    EURCZK EURHUF EURNOK EURNZD EURPLN GBPAUD GBPCHF \
+    GBPNZD GBPPLN NZDCAD NZDCHF NZDJPY USDCNH USDCZK \
+    USDDKK USDHKD USDHUF USDILS USDNOK USDPLN USDSEK \
+    USDTRY XAGAUD XAGEUR XAUAUD XAUEUR \
+    BTCUSD ETHUSD SOLUSD BNBUSD XRPUSD DOGEUSD ADAUSD \
+    DOTUSD AVAXUSD LINKUSD LTCUSD UNIUSD NEARUSD ICPUSD \
+    FETUSD GRTUSD IMXUSD SANDUSD MANAUSD ALGOUSD VETUSD \
+    XLMUSD XMRUSD ETCUSD BCHUSD DASHUSD NEOUSD GALUSD BARUSD
 
 python scripts/analyze_replay_v2.py dry_run_XXXXXXXX_XXXXXX.jsonl --grid
 ```
 
-## Métriques à comparer
-
-| Métrique | Replay B (Avr→Jul, Dukascopy) | Cible (Oct→Jan) |
-|---|---|---|
-| WR | 79% | ≥ 70% |
-| Expectancy | +0.128R | ≥ +0.05R |
-| Total R | +29.3R | > 0R |
-| Spikes | 0 | 0 |
-| Score prop | 3/5 | ≥ 3/5 |
-
-⚠️ Utiliser `analyze_replay_v2.py` (un seul fichier JSONL, pas de glob `*`).
+Cibles : DD < 10%, return > +80%, WR > 70%.
 
 ## ⛔ NE PAS MODIFIER de fichiers code
-## ⛔ NE PAS interpréter les résultats pour décider de modifier la stratégie
+## ⛔ NE PAS interpréter les résultats pour modifier la stratégie

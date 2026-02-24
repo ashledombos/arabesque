@@ -519,7 +519,7 @@ def _run_parquet_replay(args) -> None:
         max_daily_dd_pct=4.0,
         max_total_dd_pct=9.0,
         max_positions=5,
-        risk_per_trade_pct=0.5,
+        risk_per_trade_pct=0.40,   # v3.3: 0.5→0.40 (DD 10.3%→8.2%)
         max_daily_trades=999,
     )
 

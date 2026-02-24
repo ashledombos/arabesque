@@ -49,7 +49,12 @@ class PropConfig:
     max_positions: int = 10           # Filet absolu anti-bug (relevé de 3 → 10)
     max_open_risk_pct: float = 2.0    # % du start_balance max en risque ouvert simultané
     max_daily_trades: int = 10
-    risk_per_trade_pct: float = 0.5
+    risk_per_trade_pct: float = 0.40
+    # v3.3 (2026-02-24): réduit de 0.50% à 0.40%.
+    # Sur 20 mois (1998 trades), max DD = 20.5R.
+    # À 0.50%/trade: DD = 10.3% → DÉPASSE FTMO 10%.
+    # À 0.40%/trade: DD = 8.2% → marge 1.8% sous le seuil.
+    # Return reste +104% (largement au-dessus du 10% target).
     # Marge de sécurité avant le seuil fatal (en points de %).
     # Pause dès que total_dd <= -(max_total_dd - dd_safety_margin).
     # Ex : max=8%, margin=1% → pause à -7%.

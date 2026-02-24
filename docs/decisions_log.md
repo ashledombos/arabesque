@@ -263,6 +263,26 @@ Trend gagne sur forex, métaux, commodités — perd seulement sur crypto.
 **Prochaine étape** : Replay TREND-ONLY sur instruments Dukascopy seulement, période Oct→Jan,
 pour validation croisée sur 2e période.
 
+### Validation 20 mois — Résultat définitif (2026-02-24, session Opus 4.6)
+
+**Replay 20 mois** (Jul 2024 → Fév 2026, 76 instruments): 1998 trades, WR 75.5%, Exp +0.130R, +260.2R.
+Max DD 20.5R = 10.3% à 0.5%/trade. PF 1.55. IC99 > 0. Score 4/5.
+8/8 blocs temporels positifs — aucune période perdante.
+
+**RÉVISION — Crypto trend est rentable sur 20 mois**
+La conclusion "Dukascopy only" (session précédente) était basée sur une seule période (Avr→Jul).
+Sur 20 mois : Dukascopy +115.2R (49 inst), Crypto +145.0R (27 inst).
+Le crypto trend SURPERFORME le forex trend. Le drawdown Avr-Jul était localisé, pas structurel.
+Les 4 blocs temporels crypto sont tous positifs et en accélération (+21→+26→+44→+53R).
+
+**Décision : risk_per_trade 0.50% → 0.40%**
+Max DD 20.5R. À 0.50%: DD=10.3% (DÉPASSE FTMO 10%). À 0.40%: DD=8.2% (marge 1.8%).
+Return à 0.40%: +104% sur 20 mois. Largement au-dessus du target 10%.
+Modifié dans guards.py (PropConfig.risk_per_trade_pct) et engine.py (replay default).
+
+**Multi-compte** : profils créés dans config/prop_firm_profiles.yaml.
+Distribution d'instruments entre comptes pour éviter doublons et respecter règles anti-duplication.
+
 ### Résultats des 3 replays de validation (2026-02-23, session Opus 4.6)
 
 **Replay 1 — Combined crypto, BE 0.3/0.15** : 999 trades, WR 68.6%, Exp +0.050R, Total +49.9R, DD 14.1%, Score 3/5.
