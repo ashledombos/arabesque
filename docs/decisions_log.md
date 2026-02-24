@@ -576,3 +576,20 @@ Classement par priorité pour éviter de les redécouvrir.
 10. **Stage 0 validation par catégorie** dans `pipeline.py` : voir `docs/instrument_selection_philosophy.md`.
 11. **Pipeline automatisé mensuel** via systemd timer + notification Telegram/ntfy du rapport.
 12. **Scorecard standardisé** : format JSON/CSV avec colonne `vs_baseline` pour toutes les explorations — à créer avant les prochaines explorations.
+
+### Diagnostic replay 0.4% — 999 vs 1998 trades (2026-02-24)
+
+Le replay à 0.40%/trade produit 999 trades au lieu de 1998. Cause identifiée:
+le guard `worst_case_budget` ajouté dans `check_all()` utilise `open_risk_cash`
+qui n'est pas correctement décrémenté dans le DryRunAdapter (bug connu de l'equity
+tracking en replay). Résultat: 1151 trades rejetés à tort (phantom rejects), dont
+Exp +0.136R et Total +156R.
+
+Solution: `worst_case_budget` activé UNIQUEMENT en live (`Guards.live_mode=True`).
+En replay, le guard est ignoré. Le guard reste fondamental pour le live car il
+vérifie que le risque cumulé (positions ouvertes + nouveau trade) ne dépasse pas
+le budget daily DD restant.
+
+Impact: les 999 trades restants montrent DD 5.0%, Score 5/5. Le run complet à
+0.40%/trade (sans le guard) devrait donner DD ≈ 8.2% (20.5R × 0.4%), ce qui
+reste sous FTMO 10%.

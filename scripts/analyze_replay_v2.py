@@ -239,12 +239,25 @@ def prop_firm_score(trades):
         if dd > max_dd_r:
             max_dd_r = dd
 
-    # With 0.5% risk per trade, convert R to %
-    risk_pct = 0.5
+    # Auto-detect risk % from trade data
+    # Use the modal (most common) risk_cash as the nominal risk
+    risk_cash_values = [t.get("risk_cash", 0) for t in trades if t.get("risk_cash")]
+    if risk_cash_values:
+        # Most trades have nominal risk (before DD reduction)
+        # The mode approximates the unreduced risk = start_balance × risk_pct
+        nominal_risk = max(set(risk_cash_values), key=risk_cash_values.count)
+        # start_balance is not in JSONL, estimate from nominal_risk
+        # Common values: 400→0.40%, 500→0.50%
+        risk_pct = round(nominal_risk / 1000, 2)  # assumes 100k start
+        if risk_pct < 0.1 or risk_pct > 2.0:
+            risk_pct = 0.5  # fallback
+    else:
+        risk_pct = 0.5  # fallback if no risk_cash field
+
     dd_pct = max_dd_r * risk_pct
     total_pct = total * risk_pct
 
-    print(f"\n  PROP FIRM READINESS (risk = {risk_pct}% par trade)")
+    print(f"\n  PROP FIRM READINESS (risk = {risk_pct}% par trade, auto-détecté)")
     print(f"  {'-' * 50}")
 
     # Criteria
@@ -274,7 +287,19 @@ def prop_firm_score(trades):
     print(f"  {'✅' if ok4 else '❌'} Total return: {total_pct:+.1f}% {'>= 10%' if ok4 else '< 10%'}")
 
     # 5. Days to 10% estimate
-    trades_per_day = n / 90  # ~90 days in 3 months
+    # Auto-detect period length from trade timestamps
+    ts_entries = [t.get("ts_entry", "") for t in trades if t.get("ts_entry")]
+    if len(ts_entries) >= 2:
+        from datetime import datetime
+        try:
+            first = datetime.fromisoformat(ts_entries[0].replace("Z", "+00:00"))
+            last = datetime.fromisoformat(ts_entries[-1].replace("Z", "+00:00"))
+            period_days = max(1, (last - first).days)
+        except Exception:
+            period_days = 90  # fallback
+    else:
+        period_days = 90  # fallback: assume 3 months
+    trades_per_day = n / period_days
     daily_exp_pct = exp * risk_pct * trades_per_day
     days_10 = 10 / daily_exp_pct if daily_exp_pct > 0 else float("inf")
     ok5 = days_10 < 45

@@ -74,6 +74,8 @@ class RejectReason(str, Enum):
     MIN_RR_NOT_MET = "min_rr_not_met"
     ORDER_EXPIRED = "order_expired"
     BB_SQUEEZE = "bb_squeeze"
+    WORST_CASE_BUDGET = "worst_case_budget"
+    CIRCUIT_BREAKER = "circuit_breaker"
 
 
 # ── Signal ─────────────────────────────────────────────────────────

@@ -1,0 +1,82 @@
+# Arabesque — Config compte live
+# Un fichier par compte. NE PAS mettre d'état runtime ici.
+#
+# Copier ce template: cp account_template.yaml accounts/ftmo_swing_01.yaml
+
+# ── Identification ────────────────────────────────────────────
+account_id: "ftmo_swing_01"
+firm: "ftmo"
+account_type: "swing"           # "swing" | "standard" | "evaluation"
+phase: "evaluation"             # "evaluation" | "funded"
+broker_type: "ctrader"          # "ctrader" | "tradelocker"
+# Credentials: dans secrets.yaml, PAS ici
+broker_credentials_ref: "ftmo_swing_01"
+
+# ── Balance et sizing ─────────────────────────────────────────
+start_balance: 100000
+currency: "USD"
+risk_per_trade_pct: 0.40
+
+# ── Règles prop firm (HARD FAIL si violées) ───────────────────
+max_daily_dd_pct: 5.0           # FTMO: 5% du daily start balance
+max_total_dd_pct: 10.0          # FTMO: 10% du start balance
+dd_safety_margin_pct: 1.5       # Pause interne à (max - margin)
+
+# Daily DD calculation:
+#   "start_of_day"   = equity au reset vs equity courante (FTMO)
+#   "trailing_intraday" = high watermark intraday vs equity courante
+daily_dd_mode: "start_of_day"
+
+# ── Reset journalier ─────────────────────────────────────────
+reset_timezone: "Europe/Prague"  # FTMO = CE(S)T
+reset_hour: 0                    # Minuit heure locale
+
+# ── Limites d'exposition ──────────────────────────────────────
+max_positions: 5
+max_open_risk_pct: 2.0          # % du start_balance max en risque ouvert
+max_daily_trades: 10
+
+# ── Instruments autorisés ─────────────────────────────────────
+# Seuls ces instruments reçoivent des signaux sur CE compte.
+# Les instruments sont répartis entre comptes pour éviter les doublons.
+instruments:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - XAUUSD
+  - XAGUSD
+  - GBPJPY
+  - EURCAD
+  - NZDUSD
+  - USDMXN
+  - CHFJPY
+
+# ── Mapping symboles broker ──────────────────────────────────
+# Si le broker utilise des noms différents des nôtres
+symbol_mapping:
+  # XAUUSD: "Gold"        # Décommenter si nécessaire
+  # XAGUSD: "Silver"
+
+# ── Règles opérationnelles ────────────────────────────────────
+close_weekend: false             # Swing = pas de close weekend
+close_before_weekend_utc: null   # null si close_weekend=false
+
+news_filter: true                # Activer le filtre news?
+news_buffer_min: 2               # ±2 minutes autour des annonces
+
+# ── Leverage ──────────────────────────────────────────────────
+leverage: 30                     # FTMO Swing: 1:30
+
+# ── Circuit breaker ──────────────────────────────────────────
+circuit_breaker:
+  max_warnings: 3                # Warnings avant freeze
+  auto_freeze_on_critical: true  # Freeze immédiat sur incident critique
+
+# ── Alertes ──────────────────────────────────────────────────
+alerts:
+  enabled: true
+  # webhook_url: dans secrets.yaml
+  alert_on_trade: true
+  alert_on_reject: false         # Trop bruyant en production
+  alert_on_circuit_breaker: true
+  alert_on_daily_dd_warning: true  # Quand DD > 50% du daily limit

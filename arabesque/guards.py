@@ -36,10 +36,14 @@ CORRECTIONS v2.4 (2026-02-20) — TD-007 :
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+from enum import Enum
 
 from arabesque.models import Signal, Decision, Counterfactual, DecisionType, RejectReason, Side
+
+logger = logging.getLogger("arabesque.guards")
 
 
 @dataclass
@@ -59,6 +63,11 @@ class PropConfig:
     # Pause dès que total_dd <= -(max_total_dd - dd_safety_margin).
     # Ex : max=8%, margin=1% → pause à -7%.
     dd_safety_margin_pct: float = 1.0
+    # v3.3 (2026-02-24) — Timezone du reset journalier.
+    # FTMO: minuit CE(S)T. Topstep: 17h CT. GFT: vérifier.
+    # Le DST est géré automatiquement via pytz/zoneinfo.
+    reset_timezone: str = "Europe/Prague"  # FTMO = CET/CEST
+    reset_hour: int = 0                    # 0 = minuit
 
 
 @dataclass
@@ -112,9 +121,10 @@ class AccountState:
 class Guards:
     """Évalue tous les guards. Retourne (ok, Decision)."""
 
-    def __init__(self, prop: PropConfig, exec_cfg: ExecConfig):
+    def __init__(self, prop: PropConfig, exec_cfg: ExecConfig, live_mode: bool = False):
         self.prop = prop
         self.exec = exec_cfg
+        self.live_mode = live_mode  # worst_case_budget ONLY in live (equity tracking broken in replay)
 
     def check_all(
         self,
@@ -139,6 +149,13 @@ class Guards:
             self._duplicate_instrument(signal, account),
             self._bb_squeeze(signal),
         ]
+
+        # worst_case_budget: LIVE ONLY.
+        # En replay, le DryRunAdapter ne track pas l'equity correctement,
+        # ce qui fait que open_risk_cash s'accumule sans se décroître → faux rejets.
+        # Diagnostic 2026-02-24: ce guard causait 1151 rejets fantômes (1998→999 trades).
+        if self.live_mode:
+            checks.append(self._worst_case_budget(signal, account))
 
         # Checks nécessitant ATR
         if atr > 0:
@@ -232,6 +249,39 @@ class Guards:
             return False, RejectReason.BB_SQUEEZE, f"bb_width={signal.bb_width:.4f}"
         return True, None, ""
 
+    def _worst_case_budget(self, signal: Signal, a: AccountState):
+        """Worst-case pre-trade: si TOUS les SL ouverts sont touchés
+        + ce nouveau trade aussi, est-ce qu'on dépasse le daily DD limit?
+
+        C'est LE guard le plus important pour les prop firms.
+        Sans lui, on peut accepter un trade qui, combiné aux positions
+        ouvertes, causerait un breach même si chaque trade individuellement
+        respecte les limites.
+
+        Calcul: open_risk_cash = somme des risk_cash de toutes les positions.
+        Si (open_risk_cash + new_risk_cash) > daily_dd_remaining → reject.
+        """
+        # Risque du nouveau trade
+        risk_distance = abs(signal.close - signal.sl)
+        if risk_distance == 0:
+            return True, None, ""
+
+        new_risk_cash = a.start_balance * (self.prop.risk_per_trade_pct / 100)
+
+        # Budget daily restant (en cash)
+        daily_dd_remaining_cash = max(
+            0,
+            (self.prop.max_daily_dd_pct + a.daily_dd_pct) / 100 * a.daily_start_balance
+        )
+
+        # Worst case: toutes les positions ouvertes touchent leur SL + ce trade aussi
+        worst_case_total = a.open_risk_cash + new_risk_cash
+        if worst_case_total > daily_dd_remaining_cash:
+            return False, RejectReason.WORST_CASE_BUDGET, (
+                f"worst_case {worst_case_total:.0f}$ > daily budget {daily_dd_remaining_cash:.0f}$"
+            )
+        return True, None, ""
+
     def _spread(self, spread: float, atr: float, max_ratio: float):
         ratio = spread / atr
         if ratio > max_ratio:
@@ -321,3 +371,176 @@ class Guards:
             "risk_cash": round(risk_cash, 2),
             "risk_distance": risk_distance,
         }
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Circuit Breaker — freeze le compte en cas d'incident critique
+# ══════════════════════════════════════════════════════════════════════
+
+class CircuitBreakerState(Enum):
+    RUNNING = "running"      # Tout va bien, trading normal
+    CAUTION = "caution"      # Incident mineur, trading autorisé mais surveillé
+    FROZEN = "frozen"        # Incident critique, plus aucun trade
+
+    @classmethod
+    def _missing_(cls, value):
+        return cls.RUNNING
+
+
+@dataclass
+class Incident:
+    """Un incident enregistré par le circuit breaker."""
+    timestamp: datetime
+    severity: str                  # "warning" | "critical"
+    category: str                  # "sl_missing" | "sizing_mismatch" | "execution_divergence" | ...
+    expected: str                  # Valeur attendue (texte)
+    actual: str                    # Valeur constatée (texte)
+    context: dict = field(default_factory=dict)
+    account_id: str = ""
+
+
+class CircuitBreaker:
+    """Disjoncteur de sécurité pour le trading live.
+
+    3 états :
+      RUNNING  — normal, tout est ok
+      CAUTION  — incident mineur détecté, log + alerte, trading ok
+      FROZEN   — incident critique, plus aucun trade, déblocage manuel
+
+    Déclencheurs FROZEN :
+      - SL absent sur position ouverte
+      - Divergence sizing > seuil (position réelle ≠ position attendue)
+      - Exception broker non gérée
+      - DD safety margin atteint (déjà dans guards, mais backup ici)
+
+    Déclencheurs CAUTION :
+      - Slippage élevé mais dans les tolérances
+      - SL modifié par le broker (arrondi)
+      - Fill partiel
+
+    Usage :
+        cb = CircuitBreaker()
+        cb.report_incident("sl_missing", "critical", expected="SL at 1.0800", actual="no SL found")
+        if not cb.can_trade():
+            return  # bloqué
+    """
+
+    def __init__(self, max_warnings: int = 3, auto_freeze_on_critical: bool = True):
+        self.state: CircuitBreakerState = CircuitBreakerState.RUNNING
+        self.incidents: list[Incident] = []
+        self.max_warnings = max_warnings
+        self.auto_freeze_on_critical = auto_freeze_on_critical
+        self._warning_count = 0
+
+    def can_trade(self) -> bool:
+        """Le compte est-il autorisé à trader?"""
+        return self.state == CircuitBreakerState.RUNNING or self.state == CircuitBreakerState.CAUTION
+
+    def is_frozen(self) -> bool:
+        return self.state == CircuitBreakerState.FROZEN
+
+    def report_incident(
+        self,
+        category: str,
+        severity: str,
+        expected: str = "",
+        actual: str = "",
+        context: dict | None = None,
+        account_id: str = "",
+    ) -> Incident:
+        """Enregistre un incident et ajuste l'état.
+
+        severity: "warning" → CAUTION (après max_warnings → FROZEN)
+                  "critical" → FROZEN immédiat
+        """
+        incident = Incident(
+            timestamp=datetime.now(timezone.utc),
+            severity=severity,
+            category=category,
+            expected=expected,
+            actual=actual,
+            context=context or {},
+            account_id=account_id,
+        )
+        self.incidents.append(incident)
+
+        if severity == "critical":
+            if self.auto_freeze_on_critical:
+                self.state = CircuitBreakerState.FROZEN
+                logger.critical(
+                    f"🔴 CIRCUIT BREAKER FROZEN — {category}: "
+                    f"expected={expected}, actual={actual}"
+                )
+        elif severity == "warning":
+            self._warning_count += 1
+            if self._warning_count >= self.max_warnings:
+                self.state = CircuitBreakerState.FROZEN
+                logger.critical(
+                    f"🔴 CIRCUIT BREAKER FROZEN — {self._warning_count} warnings accumulated"
+                )
+            else:
+                self.state = CircuitBreakerState.CAUTION
+                logger.warning(
+                    f"🟡 CIRCUIT BREAKER CAUTION — {category}: "
+                    f"expected={expected}, actual={actual} "
+                    f"({self._warning_count}/{self.max_warnings})"
+                )
+
+        return incident
+
+    def manual_reset(self, reason: str = "") -> None:
+        """Déblocage manuel — UNIQUEMENT par action humaine."""
+        logger.info(f"🟢 CIRCUIT BREAKER RESET — reason: {reason}")
+        self.state = CircuitBreakerState.RUNNING
+        self._warning_count = 0
+
+    def get_incidents_summary(self) -> dict:
+        """Résumé pour le journal."""
+        return {
+            "state": self.state.value,
+            "total_incidents": len(self.incidents),
+            "warnings": sum(1 for i in self.incidents if i.severity == "warning"),
+            "criticals": sum(1 for i in self.incidents if i.severity == "critical"),
+            "last_incident": (
+                {
+                    "timestamp": self.incidents[-1].timestamp.isoformat(),
+                    "category": self.incidents[-1].category,
+                    "severity": self.incidents[-1].severity,
+                }
+                if self.incidents else None
+            ),
+        }
+
+
+# ══════════════════════════════════════════════════════════════════════
+# Timezone-aware day reset
+# ══════════════════════════════════════════════════════════════════════
+
+def is_new_day(now_utc: datetime, last_reset_utc: datetime, prop: PropConfig) -> bool:
+    """Détermine si le jour de trading a changé (gère le DST).
+
+    Utilise la timezone et l'heure de reset de la config prop firm.
+    FTMO: minuit CE(S)T (Europe/Prague).
+    Topstep: 17h CT (America/Chicago).
+
+    Le DST est géré automatiquement: en hiver CET=UTC+1, en été CEST=UTC+2.
+    Le reset se produit à minuit heure locale, quel que soit le décalage UTC.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        from backports.zoneinfo import ZoneInfo  # Python < 3.9
+
+    tz = ZoneInfo(prop.reset_timezone)
+    now_local = now_utc.astimezone(tz)
+    last_local = last_reset_utc.astimezone(tz)
+
+    # Le "jour de trading" commence à reset_hour heure locale
+    # Un jour a changé si la date locale (ajustée pour reset_hour) est différente
+    def trading_date(dt_local):
+        """Date du jour de trading: si l'heure est avant reset, c'est encore 'hier'."""
+        if dt_local.hour < prop.reset_hour:
+            return (dt_local - timedelta(hours=24)).date()
+        return dt_local.date()
+
+    return trading_date(now_local) > trading_date(last_local)
