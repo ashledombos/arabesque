@@ -1,0 +1,109 @@
+# =============================================================================
+# Arabesque - Configuration principale
+# =============================================================================
+# Les credentials sont dans config/secrets.yaml (séparé, non commité)
+# Les instruments sont dans config/instruments.yaml (fichier dédié recommandé)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# PARAMÈTRES GÉNÉRAUX
+# -----------------------------------------------------------------------------
+general:
+  risk_percent: 0.5          # Risque par trade (% du capital)
+  use_equity: true           # Utiliser l'équité (true) ou la balance (false)
+  default_rr_ratio: 2.5      # R/R par défaut si non fourni dans le signal
+  order_timeout_candles: 4   # Expiration des ordres limites (en bougies)
+  candle_timeframe_minutes: 240  # Timeframe des bougies (240 = H4)
+
+# -----------------------------------------------------------------------------
+# EXÉCUTION
+# -----------------------------------------------------------------------------
+execution:
+  delay_between_brokers:
+    enabled: true
+    min_ms: 500
+    max_ms: 3000
+
+# -----------------------------------------------------------------------------
+# PRICE FEED (surveillance prix cTrader)
+# -----------------------------------------------------------------------------
+price_feed:
+  # Broker utilisé comme source de prix (doit être de type ctrader)
+  source_broker: "ftmo_swing_test"
+  # Laissez vide : tous les instruments avec follow: true dans instruments.yaml
+  # seront automatiquement surveillés.
+  # Remplissez uniquement pour restreindre à un sous-ensemble.
+  symbols: []
+  # symbols:
+  #   - GBPUSD
+  #   - BTCUSD
+
+# -----------------------------------------------------------------------------
+# FILTRES PRÉ-PLACEMENT
+# -----------------------------------------------------------------------------
+filters:
+  min_margin_percent: 30
+  max_daily_drawdown_percent: 4.0
+  max_total_drawdown_percent: 9.0
+  max_open_positions: 5
+  max_pending_orders: 10
+  prevent_duplicate_orders: true
+
+# -----------------------------------------------------------------------------
+# BROKERS
+# -----------------------------------------------------------------------------
+brokers:
+#    # ---- FTMO 100k (cTrader) ----
+#    ftmo_ctrader:
+#      enabled: false
+#      type: ctrader
+#      name: "FTMO Challenge"
+#      is_demo: true
+#      auto_refresh_token: true
+#      # account_id: dans secrets.yaml (null = auto-détection via API)
+
+  # ---- FTMO compte test (cTrader) ----
+  ftmo_swing_test:
+    enabled: true
+    type: ctrader
+    name: "FTMO compte test"
+    is_demo: false
+    auto_refresh_token: true
+    # account_id: dans secrets.yaml
+
+#    # ---- GFT Compte 1 (TradeLocker) ----
+#    gft_compte1:
+#      enabled: false
+#      type: tradelocker
+#      name: "GFT Funded #1"
+#      is_demo: false
+#      base_url: "https://bsb.tradelocker.com"
+#      server: "GFTTL"
+
+  # ---- GFT Compte 2 (TradeLocker) - décommenter si nécessaire ----
+  gft_compte2:
+    enabled: true
+    type: tradelocker
+    name: "GFT Funded #2"
+    is_demo: false
+    base_url: "https://bsb.tradelocker.com"
+    server: "GFTTL"
+
+# -----------------------------------------------------------------------------
+# INSTRUMENTS
+# -----------------------------------------------------------------------------
+# Définis dans config/instruments.yaml (recommandé)
+# Le champ follow: true/false dans chaque instrument contrôle
+# si le symbole est surveillé par le price feed live.
+instruments: {}
+
+# -----------------------------------------------------------------------------
+# NOTIFICATIONS (optionnel)
+# -----------------------------------------------------------------------------
+notifications:
+  enabled: false
+  on_order_placed: true
+  on_order_error: true
+  # channels: dans config/secrets.yaml → notifications.channels
+  # (contient les tokens, ne pas mettre ici)
+  channels: []

@@ -1,0 +1,655 @@
+# =============================================================================
+# INSTRUMENTS - Configuration des symboles de trading
+# =============================================================================
+# follow: true  → surveillé en live
+# follow: false → présent mais non surveillé
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# FOREX - Majors (XXX/USD)
+# -----------------------------------------------------------------------------
+EURUSD:
+  ftmo_swing_test: "EURUSD"
+  gft_compte2: "EURUSD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+
+GBPUSD:
+  ftmo_swing_test: "GBPUSD"
+  gft_compte2: "GBPUSD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+
+AUDUSD:
+  ftmo_swing_test: "AUDUSD"
+  gft_compte2: "AUDUSD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+
+NZDUSD:
+  ftmo_swing_test: "NZDUSD"
+  gft_compte2: "NZDUSD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+
+# -----------------------------------------------------------------------------
+# FOREX - USD/XXX
+# -----------------------------------------------------------------------------
+USDCAD:
+  ftmo_swing_test: "USDCAD"
+  gft_compte2: "USDCAD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 7.25
+
+USDCHF:
+  ftmo_swing_test: "USDCHF"
+  gft_compte2: "USDCHF.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 12.66
+
+USDJPY:
+  ftmo_swing_test: "USDJPY"
+  gft_compte2: "USDJPY.X"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 6.33
+
+USDCNH:
+  ftmo_swing_test: "USDCNH"
+  gft_compte2: "USDCNH.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 1.44
+
+USDCZK:
+  ftmo_swing_test: "USDCZK"
+  gft_compte2: "USDCZK.X"
+  follow: true
+  pip_size: 0.001
+  pip_value_per_lot: 4.26
+
+USDDKK:
+  ftmo_swing_test: "USDDKK"
+  gft_compte2: "USDDKK.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 1.45
+
+USDHKD:
+  ftmo_swing_test: "USDHKD"
+  gft_compte2: "USDHKD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 1.28
+
+USDHUF:
+  ftmo_swing_test: "USDHUF"
+  gft_compte2: "USDHUF.X"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 2.60
+
+USDILS:
+  ftmo_swing_test: "USDILS"
+  gft_compte2: "USDILS.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 2.85
+
+USDMXN:
+  ftmo_swing_test: "USDMXN"
+  gft_compte2: "USDMXN.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 0.57
+
+USDNOK:
+  ftmo_swing_test: "USDNOK"
+  gft_compte2: "USDNOK.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 0.95
+
+USDPLN:
+  ftmo_swing_test: "USDPLN"
+  gft_compte2: "USDPLN.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 2.50
+
+USDSEK:
+  ftmo_swing_test: "USDSEK"
+  gft_compte2: "USDSEK.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 0.95
+
+USDSGD:
+  ftmo_swing_test: "USDSGD"
+  gft_compte2: "USDSGD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 7.81
+
+USDTRY:
+  ftmo_swing_test: "USDTRY"
+  gft_compte2: "USDTRY.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 0.30
+
+USDZAR:
+  ftmo_swing_test: "USDZAR"
+  gft_compte2: "USDZAR.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 0.61
+
+# -----------------------------------------------------------------------------
+# FOREX - EUR Crosses
+# -----------------------------------------------------------------------------
+EURAUD:
+  ftmo_swing_test: "EURAUD"
+  gft_compte2: "EURAUD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 6.76
+
+EURCAD:
+  ftmo_swing_test: "EURCAD"
+  gft_compte2: "EURCAD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 7.25
+
+EURCHF:
+  ftmo_swing_test: "EURCHF"
+  gft_compte2: "EURCHF.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 12.66
+
+EURCZK:
+  ftmo_swing_test: "EURCZK"
+  gft_compte2: "EURCZK.X"
+  follow: true
+  pip_size: 0.001
+  pip_value_per_lot: 4.26
+
+EURGBP:
+  ftmo_swing_test: "EURGBP"
+  gft_compte2: "EURGBP.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 13.51
+
+EURHUF:
+  ftmo_swing_test: "EURHUF"
+  gft_compte2: "EURHUF.X"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 2.60
+
+EURJPY:
+  ftmo_swing_test: "EURJPY"
+  gft_compte2: "EURJPY.X"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 6.33
+
+EURNOK:
+  ftmo_swing_test: "EURNOK"
+  gft_compte2: "EURNOK.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 0.95
+
+EURNZD:
+  ftmo_swing_test: "EURNZD"
+  gft_compte2: "EURNZD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 5.85
+
+EURPLN:
+  ftmo_swing_test: "EURPLN"
+  gft_compte2: "EURPLN.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 2.50
+
+# -----------------------------------------------------------------------------
+# FOREX - GBP Crosses
+# -----------------------------------------------------------------------------
+GBPAUD:
+  ftmo_swing_test: "GBPAUD"
+  gft_compte2: "GBPAUD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 6.76
+
+GBPCAD:
+  ftmo_swing_test: "GBPCAD"
+  gft_compte2: "GBPCAD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 7.25
+
+GBPCHF:
+  ftmo_swing_test: "GBPCHF"
+  gft_compte2: "GBPCHF.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 12.66
+
+GBPJPY:
+  ftmo_swing_test: "GBPJPY"
+  gft_compte2: "GBPJPY.X"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 6.33
+
+GBPNZD:
+  ftmo_swing_test: "GBPNZD"
+  gft_compte2: "GBPNZD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 5.85
+
+GBPPLN:
+  ftmo_swing_test: "GBPPLN"
+  gft_compte2: "GBPPLN.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 2.50
+
+# -----------------------------------------------------------------------------
+# FOREX - AUD Crosses
+# -----------------------------------------------------------------------------
+AUDCAD:
+  ftmo_swing_test: "AUDCAD"
+  gft_compte2: "AUDCAD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 7.25
+
+AUDCHF:
+  ftmo_swing_test: "AUDCHF"
+  gft_compte2: "AUDCHF.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 12.66
+
+AUDJPY:
+  ftmo_swing_test: "AUDJPY"
+  gft_compte2: "AUDJPY.X"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 6.33
+
+AUDNZD:
+  ftmo_swing_test: "AUDNZD"
+  gft_compte2: "AUDNZD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 5.85
+
+# -----------------------------------------------------------------------------
+# FOREX - NZD Crosses
+# -----------------------------------------------------------------------------
+NZDCAD:
+  ftmo_swing_test: "NZDCAD"
+  gft_compte2: "NZDCAD.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 7.25
+
+NZDCHF:
+  ftmo_swing_test: "NZDCHF"
+  gft_compte2: "NZDCHF.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 12.66
+
+NZDJPY:
+  ftmo_swing_test: "NZDJPY"
+  gft_compte2: "NZDJPY.X"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 6.33
+
+# -----------------------------------------------------------------------------
+# FOREX - CAD/CHF Crosses
+# -----------------------------------------------------------------------------
+CADCHF:
+  ftmo_swing_test: "CADCHF"
+  gft_compte2: "CADCHF.X"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 12.66
+
+CADJPY:
+  ftmo_swing_test: "CADJPY"
+  gft_compte2: "CADJPY.X"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 6.33
+
+CHFJPY:
+  ftmo_swing_test: "CHFJPY"
+  gft_compte2: "CHFJPY.X"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 6.33
+
+# -----------------------------------------------------------------------------
+# MÉTAUX
+# -----------------------------------------------------------------------------
+XAUUSD:
+  ftmo_swing_test: "XAUUSD"
+  gft_compte2: "XAUUSD.X"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 1
+  contract_size: 100
+
+XAUEUR:
+  ftmo_swing_test: "XAUEUR"
+  gft_compte2: "XAUEUR.X"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 1.18
+  contract_size: 100
+
+XAUAUD:
+  ftmo_swing_test: "XAUAUD"
+  gft_compte2: "XAUAUD.X"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 0.68
+  contract_size: 100
+
+XAGUSD:
+  ftmo_swing_test: "XAGUSD"
+  gft_compte2: "XAGUSD.X"
+  follow: true
+  pip_size: 0.001
+  pip_value_per_lot: 5
+  contract_size: 5000
+
+XAGEUR:
+  ftmo_swing_test: "XAGEUR"
+  gft_compte2: "XAGEUR.X"
+  follow: true
+  pip_size: 0.001
+  pip_value_per_lot: 5.90
+  contract_size: 5000
+
+XAGAUD:
+  ftmo_swing_test: "XAGAUD"
+  gft_compte2: "XAGAUD.X"
+  follow: true
+  pip_size: 0.001
+  pip_value_per_lot: 3.38
+  contract_size: 5000
+
+# -----------------------------------------------------------------------------
+# CRYPTO
+# -----------------------------------------------------------------------------
+AAVEUSD:
+  ftmo_swing_test: "AAVEUSD"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 1
+  contract_size: 100
+  session_model: "24x7"
+
+ADAUSD:
+  ftmo_swing_test: "ADAUSD"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+  contract_size: 100000
+  session_model: "24x7"
+
+ALGOUSD:
+  ftmo_swing_test: "ALGOUSD"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+  contract_size: 100000
+  session_model: "24x7"
+
+AVAXUSD:
+  ftmo_swing_test: "AVAXUSD"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 10
+  contract_size: 1000
+  session_model: "24x7"
+
+BARUSD:
+  ftmo_swing_test: "BARUSD"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+  contract_size: 100000
+  session_model: "24x7"
+
+BCHUSD:
+  ftmo_swing_test: "BCHUSD"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 1
+  contract_size: 100
+  session_model: "24x7"
+
+BNBUSD:
+  ftmo_swing_test: "BNBUSD"
+  gft_compte2: "BNBUSD.X"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 1
+  contract_size: 100
+  session_model: "24x7"
+
+BTCUSD:
+  ftmo_swing_test: "BTCUSD"
+  gft_compte2: "BTCUSD.X"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+  contract_size: 1
+  session_model: "24x7"
+
+DASHUSD:
+  ftmo_swing_test: "DASHUSD"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 1
+  contract_size: 100
+  session_model: "24x7"
+
+DOGEUSD:
+  ftmo_swing_test: "DOGEUSD"
+  follow: true
+  pip_size: 0.00001
+  pip_value_per_lot: 1
+  contract_size: 100000
+  session_model: "24x7"
+
+DOTUSD:
+  ftmo_swing_test: "DOTUSD"
+  follow: true
+  pip_size: 0.001
+  pip_value_per_lot: 10
+  contract_size: 10000
+  session_model: "24x7"
+
+ETCUSD:
+  ftmo_swing_test: "ETCUSD"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 10
+  contract_size: 1000
+  session_model: "24x7"
+
+ETHUSD:
+  ftmo_swing_test: "ETHUSD"
+  gft_compte2: "ETHUSD.X"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 0.1
+  contract_size: 10
+  session_model: "24x7"
+
+FETUSD:
+  ftmo_swing_test: "FETUSD"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+  contract_size: 100000
+  session_model: "24x7"
+
+GALUSD:
+  ftmo_swing_test: "GALUSD"
+  follow: true
+  pip_size: 0.001
+  pip_value_per_lot: 10
+  contract_size: 10000
+  session_model: "24x7"
+
+GRTUSD:
+  ftmo_swing_test: "GRTUSD"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+  contract_size: 100000
+  session_model: "24x7"
+
+ICPUSD:
+  ftmo_swing_test: "ICPUSD"
+  follow: true
+  pip_size: 0.001
+  pip_value_per_lot: 10
+  contract_size: 10000
+  session_model: "24x7"
+
+IMXUSD:
+  ftmo_swing_test: "IMXUSD"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+  contract_size: 100000
+  session_model: "24x7"
+
+LINKUSD:
+  ftmo_swing_test: "LINKUSD"
+  follow: true
+  pip_size: 0.001
+  pip_value_per_lot: 10
+  contract_size: 10000
+  session_model: "24x7"
+
+LTCUSD:
+  ftmo_swing_test: "LTCUSD"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 1
+  contract_size: 100
+  session_model: "24x7"
+
+MANAUSD:
+  ftmo_swing_test: "MANAUSD"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+  contract_size: 100000
+  session_model: "24x7"
+
+NEARUSD:
+  ftmo_swing_test: "NEARUSD"
+  follow: true
+  pip_size: 0.001
+  pip_value_per_lot: 10
+  contract_size: 10000
+  session_model: "24x7"
+
+NEOUSD:
+  ftmo_swing_test: "NEOUSD"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 10
+  contract_size: 1000
+  session_model: "24x7"
+
+SANDUSD:
+  ftmo_swing_test: "SANDUSD"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+  contract_size: 100000
+  session_model: "24x7"
+
+SOLUSD:
+  ftmo_swing_test: "SOLUSD"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 1
+  contract_size: 100
+  session_model: "24x7"
+
+UNIUSD:
+  ftmo_swing_test: "UNIUSD"
+  follow: true
+  pip_size: 0.001
+  pip_value_per_lot: 10
+  contract_size: 10000
+  session_model: "24x7"
+
+VETUSD:
+  ftmo_swing_test: "VETUSD"
+  follow: true
+  pip_size: 0.00001
+  pip_value_per_lot: 1
+  contract_size: 100000
+  session_model: "24x7"
+
+XLMUSD:
+  ftmo_swing_test: "XLMUSD"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+  contract_size: 100000
+  session_model: "24x7"
+
+XMRUSD:
+  ftmo_swing_test: "XMRUSD"
+  follow: true
+  pip_size: 0.01
+  pip_value_per_lot: 1
+  contract_size: 100
+  session_model: "24x7"
+
+XRPUSD:
+  ftmo_swing_test: "XRPUSD"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+  contract_size: 100000
+  session_model: "24x7"
+
+XTZUSD:
+  ftmo_swing_test: "XTZUSD"
+  follow: true
+  pip_size: 0.0001
+  pip_value_per_lot: 10
+  contract_size: 100000
+  session_model: "24x7"
+
