@@ -61,7 +61,7 @@ class BarAggregatorConfig:
     timeframe_s: int = BAR_PERIOD_S       # 3600 = 1H
     history_bars: int = 250               # barres à précharger au démarrage
     min_bars: int = MIN_BARS_FOR_SIGNAL   # minimum pour générer des signaux
-    signal_strategy: str = "combined"     # "mean_reversion", "trend", "combined"
+    signal_strategy: str = "trend"         # "mean_reversion", "trend", "combined" — v3.3: trend-only validé
 
 
 class BarAggregator:
@@ -304,9 +304,9 @@ class BarAggregator:
         elif strategy == "trend":
             from arabesque.backtest.signal_gen_trend import TrendSignalGenerator, TrendSignalConfig
             return TrendSignalGenerator(TrendSignalConfig(), live_mode=True)
-        else:  # combined (défaut)
+        else:  # combined
             from arabesque.backtest.signal_gen_combined import CombinedSignalGenerator
-            return CombinedSignalGenerator(live_mode=True)
+            return CombinedSignalGenerator()  # live_mode non supporté par CombinedSignalGenerator
 
     # ------------------------------------------------------------------
     # Stats
