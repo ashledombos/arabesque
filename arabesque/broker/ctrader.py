@@ -37,13 +37,12 @@ try:
         ProtoOAUnsubscribeSpotsReq,
         ProtoOAGetTrendbarsReq,
     )
-    from ctrader_open_api.messages.OpenApiCommonMessages_pb2 import (
-        ProtoOATrendbarPeriod,
-    )
     CTRADER_AVAILABLE = True
-except ImportError:
+except ImportError as e:
     CTRADER_AVAILABLE = False
-    print("⚠️  ctrader-open-api not installed. cTrader support disabled.")
+    print(f"⚠️  ctrader-open-api import failed: {e}")
+    import traceback
+    traceback.print_exc()
 
 
 # Mapping timeframe string → ProtoOATrendbarPeriod enum value
