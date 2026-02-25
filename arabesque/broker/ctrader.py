@@ -64,6 +64,24 @@ _TIMEFRAME_MAP = {
     "MN1": 14,  # ProtoOATrendbarPeriod.MN1
 }
 
+# Durée en secondes de chaque timeframe — utilisé pour calculer fromTimestamp
+_TIMEFRAME_SECONDS = {
+    "M1":  60,
+    "M2":  120,
+    "M3":  180,
+    "M4":  240,
+    "M5":  300,
+    "M10": 600,
+    "M15": 900,
+    "M30": 1800,
+    "H1":  3600,
+    "H4":  14400,
+    "H12": 43200,
+    "D1":  86400,
+    "W1":  604800,
+    "MN1": 2592000,   # ~30 jours
+}
+
 
 class CTraderBroker(BaseBroker):
     """cTrader Open API broker implementation with price feed + history support."""
@@ -214,20 +232,25 @@ class CTraderBroker(BaseBroker):
         """
         Décode un ProtoOATrendbar en dict OHLCV.
 
-        Dans le protocole cTrader :
-          - open  : valeur absolue (déjà correcte)
-          - high  = open + deltaHigh  (delta positif)
-          - low   = open + deltaLow   (delta négatif)
-          - close = open + deltaClose (delta, positif ou négatif)
+        Structure proto cTrader (ProtoOATrendbar) :
+          - low             : prix absolu le plus bas (int64)
+          - deltaOpen       : open - low   (uint64, >= 0)
+          - deltaHigh       : high - low   (uint64, >= 0)
+          - deltaClose      : close - low  (uint64, >= 0)
+          - utcTimestampInMinutes : timestamp en minutes UTC (uint32)
+          - volume          : volume (uint64)
 
-        Tous les prix sont en unités entières, divisor = 10^pipPosition.
+        Tous les prix sont en unités entières, divisor = 10^(pipPosition+1).
         """
-        ts    = tb.utcTimestampInMinutes * 60
-        open_ = tb.open / divisor
-        high  = (tb.open + tb.high)       / divisor if tb.high   else open_
-        low   = (tb.open + tb.low)        / divisor if tb.low    else open_
-        close = (tb.open + tb.deltaClose) / divisor if hasattr(tb, "deltaClose") else open_
-        vol   = tb.volume if hasattr(tb, "volume") else 0
+        ts = tb.utcTimestampInMinutes * 60
+
+        low_raw = getattr(tb, "low", 0) or 0
+        low   = low_raw / divisor
+        open_ = (low_raw + (getattr(tb, "deltaOpen", 0) or 0))  / divisor
+        high  = (low_raw + (getattr(tb, "deltaHigh", 0) or 0))  / divisor
+        close = (low_raw + (getattr(tb, "deltaClose", 0) or 0)) / divisor
+        vol   = getattr(tb, "volume", 0) or 0
+
         return {
             "ts":     ts,
             "open":   open_,
@@ -428,6 +451,15 @@ class CTraderBroker(BaseBroker):
         req.period = period
         req.count = min(count, 5000)
 
+        # fromTimestamp et toTimestamp sont REQUIS par le proto cTrader
+        # Calcul : toTimestamp = maintenant, fromTimestamp = maintenant - (count * durée)
+        # On ajoute 50% de marge pour weekends/jours fériés sans cotation
+        tf_seconds = _TIMEFRAME_SECONDS.get(tf_upper, 3600)
+        now_ms = int(time.time() * 1000)
+        span_ms = int(count * tf_seconds * 1.5 * 1000)
+        req.fromTimestamp = now_ms - span_ms
+        req.toTimestamp = now_ms
+
         from twisted.internet import reactor
         reactor.callFromThread(self._client.send, req)
 
@@ -483,7 +515,13 @@ class CTraderBroker(BaseBroker):
 
         future = self._pending_requests.pop(matching_key, None)
         if future and not future.done():
-            future.set_result(bars)
+            # Résoudre le future depuis le thread asyncio (on est dans le thread Twisted)
+            try:
+                loop = asyncio.get_event_loop()
+                loop.call_soon_threadsafe(future.set_result, bars)
+            except RuntimeError:
+                # Fallback si pas de loop (ne devrait pas arriver)
+                future.set_result(bars)
 
     # ------------------------------------------------------------------
     # Price feed (spots)
@@ -547,14 +585,34 @@ class CTraderBroker(BaseBroker):
     def _process_spot_event(self, payload):
         """Traite un ProtoOASpotEvent reçu du serveur."""
         symbol_id = payload.symbolId
-        divisor = 100000
-        bid = getattr(payload, 'bid', None)
-        ask = getattr(payload, 'ask', None)
-        if bid is None or ask is None:
-            return
-        bid_f = bid / divisor
-        ask_f = ask / divisor
         sym_info = self._symbols.get(symbol_id)
+
+        # Utiliser le diviseur spécifique au symbole (basé sur digits/pipPosition)
+        if sym_info:
+            import math
+            pip_pos = -int(round(math.log10(sym_info.pip_size)))
+            divisor = 10 ** (pip_pos + 1)
+        else:
+            divisor = 100000  # fallback 5 décimales (majeurs FX)
+
+        bid = getattr(payload, 'bid', 0)
+        ask = getattr(payload, 'ask', 0)
+
+        # cTrader envoie des SpotEvents incrémentaux : seul le champ modifié
+        # est non-zéro. On garde le dernier prix connu pour l'autre.
+        prev_tick = self._price_ticks.get(symbol_id)
+        if bid == 0 and prev_tick:
+            bid_f = prev_tick.bid
+        else:
+            bid_f = bid / divisor if bid else 0.0
+        if ask == 0 and prev_tick:
+            ask_f = prev_tick.ask
+        else:
+            ask_f = ask / divisor if ask else 0.0
+
+        # Ignorer si aucun prix valide
+        if bid_f <= 0 and ask_f <= 0:
+            return
         sym_name = sym_info.symbol if sym_info else str(symbol_id)
         tick = PriceTick(
             symbol=sym_name,

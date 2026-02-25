@@ -1,6 +1,6 @@
 # PROMPT DE REPRISE — Arabesque v3.3 (TREND-ONLY, BE 0.3/0.20, risk 0.40%)
 
-> Destiné à un modèle intermédiaire. Créé 2026-02-24.
+> Destiné à un modèle intermédiaire. Mis à jour 2026-02-25.
 
 ## Lire : `HANDOFF.md` (obligatoire avant toute action)
 
@@ -9,6 +9,11 @@
 - TREND-ONLY sur 76 instruments (forex + metals + crypto)
 - BE 0.3R trigger / 0.20R offset
 - Risk 0.40%/trade (DD max 8.2% < FTMO 10%)
+
+## LIVE ENGINE — État 2026-02-25
+- Bugs cTrader corrigés (fromTimestamp/toTimestamp, decode trendbar, spot divisor)
+- `python -m arabesque.live.engine --dry-run` devrait fonctionner
+- Prochaine étape : tester le dry-run cTrader et vérifier que les barres H1 se chargent correctement
 
 ## Tâche A : REPLAY DE CONFIRMATION (risk 0.40%)
 

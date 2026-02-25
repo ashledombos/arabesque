@@ -113,6 +113,8 @@ class BarAggregator:
         """
         Précharge l'historique pour chaque instrument.
         À appeler avant de brancher on_tick() au price feed.
+        Charge en parallèle avec une concurrence limitée pour ne pas
+        surcharger le broker.
         """
         if not self.broker:
             logger.warning(
@@ -126,10 +128,23 @@ class BarAggregator:
             f"pour {len(self.cfg.instruments)} instrument(s)..."
         )
 
-        for instrument in self.cfg.instruments:
-            await self._load_history(instrument)
+        # Charger en parallèle par lots de 5 pour limiter la charge
+        sem = asyncio.Semaphore(5)
 
-        logger.info("[BarAggregator] Préchargement terminé")
+        async def _load_with_sem(instrument):
+            async with sem:
+                await self._load_history(instrument)
+
+        await asyncio.gather(
+            *[_load_with_sem(inst) for inst in self.cfg.instruments],
+            return_exceptions=True,
+        )
+
+        loaded = sum(1 for inst in self.cfg.instruments if self._bar_cache.get(inst))
+        logger.info(
+            f"[BarAggregator] Préchargement terminé: "
+            f"{loaded}/{len(self.cfg.instruments)} instrument(s) chargés"
+        )
 
     async def _load_history(self, instrument: str) -> None:
         """Charge l'historique H1 depuis le broker et l'ajoute au cache."""

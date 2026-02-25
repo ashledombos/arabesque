@@ -593,3 +593,22 @@ le budget daily DD restant.
 Impact: les 999 trades restants montrent DD 5.0%, Score 5/5. Le run complet à
 0.40%/trade (sans le guard) devrait donner DD ≈ 8.2% (20.5R × 0.4%), ce qui
 reste sous FTMO 10%.
+
+### Live Engine Bugs — 2026-02-25
+
+**Symptôme** : `python -m arabesque.live.engine --dry-run` crash avec
+`google.protobuf.message.EncodeError: Message ProtoOAGetTrendbarsReq is missing required fields: fromTimestamp,toTimestamp`
+suivi de timeouts sur tous les instruments.
+
+**Cause racine** : `get_history()` dans `broker/ctrader.py` ne remplissait pas les champs `fromTimestamp` et `toTimestamp` du proto `ProtoOAGetTrendbarsReq`, alors qu'ils sont requis par l'API cTrader.
+
+**Bugs latents découverts** :
+- `_decode_trendbar()` utilisait des champs proto inexistants (`tb.open`, `tb.high`). Le proto cTrader définit `low` (absolu) + `deltaOpen/deltaHigh/deltaClose`. Jamais atteint car get_history crashait avant.
+- `_process_spot_event()` utilisait un diviseur hardcodé `100000` au lieu du diviseur spécifique au symbole (incorrect pour crypto, indices, commodities).
+- SpotEvents incrémentaux : le proto n'envoie que le champ modifié (bid ou ask), mais le code exigeait les deux. Corrigé avec fallback sur le dernier prix connu.
+
+**Améliorations** :
+- Chargement historique parallèle dans `bar_aggregator.py` (Semaphore(5) + gather).
+- Thread-safety de `_process_trendbar_response()` via `call_soon_threadsafe`.
+
+**Décision** : corrections pures, aucune modification de stratégie ou paramètres de trading.

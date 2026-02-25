@@ -167,3 +167,16 @@ Voir `config/prop_firm_profiles.yaml`.
 
 **⛔ Opus 4.6** : manager.py, signal_gen.py, guards.py, indicators.py, décisions stratégiques.
 **✅ Intermédiaire** : replay, analyze_replay_v2.py, diagnostics, ajout instruments.
+
+---
+
+## 9. Session 2026-02-25 — Live Engine Fixes
+
+### Bugs corrigés dans `broker/ctrader.py`
+1. **`get_history()` — fromTimestamp/toTimestamp manquants** : `ProtoOAGetTrendbarsReq` requiert ces champs obligatoires. Ajout de `_TIMEFRAME_SECONDS` mapping et calcul automatique de la fenêtre temporelle avec marge 50% pour weekends/fériés.
+2. **`_decode_trendbar()` — champs proto incorrects** : utilisait `tb.open`, `tb.high` (inexistants). Corrigé vers le vrai proto cTrader : `tb.low` (absolu) + `tb.deltaOpen/deltaHigh/deltaClose` (deltas depuis low).
+3. **`_process_spot_event()` — diviseur hardcodé 100000** : remplacé par le diviseur spécifique au symbole depuis `self._symbols[symbol_id]`. Ajout gestion des SpotEvents incrémentaux (seul bid ou ask mis à jour).
+4. **`_process_trendbar_response()` — thread-safety** : résolution du Future via `loop.call_soon_threadsafe()` (le callback vient du thread Twisted).
+
+### Améliorations dans `live/bar_aggregator.py`
+5. **Chargement historique parallèle** : `initialize()` utilise `asyncio.gather()` avec `Semaphore(5)` au lieu du chargement séquentiel (÷16 temps pour 83 instruments).
