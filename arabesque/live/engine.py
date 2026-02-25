@@ -261,6 +261,18 @@ class LiveEngine:
         # Le broker source fournit get_history()
         source_broker = self._brokers.get(source_broker_id)
 
+        # Pré-charger les symboles pour éviter les appels concurrents
+        # pendant le chargement de l'historique
+        if source_broker and hasattr(source_broker, 'get_symbols'):
+            try:
+                symbols_list = await source_broker.get_symbols()
+                logger.info(
+                    f"[Engine] 📋 Symboles pré-chargés: {len(symbols_list)} "
+                    f"depuis {source_broker_id}"
+                )
+            except Exception as e:
+                logger.warning(f"[Engine] Pré-chargement symboles: {e}")
+
         self._bar_aggregator = BarAggregator(
             config=agg_cfg,
             on_signal=self.receive_signal,

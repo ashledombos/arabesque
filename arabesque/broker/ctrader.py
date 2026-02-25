@@ -113,6 +113,11 @@ class CTraderBroker(BaseBroker):
         self._reactor_running = False
         self._token_refreshed = False
 
+        # Lock pour empêcher les appels concurrents à get_symbols()
+        self._symbols_lock = asyncio.Lock()
+        # Référence au loop asyncio pour les callbacks thread-safe depuis Twisted
+        self._asyncio_loop: Optional[asyncio.AbstractEventLoop] = None
+
         # Price feed
         self._price_ticks: Dict[int, PriceTick] = {}
         self._spot_callbacks: Dict[int, List[Callable]] = {}
@@ -264,7 +269,38 @@ class CTraderBroker(BaseBroker):
     # Connection
     # ------------------------------------------------------------------
 
+    def _resolve_future(self, future, value):
+        """Thread-safe: résout un asyncio.Future depuis le thread Twisted."""
+        if future.done():
+            return
+        if self._asyncio_loop and self._asyncio_loop.is_running():
+            self._asyncio_loop.call_soon_threadsafe(
+                lambda: future.set_result(value) if not future.done() else None
+            )
+        else:
+            try:
+                future.set_result(value)
+            except asyncio.InvalidStateError:
+                pass
+
+    def _reject_future(self, future, exc):
+        """Thread-safe: rejette un asyncio.Future depuis le thread Twisted."""
+        if future.done():
+            return
+        if self._asyncio_loop and self._asyncio_loop.is_running():
+            self._asyncio_loop.call_soon_threadsafe(
+                lambda: future.set_exception(exc) if not future.done() else None
+            )
+        else:
+            try:
+                future.set_exception(exc)
+            except asyncio.InvalidStateError:
+                pass
+
     async def connect(self) -> bool:
+        # Capturer le loop asyncio pour les callbacks thread-safe
+        self._asyncio_loop = asyncio.get_event_loop()
+
         if self._should_refresh_token():
             if self._refresh_access_token():
                 self._token_refreshed = True
@@ -289,7 +325,7 @@ class CTraderBroker(BaseBroker):
                 error_msg = f"cTrader Error: {payload.errorCode} - {payload.description}"
                 print(f"[cTrader] ❌ {error_msg}")
                 if not connect_future.done():
-                    connect_future.set_exception(Exception(error_msg))
+                    self._reject_future(connect_future, Exception(error_msg))
                 return
 
             if ptype == "ProtoOAApplicationAuthRes":
@@ -308,7 +344,7 @@ class CTraderBroker(BaseBroker):
                 accounts = list(payload.ctidTraderAccount)
                 if not accounts:
                     if not connect_future.done():
-                        connect_future.set_exception(Exception("No accounts found"))
+                        self._reject_future(connect_future, Exception("No accounts found"))
                     return
                 self.account_id = accounts[0].ctidTraderAccountId
                 print(f"[cTrader] Found {len(accounts)} account(s), using: {self.account_id}")
@@ -321,22 +357,25 @@ class CTraderBroker(BaseBroker):
                 print(f"[cTrader] ✅ Account {self.account_id} authenticated")
                 self._connected = True
                 if not connect_future.done():
-                    connect_future.set_result(True)
+                    self._resolve_future(connect_future, True)
 
             elif ptype == "ProtoOASymbolsListRes":
                 self._process_symbols_response(payload)
-                if "symbols" in self._pending_requests:
-                    self._pending_requests["symbols"].set_result(list(self._symbols.values()))
+                future = self._pending_requests.pop("symbols", None)
+                if future and not future.done():
+                    self._resolve_future(future, list(self._symbols.values()))
 
             elif ptype == "ProtoOATraderRes":
                 self._process_trader_response(payload)
-                if "account_info" in self._pending_requests:
-                    self._pending_requests["account_info"].set_result(self._account_info)
+                future = self._pending_requests.pop("account_info", None)
+                if future and not future.done():
+                    self._resolve_future(future, self._account_info)
 
             elif ptype == "ProtoOAReconcileRes":
                 self._process_reconcile_response(payload)
-                if "reconcile" in self._pending_requests:
-                    self._pending_requests["reconcile"].set_result(payload)
+                future = self._pending_requests.pop("reconcile", None)
+                if future and not future.done():
+                    self._resolve_future(future, payload)
 
             elif ptype == "ProtoOAGetTrendbarsRes":
                 # Réponse historique — dispatcher par symbolId
@@ -515,13 +554,7 @@ class CTraderBroker(BaseBroker):
 
         future = self._pending_requests.pop(matching_key, None)
         if future and not future.done():
-            # Résoudre le future depuis le thread asyncio (on est dans le thread Twisted)
-            try:
-                loop = asyncio.get_event_loop()
-                loop.call_soon_threadsafe(future.set_result, bars)
-            except RuntimeError:
-                # Fallback si pas de loop (ne devrait pas arriver)
-                future.set_result(bars)
+            self._resolve_future(future, bars)
 
     # ------------------------------------------------------------------
     # Price feed (spots)
@@ -712,7 +745,7 @@ class CTraderBroker(BaseBroker):
             if ptype == "ProtoOAOrderErrorEvent" or "Error" in ptype:
                 error_code = getattr(payload, "errorCode", "UNKNOWN")
                 description = getattr(payload, "description", "No description")
-                future.set_result(OrderResult(
+                self._resolve_future(future, OrderResult(
                     success=False,
                     message=f"Order rejected: {error_code} - {description}",
                     broker_response=payload
@@ -727,14 +760,14 @@ class CTraderBroker(BaseBroker):
                 if hasattr(payload.position, "positionId"):
                     order_id = payload.position.positionId
             if order_id and order_id != 0:
-                future.set_result(OrderResult(
+                self._resolve_future(future, OrderResult(
                     success=True,
                     order_id=str(order_id),
                     message="Order placed successfully",
                     broker_response=payload
                 ))
             else:
-                future.set_result(OrderResult(
+                self._resolve_future(future, OrderResult(
                     success=True,
                     order_id="unknown",
                     message=f"Response: {ptype}",
@@ -742,7 +775,7 @@ class CTraderBroker(BaseBroker):
                 ))
         if "order_cancel" in self._pending_requests:
             future = self._pending_requests.pop("order_cancel")
-            future.set_result(OrderResult(
+            self._resolve_future(future, OrderResult(
                 success=True,
                 message="Order cancelled",
                 broker_response=payload
@@ -765,6 +798,7 @@ class CTraderBroker(BaseBroker):
         try:
             return await asyncio.wait_for(future, timeout=10)
         except asyncio.TimeoutError:
+            self._pending_requests.pop("account_info", None)
             return None
 
     async def get_symbols(self) -> List[SymbolInfo]:
@@ -772,17 +806,24 @@ class CTraderBroker(BaseBroker):
             return []
         if self._symbols:
             return list(self._symbols.values())
-        loop = asyncio.get_event_loop()
-        future = loop.create_future()
-        self._pending_requests["symbols"] = future
-        req = ProtoOASymbolsListReq()
-        req.ctidTraderAccountId = self.account_id
-        from twisted.internet import reactor
-        reactor.callFromThread(self._client.send, req)
-        try:
-            return await asyncio.wait_for(future, timeout=15)
-        except asyncio.TimeoutError:
-            return []
+
+        async with self._symbols_lock:
+            # Double-check après le lock (un autre appel a pu charger entre-temps)
+            if self._symbols:
+                return list(self._symbols.values())
+
+            loop = asyncio.get_event_loop()
+            future = loop.create_future()
+            self._pending_requests["symbols"] = future
+            req = ProtoOASymbolsListReq()
+            req.ctidTraderAccountId = self.account_id
+            from twisted.internet import reactor
+            reactor.callFromThread(self._client.send, req)
+            try:
+                return await asyncio.wait_for(future, timeout=15)
+            except asyncio.TimeoutError:
+                self._pending_requests.pop("symbols", None)
+                return []
 
     async def get_symbol_info(self, symbol: str) -> Optional[SymbolInfo]:
         if not self._symbols:

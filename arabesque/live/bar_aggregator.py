@@ -113,8 +113,10 @@ class BarAggregator:
         """
         Précharge l'historique pour chaque instrument.
         À appeler avant de brancher on_tick() au price feed.
-        Charge en parallèle avec une concurrence limitée pour ne pas
-        surcharger le broker.
+
+        IMPORTANT: le chargement est séquentiel car le broker cTrader utilise
+        une seule connexion TCP. Les requêtes parallèles provoquent des timeouts
+        et des erreurs InvalidStateError sur les futures.
         """
         if not self.broker:
             logger.warning(
@@ -123,27 +125,40 @@ class BarAggregator:
             )
             return
 
+        n_instruments = len(self.cfg.instruments)
         logger.info(
             f"[BarAggregator] Préchargement de {self.cfg.history_bars} barres H1 "
-            f"pour {len(self.cfg.instruments)} instrument(s)..."
+            f"pour {n_instruments} instrument(s)..."
         )
 
-        # Charger en parallèle par lots de 5 pour limiter la charge
-        sem = asyncio.Semaphore(5)
-
-        async def _load_with_sem(instrument):
-            async with sem:
+        loaded = 0
+        failed = 0
+        for i, instrument in enumerate(self.cfg.instruments):
+            try:
                 await self._load_history(instrument)
+                if self._bar_cache.get(instrument):
+                    loaded += 1
+                else:
+                    failed += 1
+            except Exception as e:
+                logger.error(f"[BarAggregator] {instrument}: {e}")
+                failed += 1
 
-        await asyncio.gather(
-            *[_load_with_sem(inst) for inst in self.cfg.instruments],
-            return_exceptions=True,
-        )
+            # Petit délai entre les requêtes pour ne pas saturer la connexion cTrader
+            if i < n_instruments - 1:
+                await asyncio.sleep(0.15)
 
-        loaded = sum(1 for inst in self.cfg.instruments if self._bar_cache.get(inst))
+            # Log de progression tous les 10 instruments
+            if (i + 1) % 10 == 0:
+                logger.info(
+                    f"[BarAggregator] Progression: {i + 1}/{n_instruments} "
+                    f"({loaded} chargés, {failed} échoués)"
+                )
+
         logger.info(
             f"[BarAggregator] Préchargement terminé: "
-            f"{loaded}/{len(self.cfg.instruments)} instrument(s) chargés"
+            f"{loaded}/{n_instruments} instrument(s) chargés"
+            + (f", {failed} échoué(s)" if failed else "")
         )
 
     async def _load_history(self, instrument: str) -> None:
