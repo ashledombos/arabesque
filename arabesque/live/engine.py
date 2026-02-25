@@ -304,6 +304,10 @@ class LiveEngine:
             logger.warning("[Engine] Aucun symbole à surveiller")
             return
 
+        # Réutiliser le broker cTrader déjà connecté pour le price feed
+        # (évite une 2e connexion TCP → ALREADY_LOGGED_IN)
+        source_broker = self._brokers[source_broker_id]
+
         brokers_cfg = self.settings.get("brokers", {})
         broker_cfg = dict(brokers_cfg.get(source_broker_id, {}))
         if source_broker_id in self.secrets:
@@ -318,6 +322,7 @@ class LiveEngine:
             broker_id=source_broker_id,
             broker_cfg=broker_cfg,
             symbols=symbols,
+            existing_broker=source_broker,
         )
 
         for sym in symbols:

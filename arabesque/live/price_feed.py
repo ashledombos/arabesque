@@ -58,6 +58,7 @@ class PriceFeedManager:
         symbols: List[str],
         reconnect_delay_s: float = 5.0,
         token_refresh_interval_h: float = 60.0,
+        existing_broker=None,
     ):
         self.broker_id = broker_id
         self.broker_cfg = broker_cfg
@@ -66,9 +67,9 @@ class PriceFeedManager:
         self.token_refresh_interval_h = token_refresh_interval_h
 
         # State
-        self._broker = None          # CTraderBroker instance
+        self._broker = existing_broker   # Réutiliser un broker déjà connecté
         self._running = False
-        self._connected = False
+        self._connected = existing_broker is not None and getattr(existing_broker, '_connected', False)
         self._main_task: Optional[asyncio.Task] = None
         self._token_refresh_task: Optional[asyncio.Task] = None
 
@@ -217,11 +218,8 @@ class PriceFeedManager:
         self._running = False
         if self._token_refresh_task and not self._token_refresh_task.done():
             self._token_refresh_task.cancel()
-        if self._broker and self._connected:
-            try:
-                await self._broker.disconnect()
-            except Exception as e:
-                logger.debug(f"[PriceFeed] Disconnect error: {e}")
+        # Ne PAS déconnecter le broker s'il est partagé avec le reste du système
+        # (la déconnexion est gérée par l'Engine)
         if self._main_task and not self._main_task.done():
             self._main_task.cancel()
             try:
@@ -270,13 +268,19 @@ class PriceFeedManager:
             delay = min(delay * 2, 120.0)  # backoff exponentiel, max 2 min
 
     async def _connect_and_subscribe(self) -> None:
-        from arabesque.broker.ctrader import CTraderBroker
-        self._broker = CTraderBroker(self.broker_id, self.broker_cfg)
+        # Réutiliser le broker existant s'il est déjà connecté
+        if self._broker and getattr(self._broker, '_connected', False):
+            logger.info(
+                f"[PriceFeed] Réutilisation du broker existant ({self.broker_id})"
+            )
+        else:
+            from arabesque.broker.ctrader import CTraderBroker
+            self._broker = CTraderBroker(self.broker_id, self.broker_cfg)
 
-        logger.info(f"[PriceFeed] Connexion à cTrader ({self.broker_id})...")
-        connected = await self._broker.connect()
-        if not connected:
-            raise ConnectionError(f"Impossible de se connecter à {self.broker_id}")
+            logger.info(f"[PriceFeed] Connexion à cTrader ({self.broker_id})...")
+            connected = await self._broker.connect()
+            if not connected:
+                raise ConnectionError(f"Impossible de se connecter à {self.broker_id}")
 
         self._connected = True
         logger.info(f"[PriceFeed] ✅ Connecté — chargement des symboles...")
