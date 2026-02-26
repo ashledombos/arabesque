@@ -380,7 +380,7 @@ XAGAUD:
 # -----------------------------------------------------------------------------
 # CRYPTO
 # -----------------------------------------------------------------------------
-AAVEUSD:
+AAVUSD:
   ftmo_swing_test: "AAVUSD"
   follow: true
   pip_size: 0.01
@@ -396,7 +396,7 @@ ADAUSD:
   contract_size: 100000
   session_model: "24x7"
 
-ALGOUSD:
+ALGUSD:
   ftmo_swing_test: "ALGUSD"
   follow: true
   pip_size: 0.0001
@@ -404,7 +404,7 @@ ALGOUSD:
   contract_size: 100000
   session_model: "24x7"
 
-AVAXUSD:
+AVAUSD:
   ftmo_swing_test: "AVAUSD"
   follow: true
   pip_size: 0.01
@@ -528,7 +528,7 @@ IMXUSD:
   contract_size: 100000
   session_model: "24x7"
 
-LINKUSD:
+LNKUSD:
   ftmo_swing_test: "LNKUSD"
   follow: true
   pip_size: 0.001
@@ -545,7 +545,7 @@ LTCUSD:
   contract_size: 100
   session_model: "24x7"
 
-MANAUSD:
+MANUSD:
   ftmo_swing_test: "MANUSD"
   follow: true
   pip_size: 0.0001
@@ -553,7 +553,7 @@ MANAUSD:
   contract_size: 100000
   session_model: "24x7"
 
-NEARUSD:
+NERUSD:
   ftmo_swing_test: "NERUSD"
   follow: true
   pip_size: 0.001
@@ -569,7 +569,7 @@ NEOUSD:
   contract_size: 1000
   session_model: "24x7"
 
-SANDUSD:
+SANUSD:
   ftmo_swing_test: "SANUSD"
   follow: true
   pip_size: 0.0001
@@ -594,7 +594,7 @@ UNIUSD:
   contract_size: 10000
   session_model: "24x7"
 
-VETUSD:
+VECUSD:
   ftmo_swing_test: "VECUSD"
   follow: true
   pip_size: 0.00001
