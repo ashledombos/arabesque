@@ -529,7 +529,7 @@ IMXUSD:
   session_model: "24x7"
 
 LINKUSD:
-  ftmo_swing_test: "LINKUSD"
+  ftmo_swing_test: "LNKUSD"
   follow: true
   pip_size: 0.001
   pip_value_per_lot: 10
