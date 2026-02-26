@@ -409,8 +409,7 @@ class CTraderBroker(BaseBroker):
             req.ctidTraderAccountId = self.account_id
             for sid in list(self._subscribed_symbol_ids):
                 req.symbolId.append(sid)
-            from twisted.internet import reactor
-            reactor.callFromThread(self._client.send, req)
+            self._send_no_response(req)
             await asyncio.sleep(0.3)
         if self._client:
             from twisted.internet import reactor
@@ -560,6 +559,22 @@ class CTraderBroker(BaseBroker):
     # Price feed (spots)
     # ------------------------------------------------------------------
 
+    def _send_no_response(self, req):
+        """Envoie un message proto via Twisted sans attendre de réponse.
+
+        Ajoute un errback sur le Deferred interne de la lib cTrader pour
+        supprimer les TimeoutError sur les requêtes qui n'ont pas de réponse
+        explicite (ex: SubscribeSpots, UnsubscribeSpots).
+        """
+        from twisted.internet import reactor
+
+        def _do_send():
+            d = self._client.send(req)
+            if d and hasattr(d, 'addErrback'):
+                d.addErrback(lambda failure: None)  # Silently ignore timeout
+
+        reactor.callFromThread(_do_send)
+
     async def subscribe_spots(self, symbol: str, callback: Callable) -> bool:
         """
         Souscrire aux ticks de prix pour un symbole.
@@ -586,8 +601,7 @@ class CTraderBroker(BaseBroker):
             req = ProtoOASubscribeSpotsReq()
             req.ctidTraderAccountId = self.account_id
             req.symbolId.append(symbol_id)
-            from twisted.internet import reactor
-            reactor.callFromThread(self._client.send, req)
+            self._send_no_response(req)
             self._subscribed_symbol_ids.add(symbol_id)
             print(f"[cTrader] 📡 Subscribed to spots: {symbol} (ID {symbol_id})")
 
@@ -604,8 +618,7 @@ class CTraderBroker(BaseBroker):
             req = ProtoOAUnsubscribeSpotsReq()
             req.ctidTraderAccountId = self.account_id
             req.symbolId.append(symbol_id)
-            from twisted.internet import reactor
-            reactor.callFromThread(self._client.send, req)
+            self._send_no_response(req)
             self._subscribed_symbol_ids.discard(symbol_id)
             print(f"[cTrader] 🔕 Unsubscribed from spots: {symbol}")
 
@@ -654,11 +667,19 @@ class CTraderBroker(BaseBroker):
             timestamp=datetime.now(timezone.utc),
         )
         self._price_ticks[symbol_id] = tick
-        loop = asyncio.get_event_loop()
+
+        # Dispatcher les callbacks vers le thread asyncio
+        # (on est dans le thread Twisted, pas d'event loop asyncio ici)
+        loop = self._asyncio_loop
+        if not loop:
+            return
+
         for cb in self._spot_callbacks.get(symbol_id, []):
             try:
                 if asyncio.iscoroutinefunction(cb):
-                    loop.call_soon_threadsafe(lambda c=cb, t=tick: asyncio.ensure_future(c(t)))
+                    loop.call_soon_threadsafe(
+                        lambda c=cb, t=tick: asyncio.ensure_future(c(t))
+                    )
                 else:
                     loop.call_soon_threadsafe(cb, tick)
             except Exception as e:
