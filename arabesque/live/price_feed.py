@@ -152,14 +152,14 @@ class PriceFeedManager:
         """
         Abonner un callback aux ticks d'un symbole.
         callback(tick: PriceTick) — peut être sync ou async.
+
+        Les souscriptions effectives au broker se font dans _connect_and_subscribe()
+        pour garantir que la connexion est prête et permettre le batching.
         """
         if symbol not in self._callbacks:
             self._callbacks[symbol] = []
         if callback not in self._callbacks[symbol]:
             self._callbacks[symbol].append(callback)
-        # Si déjà connecté, souscrire immédiatement au broker
-        if self._connected and self._broker:
-            await self._broker.subscribe_spots(symbol, callback)
 
     async def unsubscribe(self, symbol: str, callback: Callable) -> None:
         if symbol in self._callbacks:
@@ -273,6 +273,11 @@ class PriceFeedManager:
             logger.info(
                 f"[PriceFeed] Réutilisation du broker existant ({self.broker_id})"
             )
+            # Reset des souscriptions pour s'assurer d'un état propre
+            if hasattr(self._broker, '_subscribed_symbol_ids'):
+                self._broker._subscribed_symbol_ids.clear()
+            if hasattr(self._broker, '_spot_callbacks'):
+                self._broker._spot_callbacks.clear()
         else:
             from arabesque.broker.ctrader import CTraderBroker
             self._broker = CTraderBroker(self.broker_id, self.broker_cfg)
@@ -294,20 +299,35 @@ class PriceFeedManager:
             self._tick_counts[sym] = self._tick_counts.get(sym, 0) + 1
             self._last_tick_times[sym] = tick.timestamp
 
-        # Souscrire à chaque symbole configuré
-        subscribed = []
+        # Préparer le batch : chaque symbole → [internal_cb, consumer_cb1, ...]
+        symbols_and_callbacks = {}
         for symbol in self.symbols:
-            # Callback stats interne
-            await self._broker.subscribe_spots(symbol, _internal_callback)
-            # Callbacks consommateurs enregistrés
-            for cb in self._callbacks.get(symbol, []):
-                await self._broker.subscribe_spots(symbol, cb)
-            subscribed.append(symbol)
+            cbs = [_internal_callback]
+            cbs.extend(self._callbacks.get(symbol, []))
+            symbols_and_callbacks[symbol] = cbs
 
-        logger.info(
-            f"[PriceFeed] 📡 Souscrit à {len(subscribed)} symbole(s): "
-            f"{', '.join(subscribed)}"
-        )
+        # Souscrire en batch (une seule requête TCP)
+        if hasattr(self._broker, 'subscribe_spots_batch'):
+            results = await self._broker.subscribe_spots_batch(symbols_and_callbacks)
+            ok = sum(1 for v in results.values() if v)
+            failed = [s for s, v in results.items() if not v]
+            logger.info(
+                f"[PriceFeed] 📡 Souscrit à {ok}/{len(self.symbols)} symbole(s)"
+            )
+            if failed:
+                logger.warning(
+                    f"[PriceFeed] ⚠️  {len(failed)} symbole(s) introuvables: "
+                    f"{', '.join(failed[:10])}"
+                    + (f" (+{len(failed)-10} autres)" if len(failed) > 10 else "")
+                )
+        else:
+            # Fallback : souscription individuelle
+            for symbol, cbs in symbols_and_callbacks.items():
+                for cb in cbs:
+                    await self._broker.subscribe_spots(symbol, cb)
+            logger.info(
+                f"[PriceFeed] 📡 Souscrit à {len(self.symbols)} symbole(s)"
+            )
 
         # Attendre indéfiniment en surveillant la connexion
         await self._watch_connection()

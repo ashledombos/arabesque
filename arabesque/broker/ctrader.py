@@ -122,6 +122,10 @@ class CTraderBroker(BaseBroker):
         self._price_ticks: Dict[int, PriceTick] = {}
         self._spot_callbacks: Dict[int, List[Callable]] = {}
         self._subscribed_symbol_ids: set = set()
+        # Mapping symbolId → nom unifié (EURUSD) pour que tick.symbol soit cohérent
+        self._symbol_id_to_unified: Dict[int, str] = {}
+        # Diagnostic : log du premier tick par symbole
+        self._first_tick_logged: set = set()
 
     # ------------------------------------------------------------------
     # Token management
@@ -464,14 +468,7 @@ class CTraderBroker(BaseBroker):
         if not self._symbols:
             await self.get_symbols()
 
-        symbol_id = self._symbol_id_for_name(symbol)
-        if symbol_id is None:
-            broker_sym = self.map_symbol(symbol)
-            if broker_sym:
-                try:
-                    symbol_id = int(broker_sym)
-                except ValueError:
-                    symbol_id = self._symbol_id_for_name(broker_sym)
+        symbol_id = self._resolve_symbol_id(symbol)
 
         if symbol_id is None:
             print(f"[cTrader] get_history: symbole '{symbol}' non trouvé")
@@ -517,7 +514,7 @@ class CTraderBroker(BaseBroker):
         req.toTimestamp = now_ms
 
         from twisted.internet import reactor
-        reactor.callFromThread(self._client.send, req)
+        self._send_via_reactor(req)
 
         try:
             bars = await asyncio.wait_for(future, timeout=20.0)
@@ -589,33 +586,44 @@ class CTraderBroker(BaseBroker):
         def _do_send():
             d = self._client.send(req)
             if d and hasattr(d, 'addErrback'):
-                d.addErrback(lambda failure: None)  # Silently ignore timeout
+                d.addErrback(lambda failure: None)  # Suppress Deferred timeout
+
+        reactor.callFromThread(_do_send)
+
+    def _send_via_reactor(self, req):
+        """Envoie un message proto via Twisted, en supprimant le timeout Deferred.
+
+        La lib cTrader met un timeout de 5s sur le Deferred interne, mais nos
+        requêtes attendent la réponse via un asyncio.Future avec un timeout plus long.
+        Sans cette suppression, on obtient 'Unhandled error in Deferred: TimeoutError'.
+        """
+        from twisted.internet import reactor
+
+        def _do_send():
+            d = self._client.send(req)
+            if d and hasattr(d, 'addErrback'):
+                d.addErrback(lambda failure: None)
 
         reactor.callFromThread(_do_send)
 
     async def subscribe_spots(self, symbol: str, callback: Callable) -> bool:
         """
-        Souscrire aux ticks de prix pour un symbole.
-        Le callback reçoit un objet PriceTick à chaque tick.
+        Souscrire aux ticks de prix pour un symbole unique.
+        Pour souscrire en masse, préférer subscribe_spots_batch().
         """
         if not self._connected:
             return False
         if not self._symbols:
             await self.get_symbols()
 
-        symbol_id = self._symbol_id_for_name(symbol)
-        if symbol_id is None:
-            broker_sym = self.map_symbol(symbol)
-            if broker_sym:
-                try:
-                    symbol_id = int(broker_sym)
-                    if symbol_id not in self._symbols:
-                        symbol_id = None
-                except ValueError:
-                    symbol_id = self._symbol_id_for_name(broker_sym)
+        symbol_id = self._resolve_symbol_id(symbol)
         if symbol_id is None:
             print(f"[cTrader] ⚠️ subscribe_spots: symbol {symbol} not found in {len(self._symbols)} symbols")
             return False
+
+        # Enregistrer le mapping symbolId → nom unifié
+        if symbol_id not in self._symbol_id_to_unified:
+            self._symbol_id_to_unified[symbol_id] = symbol
 
         if symbol_id not in self._spot_callbacks:
             self._spot_callbacks[symbol_id] = []
@@ -646,8 +654,101 @@ class CTraderBroker(BaseBroker):
             self._subscribed_symbol_ids.discard(symbol_id)
             print(f"[cTrader] 🔕 Unsubscribed from spots: {symbol}")
 
-    def get_last_tick(self, symbol: str) -> Optional[PriceTick]:
+    async def subscribe_spots_batch(
+        self,
+        symbols_and_callbacks: Dict[str, List[Callable]],
+    ) -> Dict[str, bool]:
+        """
+        Souscrire aux ticks pour plusieurs symboles en une seule requête TCP.
+
+        Paramètres:
+            symbols_and_callbacks: {symbol_name: [callback1, callback2, ...]}
+
+        Retourne:
+            {symbol_name: True/False} selon si la souscription a réussi.
+        """
+        if not self._connected:
+            return {s: False for s in symbols_and_callbacks}
+        if not self._symbols:
+            await self.get_symbols()
+
+        result = {}
+        new_symbol_ids = []
+
+        for symbol, callbacks in symbols_and_callbacks.items():
+            # Résolution du symbolId
+            symbol_id = self._resolve_symbol_id(symbol)
+            if symbol_id is None:
+                # Chercher des noms proches pour aider au diagnostic
+                name_norm = symbol.upper().replace("/", "").replace(".", "")
+                suggestions = []
+                for sid, sinfo in self._symbols.items():
+                    sn = sinfo.symbol.upper().replace("/", "").replace(".", "")
+                    # Chercher si le symbole est contenu dans le nom cTrader ou vice versa
+                    if name_norm[:3] in sn and name_norm[-3:] in sn:
+                        suggestions.append(f"{sinfo.symbol}(ID:{sid})")
+                hint = f" — proches: {', '.join(suggestions[:3])}" if suggestions else ""
+                print(
+                    f"[cTrader] ⚠️ subscribe_spots_batch: "
+                    f"symbol {symbol} not found{hint}"
+                )
+                result[symbol] = False
+                continue
+
+            # Enregistrer les callbacks
+            if symbol_id not in self._spot_callbacks:
+                self._spot_callbacks[symbol_id] = []
+            for cb in callbacks:
+                if cb not in self._spot_callbacks[symbol_id]:
+                    self._spot_callbacks[symbol_id].append(cb)
+
+            # Mapping symbolId → nom unifié
+            if symbol_id not in self._symbol_id_to_unified:
+                self._symbol_id_to_unified[symbol_id] = symbol
+
+            # Collecter les IDs à souscrire
+            if symbol_id not in self._subscribed_symbol_ids:
+                new_symbol_ids.append(symbol_id)
+                self._subscribed_symbol_ids.add(symbol_id)
+
+            result[symbol] = True
+
+        # Envoyer UNE SEULE requête avec tous les symbolIds
+        if new_symbol_ids:
+            req = ProtoOASubscribeSpotsReq()
+            req.ctidTraderAccountId = self.account_id
+            for sid in new_symbol_ids:
+                req.symbolId.append(sid)
+            self._send_no_response(req)
+            print(
+                f"[cTrader] 📡 Batch subscribed to {len(new_symbol_ids)} symbols "
+                f"(IDs: {new_symbol_ids[:5]}{'...' if len(new_symbol_ids) > 5 else ''})"
+            )
+
+        return result
+
+    def _resolve_symbol_id(self, symbol: str) -> Optional[int]:
+        """Résout un nom de symbole en symbolId cTrader.
+
+        Essaie dans l'ordre :
+        1. _symbol_id_for_name(symbol) — correspondance directe
+        2. map_symbol(symbol) → _symbol_id_for_name ou int()
+        """
         symbol_id = self._symbol_id_for_name(symbol)
+        if symbol_id is not None:
+            return symbol_id
+        broker_sym = self.map_symbol(symbol)
+        if broker_sym:
+            try:
+                sid = int(broker_sym)
+                if sid in self._symbols:
+                    return sid
+            except ValueError:
+                return self._symbol_id_for_name(broker_sym)
+        return None
+
+    def get_last_tick(self, symbol: str) -> Optional[PriceTick]:
+        symbol_id = self._resolve_symbol_id(symbol)
         if symbol_id is None:
             return None
         return self._price_ticks.get(symbol_id)
@@ -683,14 +784,30 @@ class CTraderBroker(BaseBroker):
         # Ignorer si aucun prix valide
         if bid_f <= 0 and ask_f <= 0:
             return
-        sym_name = sym_info.symbol if sym_info else str(symbol_id)
+
+        # Utiliser le nom unifié (EURUSD) au lieu du nom cTrader (peut-être EUR/USD)
+        # pour que PriceFeedManager puisse corréler les ticks avec ses symboles
+        unified_name = self._symbol_id_to_unified.get(symbol_id)
+        if unified_name is None:
+            unified_name = sym_info.symbol if sym_info else str(symbol_id)
+
         tick = PriceTick(
-            symbol=sym_name,
+            symbol=unified_name,
             bid=bid_f,
             ask=ask_f,
             timestamp=datetime.now(timezone.utc),
         )
         self._price_ticks[symbol_id] = tick
+
+        # Diagnostic : log le premier tick de chaque symbole
+        if symbol_id not in self._first_tick_logged:
+            self._first_tick_logged.add(symbol_id)
+            ct_name = sym_info.symbol if sym_info else "?"
+            print(
+                f"[cTrader] 🔔 Premier tick: {unified_name} "
+                f"(cTrader: {ct_name}, ID:{symbol_id}) "
+                f"bid={bid_f:.5f} ask={ask_f:.5f}"
+            )
 
         # Dispatcher les callbacks vers le thread asyncio
         # (on est dans le thread Twisted, pas d'event loop asyncio ici)
@@ -839,7 +956,7 @@ class CTraderBroker(BaseBroker):
         req = ProtoOATraderReq()
         req.ctidTraderAccountId = self.account_id
         from twisted.internet import reactor
-        reactor.callFromThread(self._client.send, req)
+        self._send_via_reactor(req)
         try:
             return await asyncio.wait_for(future, timeout=10)
         except asyncio.TimeoutError:
@@ -863,7 +980,7 @@ class CTraderBroker(BaseBroker):
             req = ProtoOASymbolsListReq()
             req.ctidTraderAccountId = self.account_id
             from twisted.internet import reactor
-            reactor.callFromThread(self._client.send, req)
+            self._send_via_reactor(req)
             try:
                 return await asyncio.wait_for(future, timeout=15)
             except asyncio.TimeoutError:
@@ -944,7 +1061,7 @@ class CTraderBroker(BaseBroker):
             print(f"[cTrader] Placing {order.order_type.value} {order.side.value} "
                   f"{order.volume} lots on {order.symbol} @ {order.entry_price}")
             from twisted.internet import reactor
-            reactor.callFromThread(self._client.send, req)
+            self._send_via_reactor(req)
             result = await asyncio.wait_for(future, timeout=30)
             return result
         except asyncio.TimeoutError:
@@ -962,7 +1079,7 @@ class CTraderBroker(BaseBroker):
         req.ctidTraderAccountId = self.account_id
         req.orderId = int(order_id)
         from twisted.internet import reactor
-        reactor.callFromThread(self._client.send, req)
+        self._send_via_reactor(req)
         try:
             return await asyncio.wait_for(future, timeout=15)
         except asyncio.TimeoutError:
@@ -977,7 +1094,7 @@ class CTraderBroker(BaseBroker):
         req = ProtoOAReconcileReq()
         req.ctidTraderAccountId = self.account_id
         from twisted.internet import reactor
-        reactor.callFromThread(self._client.send, req)
+        self._send_via_reactor(req)
         try:
             await asyncio.wait_for(future, timeout=15)
             return self._pending_orders
