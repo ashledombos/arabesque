@@ -226,10 +226,28 @@ class CTraderBroker(BaseBroker):
         raise ValueError(f"Enum not found for {field_name}={wanted}. Available: {available}")
 
     def _symbol_id_for_name(self, name: str) -> Optional[int]:
-        """Retourne le symbolId cTrader pour un nom de symbole."""
+        """Retourne le symbolId cTrader pour un nom de symbole.
+
+        Cherche une correspondance exacte, puis normalisée (sans / . - _),
+        puis par ID numérique.
+        """
+        # 1) Recherche par nom exact (ex: "EURUSD" == symbolName cTrader)
         for sid, sinfo in self._symbols.items():
-            if sinfo.symbol == name or sinfo.broker_symbol == str(sid):
+            if sinfo.symbol == name:
                 return sid
+        # 2) Recherche normalisée (ex: "EURUSD" vs "EUR/USD")
+        name_norm = name.upper().replace("/", "").replace(".", "").replace("-", "").replace("_", "")
+        for sid, sinfo in self._symbols.items():
+            sym_norm = sinfo.symbol.upper().replace("/", "").replace(".", "").replace("-", "").replace("_", "")
+            if sym_norm == name_norm:
+                return sid
+        # 3) Recherche par ID numérique passé en string (ex: "270")
+        try:
+            sid_int = int(name)
+            if sid_int in self._symbols:
+                return sid_int
+        except ValueError:
+            pass
         return None
 
     @staticmethod
@@ -586,11 +604,17 @@ class CTraderBroker(BaseBroker):
             await self.get_symbols()
 
         symbol_id = self._symbol_id_for_name(symbol)
-        broker_sym = self.map_symbol(symbol)
-        if symbol_id is None and broker_sym:
-            symbol_id = self._symbol_id_for_name(broker_sym)
         if symbol_id is None:
-            print(f"[cTrader] ⚠️ subscribe_spots: symbol {symbol} not found")
+            broker_sym = self.map_symbol(symbol)
+            if broker_sym:
+                try:
+                    symbol_id = int(broker_sym)
+                    if symbol_id not in self._symbols:
+                        symbol_id = None
+                except ValueError:
+                    symbol_id = self._symbol_id_for_name(broker_sym)
+        if symbol_id is None:
+            print(f"[cTrader] ⚠️ subscribe_spots: symbol {symbol} not found in {len(self._symbols)} symbols")
             return False
 
         if symbol_id not in self._spot_callbacks:

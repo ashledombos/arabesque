@@ -2,7 +2,7 @@
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque  
-> **Dernière mise à jour** : 2026-02-24, session Opus 4.6 (validation 20 mois définitive)
+> **Dernière mise à jour** : 2026-02-26, session Opus 4.6 (live engine fixes)
 
 ---
 
@@ -170,13 +170,21 @@ Voir `config/prop_firm_profiles.yaml`.
 
 ---
 
-## 9. Session 2026-02-25 — Live Engine Fixes
+## 9. Session 2026-02-25/26 — Live Engine Fixes
 
 ### Bugs corrigés dans `broker/ctrader.py`
-1. **`get_history()` — fromTimestamp/toTimestamp manquants** : `ProtoOAGetTrendbarsReq` requiert ces champs obligatoires. Ajout de `_TIMEFRAME_SECONDS` mapping et calcul automatique de la fenêtre temporelle avec marge 50% pour weekends/fériés.
-2. **`_decode_trendbar()` — champs proto incorrects** : utilisait `tb.open`, `tb.high` (inexistants). Corrigé vers le vrai proto cTrader : `tb.low` (absolu) + `tb.deltaOpen/deltaHigh/deltaClose` (deltas depuis low).
-3. **`_process_spot_event()` — diviseur hardcodé 100000** : remplacé par le diviseur spécifique au symbole depuis `self._symbols[symbol_id]`. Ajout gestion des SpotEvents incrémentaux (seul bid ou ask mis à jour).
-4. **`_process_trendbar_response()` — thread-safety** : résolution du Future via `loop.call_soon_threadsafe()` (le callback vient du thread Twisted).
+1. **`get_history()` — fromTimestamp/toTimestamp manquants** : champs proto obligatoires. Ajout `_TIMEFRAME_SECONDS` + calcul fenêtre temporelle.
+2. **`_decode_trendbar()` — champs proto incorrects** : corrigé vers `tb.low` + deltas.
+3. **`_process_spot_event()` — diviseur hardcodé** : remplacé par diviseur spécifique au symbole. Gestion SpotEvents incrémentaux.
+4. **Thread-safety globale** : `_resolve_future()`/`_reject_future()` helpers pour tous les handlers. `_asyncio_loop` stocké dès `connect()`.
+5. **`_process_spot_event()` — `asyncio.get_event_loop()` dans thread Twisted** : crash `RuntimeError: no current event loop`. Remplacé par `self._asyncio_loop`.
+6. **⚠️ CRITIQUE: `_symbol_id_for_name()` — condition toujours vraie** : `sinfo.broker_symbol == str(sid)` retournait TOUJOURS le premier symbole du dict. **Toutes les souscriptions spots ET tous les get_history utilisaient le même symbolId** (EURUSD). Corrigé avec recherche par nom exact + normalisation (EUR/USD → EURUSD).
 
-### Améliorations dans `live/bar_aggregator.py`
-5. **Chargement historique parallèle** : `initialize()` utilise `asyncio.gather()` avec `Semaphore(5)` au lieu du chargement séquentiel (÷16 temps pour 83 instruments).
+### Architecture
+7. **PriceFeedManager réutilise le broker existant** : plus de 2e connexion TCP → plus de `ALREADY_LOGGED_IN`.
+8. **`_send_no_response()`** : fire-and-forget avec errback pour éviter les Deferred 5s timeout.
+9. **Chargement historique séquentiel** : cTrader mono-connexion TCP ne supporte pas les requêtes parallèles. Séquentiel avec 0.15s delay.
+10. **Lazy imports dans `live/__init__.py`** : supprime le RuntimeWarning au lancement.
+
+### Améliorations UX
+11. **Warnings "aucun tick" condensés** : un résumé au lieu de 83 lignes individuelles toutes les 30s.

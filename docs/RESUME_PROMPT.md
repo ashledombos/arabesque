@@ -1,6 +1,6 @@
 # PROMPT DE REPRISE — Arabesque v3.3 (TREND-ONLY, BE 0.3/0.20, risk 0.40%)
 
-> Destiné à un modèle intermédiaire. Mis à jour 2026-02-25.
+> Destiné à un modèle intermédiaire. Mis à jour 2026-02-26.
 
 ## Lire : `HANDOFF.md` (obligatoire avant toute action)
 
@@ -10,10 +10,14 @@
 - BE 0.3R trigger / 0.20R offset
 - Risk 0.40%/trade (DD max 8.2% < FTMO 10%)
 
-## LIVE ENGINE — État 2026-02-25
-- Bugs cTrader corrigés (fromTimestamp/toTimestamp, decode trendbar, spot divisor)
-- `python -m arabesque.live.engine --dry-run` devrait fonctionner
-- Prochaine étape : tester le dry-run cTrader et vérifier que les barres H1 se chargent correctement
+## LIVE ENGINE — État 2026-02-26
+- ✅ Connexion cTrader OK (app auth + account auth)
+- ✅ 83/83 instruments chargés (249 barres H1 chacun, ~90s séquentiel)
+- ✅ PriceFeedManager réutilise le broker existant (plus de ALREADY_LOGGED_IN)
+- ✅ Thread-safety complète (Twisted→asyncio via _resolve_future/_asyncio_loop)
+- ✅ Warnings condensés (résumé au lieu de 83 lignes/30s)
+- ⚠️ BUG CRITIQUE CORRIGÉ : `_symbol_id_for_name()` retournait toujours le 1er symbole (condition always-true). Toutes les souscriptions/historiques utilisaient le même symbolId.
+- Prochaine étape : relancer `--dry-run` en heures de marché et vérifier la réception de ticks sur les 83 symboles
 
 ## Tâche A : REPLAY DE CONFIRMATION (risk 0.40%)
 

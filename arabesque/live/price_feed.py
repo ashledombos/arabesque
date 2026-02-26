@@ -319,6 +319,7 @@ class PriceFeedManager:
         """
         STALE_THRESHOLD_S = 300  # 5 minutes sans tick = reconnexion
         CHECK_INTERVAL_S = 30
+        _warned_no_ticks = False  # évite de spammer le warning
 
         while self._running and self._connected:
             await asyncio.sleep(CHECK_INTERVAL_S)
@@ -328,22 +329,56 @@ class PriceFeedManager:
 
             # Vérifier si les ticks arrivent encore
             now = datetime.now(timezone.utc)
+            uptime_s = (now - self._start_time).total_seconds() if self._start_time else 0
+
+            symbols_no_tick = []
+            symbols_stale = []
+            symbols_ok = 0
+
             for symbol in self.symbols:
                 last = self._last_tick_times.get(symbol)
                 if last is None:
-                    # Pas encore reçu de tick — pas d'alerte avant 2 min
-                    if self._start_time and (now - self._start_time).total_seconds() > 120:
-                        logger.warning(
-                            f"[PriceFeed] ⚠️  Aucun tick reçu pour {symbol} "
-                            f"depuis le démarrage (marché fermé ?)"
-                        )
+                    symbols_no_tick.append(symbol)
                     continue
-
                 age_s = (now - last).total_seconds()
                 if age_s > STALE_THRESHOLD_S:
-                    raise ConnectionError(
-                        f"Feed stale: aucun tick pour {symbol} depuis {age_s:.0f}s"
-                    )
+                    symbols_stale.append((symbol, age_s))
+                else:
+                    symbols_ok += 1
+
+            # Résumé des ticks reçus
+            total_ticks = sum(self._tick_counts.values())
+            if total_ticks > 0 and symbols_ok > 0:
+                _warned_no_ticks = False  # reset si on reçoit des ticks
+                logger.debug(
+                    f"[PriceFeed] 📊 {symbols_ok}/{len(self.symbols)} actifs, "
+                    f"{total_ticks} ticks total"
+                )
+
+            # Alertes : aucun tick après 2 min
+            if symbols_no_tick and uptime_s > 120 and not _warned_no_ticks:
+                _warned_no_ticks = True
+                logger.warning(
+                    f"[PriceFeed] ⚠️  Aucun tick reçu pour "
+                    f"{len(symbols_no_tick)}/{len(self.symbols)} symbole(s) "
+                    f"depuis le démarrage ({uptime_s:.0f}s). "
+                    f"Marché fermé ou souscription échouée ?"
+                )
+                # Log un échantillon (max 5 symboles)
+                sample = symbols_no_tick[:5]
+                others = len(symbols_no_tick) - 5
+                msg = ", ".join(sample)
+                if others > 0:
+                    msg += f" (+{others} autres)"
+                logger.warning(f"[PriceFeed] ⚠️  Exemples: {msg}")
+
+            # Feed stale sur un symbole qui recevait des ticks → reconnexion
+            if symbols_stale:
+                worst = max(symbols_stale, key=lambda x: x[1])
+                raise ConnectionError(
+                    f"Feed stale: aucun tick pour {worst[0]} "
+                    f"depuis {worst[1]:.0f}s"
+                )
 
     # ------------------------------------------------------------------
     # Refresh préventif du token cTrader

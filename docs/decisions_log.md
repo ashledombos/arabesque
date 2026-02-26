@@ -612,3 +612,24 @@ suivi de timeouts sur tous les instruments.
 - Thread-safety de `_process_trendbar_response()` via `call_soon_threadsafe`.
 
 **Décision** : corrections pures, aucune modification de stratégie ou paramètres de trading.
+
+### Live Engine Bugs (suite) — 2026-02-26
+
+**Bug CRITIQUE : `_symbol_id_for_name()` retourne toujours le premier symbole**
+
+La condition `sinfo.broker_symbol == str(sid)` est toujours vraie car `broker_symbol = str(symbol_id)` et `sid = symbol_id`. Conséquence : TOUTES les opérations (subscribe_spots, get_history, get_last_tick) utilisaient le symbolId du premier symbole du dict (probablement EURUSD/270).
+
+Impact :
+- subscribe_spots : seul EURUSD souscrit, les 82 autres symboles trouvaient 270 déjà dans `_subscribed_symbol_ids`
+- get_history : les 83 instruments chargeaient les barres d'EURUSD sous des noms différents
+- Aucun tick reçu pour 82/83 symboles
+
+**Fix** : recherche par nom exact + normalisation (suppression de `/`, `.`, `-`, `_` pour matcher EUR/USD ↔ EURUSD) + recherche par ID numérique.
+
+**Autres fixes** :
+- `_process_spot_event()` crashait avec `RuntimeError: no current event loop in thread` car `asyncio.get_event_loop()` dans le thread Twisted. Remplacé par `self._asyncio_loop`.
+- PriceFeedManager réutilise le broker existant (évite ALREADY_LOGGED_IN).
+- `_send_no_response()` helper pour subscribe/unsubscribe (fire-and-forget avec errback).
+- Chargement séquentiel (pas parallèle) car cTrader mono-TCP.
+- Warnings condensés (résumé vs 83 lignes/30s).
+- Lazy imports dans `live/__init__.py` (supprime RuntimeWarning).
