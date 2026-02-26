@@ -62,91 +62,78 @@ USDJPY:
 
 USDCNH:
   ftmo_swing_test: "USDCNH"
-  gft_compte2: "USDCNH.X"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 1.44
 
 USDCZK:
   ftmo_swing_test: "USDCZK"
-  gft_compte2: "USDCZK.X"
   follow: true
   pip_size: 0.001
   pip_value_per_lot: 4.26
 
 USDDKK:
   ftmo_swing_test: "USDDKK"
-  gft_compte2: "USDDKK.X"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 1.45
 
 USDHKD:
   ftmo_swing_test: "USDHKD"
-  gft_compte2: "USDHKD.X"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 1.28
 
 USDHUF:
   ftmo_swing_test: "USDHUF"
-  gft_compte2: "USDHUF.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 2.60
 
 USDILS:
   ftmo_swing_test: "USDILS"
-  gft_compte2: "USDILS.X"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 2.85
 
 USDMXN:
   ftmo_swing_test: "USDMXN"
-  gft_compte2: "USDMXN.X"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 0.57
 
 USDNOK:
   ftmo_swing_test: "USDNOK"
-  gft_compte2: "USDNOK.X"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 0.95
 
 USDPLN:
   ftmo_swing_test: "USDPLN"
-  gft_compte2: "USDPLN.X"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 2.50
 
 USDSEK:
   ftmo_swing_test: "USDSEK"
-  gft_compte2: "USDSEK.X"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 0.95
 
 USDSGD:
   ftmo_swing_test: "USDSGD"
-  gft_compte2: "USDSGD.X"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 7.81
 
 USDTRY:
   ftmo_swing_test: "USDTRY"
-  gft_compte2: "USDTRY.X"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 0.30
 
 USDZAR:
   ftmo_swing_test: "USDZAR"
-  gft_compte2: "USDZAR.X"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 0.61
@@ -177,7 +164,6 @@ EURCHF:
 
 EURCZK:
   ftmo_swing_test: "EURCZK"
-  gft_compte2: "EURCZK.X"
   follow: true
   pip_size: 0.001
   pip_value_per_lot: 4.26
@@ -191,7 +177,6 @@ EURGBP:
 
 EURHUF:
   ftmo_swing_test: "EURHUF"
-  gft_compte2: "EURHUF.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 2.60
@@ -205,7 +190,6 @@ EURJPY:
 
 EURNOK:
   ftmo_swing_test: "EURNOK"
-  gft_compte2: "EURNOK.X"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 0.95
@@ -219,7 +203,6 @@ EURNZD:
 
 EURPLN:
   ftmo_swing_test: "EURPLN"
-  gft_compte2: "EURPLN.X"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 2.50
@@ -264,7 +247,6 @@ GBPNZD:
 
 GBPPLN:
   ftmo_swing_test: "GBPPLN"
-  gft_compte2: "GBPPLN.X"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 2.50
@@ -361,7 +343,6 @@ XAUUSD:
 
 XAUEUR:
   ftmo_swing_test: "XAUEUR"
-  gft_compte2: "XAUEUR.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 1.18
@@ -369,7 +350,6 @@ XAUEUR:
 
 XAUAUD:
   ftmo_swing_test: "XAUAUD"
-  gft_compte2: "XAUAUD.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 0.68
@@ -385,7 +365,6 @@ XAGUSD:
 
 XAGEUR:
   ftmo_swing_test: "XAGEUR"
-  gft_compte2: "XAGEUR.X"
   follow: true
   pip_size: 0.001
   pip_value_per_lot: 5.90
@@ -393,7 +372,6 @@ XAGEUR:
 
 XAGAUD:
   ftmo_swing_test: "XAGAUD"
-  gft_compte2: "XAGAUD.X"
   follow: true
   pip_size: 0.001
   pip_value_per_lot: 3.38
@@ -403,7 +381,7 @@ XAGAUD:
 # CRYPTO
 # -----------------------------------------------------------------------------
 AAVEUSD:
-  ftmo_swing_test: "AAVEUSD"
+  ftmo_swing_test: "AAVUSD"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 1
@@ -419,7 +397,7 @@ ADAUSD:
   session_model: "24x7"
 
 ALGOUSD:
-  ftmo_swing_test: "ALGOUSD"
+  ftmo_swing_test: "ALGUSD"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 10
@@ -427,7 +405,7 @@ ALGOUSD:
   session_model: "24x7"
 
 AVAXUSD:
-  ftmo_swing_test: "AVAXUSD"
+  ftmo_swing_test: "AVAUSD"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 10
@@ -444,6 +422,7 @@ BARUSD:
 
 BCHUSD:
   ftmo_swing_test: "BCHUSD"
+  gft_compte2: "BCHUSD.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 1
@@ -559,6 +538,7 @@ LINKUSD:
 
 LTCUSD:
   ftmo_swing_test: "LTCUSD"
+  gft_compte2: "LTCUSD.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 1
@@ -566,7 +546,7 @@ LTCUSD:
   session_model: "24x7"
 
 MANAUSD:
-  ftmo_swing_test: "MANAUSD"
+  ftmo_swing_test: "MANUSD"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 10
@@ -574,7 +554,7 @@ MANAUSD:
   session_model: "24x7"
 
 NEARUSD:
-  ftmo_swing_test: "NEARUSD"
+  ftmo_swing_test: "NERUSD"
   follow: true
   pip_size: 0.001
   pip_value_per_lot: 10
@@ -590,7 +570,7 @@ NEOUSD:
   session_model: "24x7"
 
 SANDUSD:
-  ftmo_swing_test: "SANDUSD"
+  ftmo_swing_test: "SANUSD"
   follow: true
   pip_size: 0.0001
   pip_value_per_lot: 10
@@ -599,6 +579,7 @@ SANDUSD:
 
 SOLUSD:
   ftmo_swing_test: "SOLUSD"
+  gft_compte2: "SOLUSD.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 1
@@ -614,7 +595,7 @@ UNIUSD:
   session_model: "24x7"
 
 VETUSD:
-  ftmo_swing_test: "VETUSD"
+  ftmo_swing_test: "VECUSD"
   follow: true
   pip_size: 0.00001
   pip_value_per_lot: 1
