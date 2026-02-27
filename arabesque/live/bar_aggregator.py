@@ -361,7 +361,7 @@ class BarAggregator:
             return BacktestSignalGenerator(SignalGenConfig(), live_mode=True)
         elif strategy == "trend":
             from arabesque.backtest.signal_gen_trend import TrendSignalGenerator, TrendSignalConfig
-            return TrendSignalGenerator(TrendSignalConfig(), live_mode=True)
+            return TrendSignalGenerator(TrendSignalConfig())
         else:  # combined
             from arabesque.backtest.signal_gen_combined import CombinedSignalGenerator
             return CombinedSignalGenerator()  # live_mode non supporté par CombinedSignalGenerator
