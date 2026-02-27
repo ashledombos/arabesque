@@ -9,7 +9,7 @@
 # PARAMÈTRES GÉNÉRAUX
 # -----------------------------------------------------------------------------
 general:
-  risk_percent: 0.5          # Risque par trade (% du capital)
+  risk_percent: 0.40         # Risque par trade (% du capital) — v3.3 validé
   use_equity: true           # Utiliser l'équité (true) ou la balance (false)
   default_rr_ratio: 2.5      # R/R par défaut si non fourni dans le signal
   order_timeout_candles: 4   # Expiration des ordres limites (en bougies)
@@ -23,6 +23,12 @@ execution:
     enabled: true
     min_ms: 500
     max_ms: 3000
+
+# -----------------------------------------------------------------------------
+# STRATÉGIE (v3.3 validé: trend-only)
+# -----------------------------------------------------------------------------
+strategy:
+  type: trend            # "trend" | "mean_reversion" | "combined" — trend-only validé sur 20 mois
 
 # -----------------------------------------------------------------------------
 # PRICE FEED (surveillance prix cTrader)
