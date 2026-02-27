@@ -633,3 +633,34 @@ Impact :
 - Chargement séquentiel (pas parallèle) car cTrader mono-TCP.
 - Warnings condensés (résumé vs 83 lignes/30s).
 - Lazy imports dans `live/__init__.py` (supprime RuntimeWarning).
+
+### Live Stability Fixes — 2026-02-27
+
+**Problème 1 : Reconnexion en boucle pour symboles illiquides**
+
+ALGUSD, NEOUSD, XAGUSD (fermé le vendredi) déclenchaient ConnectionError dès 5 min sans tick, provoquant une reconnexion globale toutes les 2 min. Sur 83 symboles, 76+ fonctionnaient correctement.
+
+**Fix** : Logique de stale detection à 3 niveaux :
+- Majeurs (G10, XAU, BTC, ETH) : seuil 5 min → reconnexion
+- Mineurs : seuil 30 min → tolérance (pas de reconnexion)
+- Global : reconnexion si >50% stale
+- Weekend : forex/métaux stale tolérés (vendredi 22h → dimanche 22h UTC)
+
+**Problème 2 : ALREADY_SUBSCRIBED lors de reconnexion**
+
+`_connect_and_subscribe()` clearait `_subscribed_symbol_ids` avant de re-souscrire. Le serveur cTrader gardait les souscriptions actives → erreur.
+
+**Fix** : Si broker connecté + souscriptions actives : rafraîchir uniquement les callbacks Python sans requête TCP.
+
+**Problème 3 : Fermetures de bougies invisibles**
+
+`_on_bar_closed` en DEBUG → aucune trace dans les logs INFO. Impossible de confirmer que le système fonctionne.
+
+**Fix** : Passé en INFO + résumé groupé : "X barres fermées, Y signaux émis".
+
+**Problème 4 : settings.yaml mal configuré**
+
+- Pas de section `strategy` → defaultait à "combined" (inclut MR perdante). Ajout `strategy.type: trend`.
+- `risk_percent: 0.5` au lieu de 0.40 validé. Corrigé.
+
+**Décision** : corrections opérationnelles uniquement. Aucune modification stratégique.
