@@ -269,15 +269,20 @@ class PriceFeedManager:
 
     async def _connect_and_subscribe(self) -> None:
         # Réutiliser le broker existant s'il est déjà connecté
+        already_subscribed = False
         if self._broker and getattr(self._broker, '_connected', False):
             logger.info(
                 f"[PriceFeed] Réutilisation du broker existant ({self.broker_id})"
             )
-            # Reset des souscriptions pour s'assurer d'un état propre
-            if hasattr(self._broker, '_subscribed_symbol_ids'):
-                self._broker._subscribed_symbol_ids.clear()
+            # Les souscriptions TCP sont toujours actives côté serveur.
+            # On ne touche PAS à _subscribed_symbol_ids (sinon ALREADY_SUBSCRIBED).
+            # On rafraîchit uniquement les callbacks Python.
             if hasattr(self._broker, '_spot_callbacks'):
                 self._broker._spot_callbacks.clear()
+            already_subscribed = bool(
+                hasattr(self._broker, '_subscribed_symbol_ids')
+                and self._broker._subscribed_symbol_ids
+            )
         else:
             from arabesque.broker.ctrader import CTraderBroker
             self._broker = CTraderBroker(self.broker_id, self.broker_cfg)
@@ -306,40 +311,72 @@ class PriceFeedManager:
             cbs.extend(self._callbacks.get(symbol, []))
             symbols_and_callbacks[symbol] = cbs
 
-        # Souscrire en batch (une seule requête TCP)
-        if hasattr(self._broker, 'subscribe_spots_batch'):
-            results = await self._broker.subscribe_spots_batch(symbols_and_callbacks)
-            ok = sum(1 for v in results.values() if v)
-            failed = [s for s, v in results.items() if not v]
+        if already_subscribed:
+            # Broker déjà souscrit — juste mettre à jour les callbacks Python
+            # sans envoyer de requête TCP (évite ALREADY_SUBSCRIBED)
+            for symbol, callbacks in symbols_and_callbacks.items():
+                symbol_id = self._broker._resolve_symbol_id(symbol)
+                if symbol_id is not None:
+                    if symbol_id not in self._broker._spot_callbacks:
+                        self._broker._spot_callbacks[symbol_id] = []
+                    for cb in callbacks:
+                        if cb not in self._broker._spot_callbacks[symbol_id]:
+                            self._broker._spot_callbacks[symbol_id].append(cb)
             logger.info(
-                f"[PriceFeed] 📡 Souscrit à {ok}/{len(self.symbols)} symbole(s)"
+                f"[PriceFeed] 📡 Callbacks rafraîchis pour "
+                f"{len(self.symbols)} symbole(s) (souscriptions TCP actives)"
             )
-            if failed:
-                logger.warning(
-                    f"[PriceFeed] ⚠️  {len(failed)} symbole(s) introuvables: "
-                    f"{', '.join(failed[:10])}"
-                    + (f" (+{len(failed)-10} autres)" if len(failed) > 10 else "")
-                )
         else:
-            # Fallback : souscription individuelle
-            for symbol, cbs in symbols_and_callbacks.items():
-                for cb in cbs:
-                    await self._broker.subscribe_spots(symbol, cb)
-            logger.info(
-                f"[PriceFeed] 📡 Souscrit à {len(self.symbols)} symbole(s)"
-            )
+            # Souscrire en batch (une seule requête TCP)
+            if hasattr(self._broker, 'subscribe_spots_batch'):
+                results = await self._broker.subscribe_spots_batch(symbols_and_callbacks)
+                ok = sum(1 for v in results.values() if v)
+                failed = [s for s, v in results.items() if not v]
+                logger.info(
+                    f"[PriceFeed] 📡 Souscrit à {ok}/{len(self.symbols)} symbole(s)"
+                )
+                if failed:
+                    logger.warning(
+                        f"[PriceFeed] ⚠️  {len(failed)} symbole(s) introuvables: "
+                        f"{', '.join(failed[:10])}"
+                        + (f" (+{len(failed)-10} autres)" if len(failed) > 10 else "")
+                    )
+            else:
+                # Fallback : souscription individuelle
+                for symbol, cbs in symbols_and_callbacks.items():
+                    for cb in cbs:
+                        await self._broker.subscribe_spots(symbol, cb)
+                logger.info(
+                    f"[PriceFeed] 📡 Souscrit à {len(self.symbols)} symbole(s)"
+                )
 
         # Attendre indéfiniment en surveillant la connexion
         await self._watch_connection()
 
     async def _watch_connection(self) -> None:
         """
-        Surveille la connexion. Lève une exception si le feed semble mort
-        (aucun tick reçu depuis plus de 5 minutes sur un symbole actif).
+        Surveille la connexion. Lève une exception si le feed semble mort.
+
+        Logique améliorée (v14) :
+        - Les symboles peu liquides (crypto altcoins) sont tolérés jusqu'à 30 min
+        - Seuls les symboles "majeurs" (forex majors, XAU, BTC, ETH) déclenchent
+          une reconnexion rapide (5 min)
+        - Reconnexion globale uniquement si >50% des symboles sont stale
+        - Pas de reconnexion le weekend pour le forex (vendredi 22h → dimanche 22h UTC)
         """
-        STALE_THRESHOLD_S = 300  # 5 minutes sans tick = reconnexion
+        STALE_MAJOR_S = 300        # 5 min pour symboles majeurs
+        STALE_MINOR_S = 1800       # 30 min pour symboles mineurs/illiquides
+        STALE_GLOBAL_PCT = 0.50    # Reconnexion si >50% stale
         CHECK_INTERVAL_S = 30
-        _warned_no_ticks = False  # évite de spammer le warning
+        LOG_INTERVAL_S = 300       # Résumé toutes les 5 min
+        _warned_no_ticks = False
+        _last_summary = time.time()
+
+        # Symboles majeurs : forex G10 + XAU + BTC + ETH
+        MAJOR_SYMBOLS = {
+            "EURUSD", "GBPUSD", "USDJPY", "USDCHF", "USDCAD",
+            "AUDUSD", "NZDUSD", "XAUUSD", "BTCUSD", "ETHUSD",
+        }
 
         while self._running and self._connected:
             await asyncio.sleep(CHECK_INTERVAL_S)
@@ -347,12 +384,12 @@ class PriceFeedManager:
             if not self._running:
                 break
 
-            # Vérifier si les ticks arrivent encore
             now = datetime.now(timezone.utc)
             uptime_s = (now - self._start_time).total_seconds() if self._start_time else 0
 
             symbols_no_tick = []
-            symbols_stale = []
+            symbols_stale_major = []
+            symbols_stale_minor = []
             symbols_ok = 0
 
             for symbol in self.symbols:
@@ -361,43 +398,91 @@ class PriceFeedManager:
                     symbols_no_tick.append(symbol)
                     continue
                 age_s = (now - last).total_seconds()
-                if age_s > STALE_THRESHOLD_S:
-                    symbols_stale.append((symbol, age_s))
+                is_major = symbol in MAJOR_SYMBOLS
+
+                if is_major and age_s > STALE_MAJOR_S:
+                    symbols_stale_major.append((symbol, age_s))
+                elif not is_major and age_s > STALE_MINOR_S:
+                    symbols_stale_minor.append((symbol, age_s))
                 else:
                     symbols_ok += 1
 
-            # Résumé des ticks reçus
+            total_active = symbols_ok + len(symbols_stale_minor)  # mineurs stale mais tolérés
+            total_symbols = len(self.symbols)
             total_ticks = sum(self._tick_counts.values())
-            if total_ticks > 0 and symbols_ok > 0:
-                _warned_no_ticks = False  # reset si on reçoit des ticks
-                logger.debug(
-                    f"[PriceFeed] 📊 {symbols_ok}/{len(self.symbols)} actifs, "
+
+            # Résumé périodique (toutes les 5 min)
+            if time.time() - _last_summary >= LOG_INTERVAL_S and total_ticks > 0:
+                _last_summary = time.time()
+                logger.info(
+                    f"[PriceFeed] 📊 {symbols_ok}/{total_symbols} actifs, "
+                    f"{len(symbols_stale_minor)} dormants, "
+                    f"{len(symbols_stale_major)} stale majeurs, "
+                    f"{len(symbols_no_tick)} jamais reçus — "
                     f"{total_ticks} ticks total"
                 )
+
+            # Reset warning si on reçoit des ticks
+            if total_ticks > 0 and symbols_ok > 0:
+                _warned_no_ticks = False
 
             # Alertes : aucun tick après 2 min
             if symbols_no_tick and uptime_s > 120 and not _warned_no_ticks:
                 _warned_no_ticks = True
-                logger.warning(
-                    f"[PriceFeed] ⚠️  Aucun tick reçu pour "
-                    f"{len(symbols_no_tick)}/{len(self.symbols)} symbole(s) "
-                    f"depuis le démarrage ({uptime_s:.0f}s). "
-                    f"Marché fermé ou souscription échouée ?"
-                )
-                # Log un échantillon (max 5 symboles)
                 sample = symbols_no_tick[:5]
                 others = len(symbols_no_tick) - 5
                 msg = ", ".join(sample)
                 if others > 0:
                     msg += f" (+{others} autres)"
-                logger.warning(f"[PriceFeed] ⚠️  Exemples: {msg}")
+                logger.warning(
+                    f"[PriceFeed] ⚠️  Aucun tick pour "
+                    f"{len(symbols_no_tick)}/{total_symbols} symbole(s) "
+                    f"depuis le démarrage ({uptime_s:.0f}s) : {msg}"
+                )
 
-            # Feed stale sur un symbole qui recevait des ticks → reconnexion
-            if symbols_stale:
-                worst = max(symbols_stale, key=lambda x: x[1])
+            # Reconnexion : seulement si des MAJEURS sont stale
+            if symbols_stale_major:
+                # Vérifier si c'est le weekend (vendredi 22h → dimanche 22h UTC)
+                weekday = now.weekday()  # 0=lundi, 4=vendredi, 5=samedi, 6=dimanche
+                hour = now.hour
+                is_weekend = (
+                    (weekday == 4 and hour >= 22)
+                    or weekday == 5
+                    or (weekday == 6 and hour < 22)
+                )
+
+                # Les forex/métaux sont fermés le weekend — ne pas reconnecter
+                forex_stale = [
+                    (s, a) for s, a in symbols_stale_major
+                    if s not in {"BTCUSD", "ETHUSD"}
+                ]
+                crypto_stale = [
+                    (s, a) for s, a in symbols_stale_major
+                    if s in {"BTCUSD", "ETHUSD"}
+                ]
+
+                if is_weekend and not crypto_stale and forex_stale:
+                    # Forex stale pendant le weekend = normal, on tolère
+                    pass
+                elif crypto_stale:
+                    worst = max(crypto_stale, key=lambda x: x[1])
+                    raise ConnectionError(
+                        f"Feed stale (majeur crypto): aucun tick pour {worst[0]} "
+                        f"depuis {worst[1]:.0f}s"
+                    )
+                elif forex_stale and not is_weekend:
+                    worst = max(forex_stale, key=lambda x: x[1])
+                    raise ConnectionError(
+                        f"Feed stale (majeur forex): aucun tick pour {worst[0]} "
+                        f"depuis {worst[1]:.0f}s"
+                    )
+
+            # Reconnexion globale : >50% de TOUS les symboles stale
+            total_stale = len(symbols_stale_major) + len(symbols_stale_minor)
+            if total_symbols > 0 and total_stale / total_symbols > STALE_GLOBAL_PCT:
                 raise ConnectionError(
-                    f"Feed stale: aucun tick pour {worst[0]} "
-                    f"depuis {worst[1]:.0f}s"
+                    f"Feed stale global: {total_stale}/{total_symbols} symboles "
+                    f"sans tick récent"
                 )
 
     # ------------------------------------------------------------------
