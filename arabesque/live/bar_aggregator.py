@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, List, Optional
@@ -104,6 +105,12 @@ class BarAggregator:
         # Statistiques
         self._bars_closed: Dict[str, int] = {k: 0 for k in config.instruments}
         self._signals_emitted: int = 0
+
+        # Batch summary : accumule les fermetures pour un résumé groupé
+        self._batch_bars_closed: int = 0
+        self._batch_signals: int = 0
+        self._batch_start_time: Optional[float] = None
+        self._BATCH_WINDOW_S = 120  # 2 min pour grouper les fermetures
 
     # ------------------------------------------------------------------
     # Initialisation
@@ -255,10 +262,11 @@ class BarAggregator:
         Ajoute la bougie au cache, génère les signaux.
         """
         ts_dt = datetime.fromtimestamp(bar["ts"], tz=timezone.utc)
-        logger.debug(
-            f"[BarAggregator] {instrument} Bar fermée @ {ts_dt.isoformat()} "
+        logger.info(
+            f"[BarAggregator] 🕯️ {instrument} Bar H1 fermée @ {ts_dt.strftime('%H:%M')} UTC "
             f"O={bar['open']:.5f} H={bar['high']:.5f} "
-            f"L={bar['low']:.5f} C={bar['close']:.5f}"
+            f"L={bar['low']:.5f} C={bar['close']:.5f} "
+            f"vol={bar.get('volume', 0)} ticks"
         )
 
         # Ajouter au cache
@@ -268,6 +276,20 @@ class BarAggregator:
             cache.pop(0)
 
         self._bars_closed[instrument] = self._bars_closed.get(instrument, 0) + 1
+
+        # Batch tracking : accumule pour résumé groupé
+        now = time.time()
+        if self._batch_start_time is None or (now - self._batch_start_time) > self._BATCH_WINDOW_S:
+            # Nouveau batch (ou premier) — log le résumé du batch précédent
+            if self._batch_bars_closed > 0:
+                logger.info(
+                    f"[BarAggregator] ✅ Résumé: {self._batch_bars_closed} barre(s) fermée(s), "
+                    f"{self._batch_signals} signal(s) émis"
+                )
+            self._batch_bars_closed = 0
+            self._batch_signals = 0
+            self._batch_start_time = now
+        self._batch_bars_closed += 1
 
         # Vérifier qu'on a assez de barres pour les indicateurs
         if len(cache) < self.cfg.min_bars:
@@ -304,8 +326,14 @@ class BarAggregator:
             last_idx = len(df) - 1
             new_signals = [(i, s) for i, s in all_signals if i == last_idx]
 
+            if not new_signals:
+                logger.debug(
+                    f"[BarAggregator] {instrument}: pas de signal (dernière bougie)"
+                )
+
             for _, signal in new_signals:
                 self._signals_emitted += 1
+                self._batch_signals += 1
                 logger.info(
                     f"[BarAggregator] 📈 Signal {instrument} {signal.side.value} "
                     f"close={signal.close:.5f} sl={signal.sl:.5f} "
