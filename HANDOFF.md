@@ -1,8 +1,8 @@
-# ARABESQUE — Handoff v13
+# ARABESQUE — Handoff v14
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque  
-> **Dernière mise à jour** : 2026-02-26, session Opus 4.6 (live engine fixes)
+> **Dernière mise à jour** : 2026-02-27, session Opus 4.6 (live stability fixes)
 
 ---
 
@@ -170,7 +170,29 @@ Voir `config/prop_firm_profiles.yaml`.
 
 ---
 
-## 9. Session 2026-02-25/26 — Live Engine Fixes
+## 9. Session 2026-02-27 — Live Engine Stability
+
+### Bugs corrigés
+
+1. **`price_feed.py` — Reconnexion en boucle pour symboles illiquides** : ALGUSD, NEOUSD, XAGUSD déclenchaient une reconnexion globale toutes les 2 min. Nouvelle logique :
+   - Symboles majeurs (G10+XAU+BTC+ETH) : seuil stale 5 min
+   - Symboles mineurs : seuil stale 30 min (tolérance)
+   - Détection weekend : forex/métaux stale tolérés ven 22h→dim 22h UTC
+   - Reconnexion globale uniquement si >50% des symboles stale
+
+2. **`price_feed.py` — ALREADY_SUBSCRIBED** : lors de la reconnexion, le code clearait `_subscribed_symbol_ids` puis tentait de re-souscrire → erreur côté serveur. Fix : si broker déjà connecté et souscriptions actives, ne rafraîchir que les callbacks Python sans requête TCP.
+
+3. **`bar_aggregator.py` — Fermetures de bougies invisibles** : `_on_bar_closed` loggait en DEBUG. Passé en INFO avec résumé groupé toutes les 2 min : "X barres fermées, Y signaux émis".
+
+4. **`settings.yaml` — Stratégie "combined" au lieu de "trend"** : pas de section `strategy`, le code defaultait à combined (inclut mean-reversion perdante). Ajout `strategy.type: trend`.
+
+5. **`settings.yaml` — Risk 0.5% au lieu de 0.40%** : corrigé selon la validation v3.3 (DD 8.2% à 0.40%).
+
+### Observations de la session Perplexity (review)
+- Confirmation que le TP est un mur absolu (broker ferme dès qu'il est touché)
+- Le trailing ne peut PAS capturer au-delà du TP
+- Les paliers sont : BE (0.3R→0.20R), trailing (≥1.5R:0.7R, ≥2.0R:1.0R, ≥3.0R:1.5R)
+- News filter identifié comme amélioration future (P2)
 
 ### Bugs corrigés dans `broker/ctrader.py`
 1. **`get_history()` — fromTimestamp/toTimestamp manquants** : champs proto obligatoires. Ajout `_TIMEFRAME_SECONDS` + calcul fenêtre temporelle.
