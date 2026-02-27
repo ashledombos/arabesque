@@ -1,6 +1,6 @@
 # PROMPT DE REPRISE — Arabesque v3.3 (TREND-ONLY, BE 0.3/0.20, risk 0.40%)
 
-> Destiné à un modèle intermédiaire. Mis à jour 2026-02-26.
+> Destiné à un modèle intermédiaire. Mis à jour 2026-02-27.
 
 ## Lire : `HANDOFF.md` (obligatoire avant toute action)
 
@@ -10,14 +10,15 @@
 - BE 0.3R trigger / 0.20R offset
 - Risk 0.40%/trade (DD max 8.2% < FTMO 10%)
 
-## LIVE ENGINE — État 2026-02-26
-- ✅ Connexion cTrader OK (app auth + account auth)
-- ✅ 83/83 instruments chargés (249 barres H1 chacun, ~90s séquentiel)
-- ✅ PriceFeedManager réutilise le broker existant (plus de ALREADY_LOGGED_IN)
-- ✅ Thread-safety complète (Twisted→asyncio via _resolve_future/_asyncio_loop)
-- ✅ Warnings condensés (résumé au lieu de 83 lignes/30s)
-- ⚠️ BUG CRITIQUE CORRIGÉ : `_symbol_id_for_name()` retournait toujours le 1er symbole (condition always-true). Toutes les souscriptions/historiques utilisaient le même symbolId.
-- Prochaine étape : relancer `--dry-run` en heures de marché et vérifier la réception de ticks sur les 83 symboles
+## LIVE ENGINE — État 2026-02-27
+- ✅ Connexion cTrader OK + 83/83 instruments chargés
+- ✅ PriceFeedManager avec tolérance symboles illiquides (30 min vs 5 min majeurs)
+- ✅ Détection weekend pour forex/métaux (pas de reconnexion inutile)
+- ✅ Reconnexion sans ALREADY_SUBSCRIBED (callbacks-only refresh)
+- ✅ Fermetures de bougies visibles en INFO + résumé groupé
+- ✅ settings.yaml corrigé : strategy=trend, risk=0.40%
+- ⚠️ TradeLocker (GFT) en maintenance — tester après rétablissement
+- Prochaine étape : relancer en heures de marché (lundi) et vérifier les signaux
 
 ## Tâche A : REPLAY DE CONFIRMATION (risk 0.40%)
 
