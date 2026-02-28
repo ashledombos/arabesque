@@ -681,3 +681,48 @@ Le check global `total_stale / total_symbols > 50%` ne tenait pas compte du week
 **Fix** : retiré `live_mode=True`. Pas nécessaire car le `BarAggregator` filtre déjà la dernière bougie côté appelant (via `last_idx`).
 
 **Décision** : corrections opérationnelles. Le moteur crypto a tourné 6h30 sans interruption ni signal (normal : ~0.15 signaux/heure sur 31 crypto). Le vrai test viendra lundi avec le forex ouvert.
+
+### 2026-02-28 (2) : Order dispatch fix — 0 ordres placés sur 19 signaux
+
+**Problème 7 : CRITIQUE — instruments_mapping vide dans les brokers**
+
+Le factory `create_all_brokers()` construisait `instruments_mapping` depuis `settings["instruments"]` qui est `{}` dans settings.yaml. Les instruments réels sont dans un fichier séparé `config/instruments.yaml`, chargé par le moteur dans `self.instruments`, mais PAS passé au factory. Résultat : `broker.map_symbol("BCHUSD")` → `None` → "non disponible sur ftmo_swing_test" pour TOUS les symboles. 19 signaux générés, 11 acceptés par les filtres, mais 0 ordres placés.
+
+**Fix** : le moteur passe maintenant `self.instruments` au factory. Log ajouté : "(N instruments mappés)" au démarrage pour vérifier.
+
+**Problème 8 : TradeLocker stop_price**
+
+La lib tradelocker-python exige `stop_price` (pas `price`) pour les ordres `type_='stop'`. BCHUSD et BNBUSD généraient l'erreur `Order of type_ = 'stop' specified with a price, instead of stop_price`.
+
+**Fix** : split du bloc `if tl_type != 'market'` en deux cas : `limit` → `price`, `stop` → `stop_price`.
+
+**Analyse des signaux du 28/02** : 19 signaux générés (tous SHORT crypto, cohérent avec le dump en cours). Symboles récurrents : MANUSD(4), XRPUSD(3), BCHUSD(3), XLMUSD(3), ALGUSD(3). Rejets principaux : slippage ATR (5), spread ATR (3). Le dispatcher fonctionnait correctement côté filtres, seul le placement échouait.
+
+**Décision** : fix critique. Le système était fonctionnel à 95% — seul le dernier maillon (symbole mapping → ordre) était cassé.
+
+### 2026-02-28 (3) : Architecture multi-compte, amend/close, scripts de test
+
+**Analyse architecture cTrader OpenAPI** :
+- 1 connexion TCP supporte N authentifications de comptes simultanées
+- Les ticks (spots) sont souscrits via un account_id, mais les symboles disponibles dépendent du broker sous-jacent
+- L'architecture actuelle (1 CTraderBroker = 1 connexion = 1 compte) fonctionne pour un seul compte cTrader
+- Phase 2 future : `CTraderConnection` (singleton TCP) + `CTraderAccount` (contexte par compte)
+
+**Architecture TradeLocker** :
+- API REST (pas WebSocket), pas de connexion persistante
+- 1 TLAPI instance par compte, HTTP calls à la demande
+- L'architecture actuelle est déjà adaptée au multi-compte
+
+**Ajout amend_position_sltp + close_position** :
+- `base.py` : méthodes non-abstraites (default: "Not implemented")
+- `ctrader.py` : implémentation via ProtoOAAmendPositionSLTPReq et ProtoOAClosePositionReq
+- `_process_order_response` refactorisé : boucle de priorité sur les 4 types de requêtes
+- Wrappers synchrones ajoutés dans CTraderBrokerSync
+
+**Scripts de test** :
+- `test_order_flow.py` : cycle MARKET BUY → amend SL → close position, avec confirmation utilisateur
+- `test_connectivity.py` : vérifie connexions, mappings, comptes (non destructif)
+
+**Naming instruments.yaml** : la clé YAML = nom unifié utilisé dans tout le pipeline. Doit correspondre au nom cTrader car les ticks arrivent avec ce nom. Le mapping broker-spécifique ne sert que quand le nom diffère (ex: EURUSD → EURUSD.X sur TradeLocker).
+
+**Décision** : ajouts opérationnels et outils de diagnostic.

@@ -328,6 +328,20 @@ class BaseBroker(ABC):
     async def get_positions(self) -> List[Position]:
         pass
 
+    async def amend_position_sltp(
+        self, position_id: str,
+        stop_loss: Optional[float] = None,
+        take_profit: Optional[float] = None,
+    ) -> OrderResult:
+        """Modify SL/TP on an open position. Override in subclass."""
+        return OrderResult(success=False, message="Not implemented")
+
+    async def close_position(
+        self, position_id: str, volume: Optional[float] = None
+    ) -> OrderResult:
+        """Close a position (full or partial). Override in subclass."""
+        return OrderResult(success=False, message="Not implemented")
+
     async def get_history(
         self,
         symbol: str,

@@ -29,6 +29,8 @@ try:
         ProtoOASymbolsListReq,
         ProtoOANewOrderReq,
         ProtoOACancelOrderReq,
+        ProtoOAAmendPositionSLTPReq,
+        ProtoOAClosePositionReq,
         ProtoOAReconcileReq,
         ProtoOATraderReq,
         ProtoOAErrorRes,
@@ -902,17 +904,25 @@ class CTraderBroker(BaseBroker):
 
     def _process_order_response(self, payload, ptype: str):
         print(f"[cTrader] DEBUG: Received {ptype}")
-        if "order_place" in self._pending_requests:
-            future = self._pending_requests.pop("order_place")
+
+        # Déterminer quelle requête en attente correspond
+        # Priorité : order_place > position_amend > position_close > order_cancel
+        for key in ("order_place", "position_amend", "position_close", "order_cancel"):
+            if key not in self._pending_requests:
+                continue
+            future = self._pending_requests.pop(key)
+
             if ptype == "ProtoOAOrderErrorEvent" or "Error" in ptype:
                 error_code = getattr(payload, "errorCode", "UNKNOWN")
                 description = getattr(payload, "description", "No description")
                 self._resolve_future(future, OrderResult(
                     success=False,
-                    message=f"Order rejected: {error_code} - {description}",
+                    message=f"{key} rejected: {error_code} - {description}",
                     broker_response=payload
                 ))
                 return
+
+            # Extraire l'ID (orderId ou positionId)
             order_id = None
             if hasattr(payload, "order") and hasattr(payload.order, "orderId"):
                 order_id = payload.order.orderId
@@ -921,11 +931,12 @@ class CTraderBroker(BaseBroker):
             if not order_id and hasattr(payload, "position"):
                 if hasattr(payload.position, "positionId"):
                     order_id = payload.position.positionId
+
             if order_id and order_id != 0:
                 self._resolve_future(future, OrderResult(
                     success=True,
                     order_id=str(order_id),
-                    message="Order placed successfully",
+                    message=f"{key} OK",
                     broker_response=payload
                 ))
             else:
@@ -935,13 +946,7 @@ class CTraderBroker(BaseBroker):
                     message=f"Response: {ptype}",
                     broker_response=payload
                 ))
-        if "order_cancel" in self._pending_requests:
-            future = self._pending_requests.pop("order_cancel")
-            self._resolve_future(future, OrderResult(
-                success=True,
-                message="Order cancelled",
-                broker_response=payload
-            ))
+            return  # Un seul future résolu par message
 
     # ------------------------------------------------------------------
     # Account
@@ -1105,6 +1110,56 @@ class CTraderBroker(BaseBroker):
         await self.get_pending_orders()
         return self._positions
 
+    async def amend_position_sltp(
+        self, position_id: str,
+        stop_loss: Optional[float] = None,
+        take_profit: Optional[float] = None,
+    ) -> OrderResult:
+        """Modify SL/TP on an open position via ProtoOAAmendPositionSLTPReq."""
+        if not self._connected:
+            return OrderResult(success=False, message="Not connected")
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        self._pending_requests["position_amend"] = future
+        req = ProtoOAAmendPositionSLTPReq()
+        req.ctidTraderAccountId = self.account_id
+        req.positionId = int(position_id)
+        if stop_loss is not None:
+            req.stopLoss = stop_loss
+        if take_profit is not None:
+            req.takeProfit = take_profit
+        print(f"[cTrader] Amending position {position_id}: SL={stop_loss} TP={take_profit}")
+        self._send_via_reactor(req)
+        try:
+            return await asyncio.wait_for(future, timeout=15)
+        except asyncio.TimeoutError:
+            self._pending_requests.pop("position_amend", None)
+            return OrderResult(success=False, message="Amend timeout")
+
+    async def close_position(
+        self, position_id: str, volume: Optional[float] = None
+    ) -> OrderResult:
+        """Close a position via ProtoOAClosePositionReq."""
+        if not self._connected:
+            return OrderResult(success=False, message="Not connected")
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        self._pending_requests["position_close"] = future
+        req = ProtoOAClosePositionReq()
+        req.ctidTraderAccountId = self.account_id
+        req.positionId = int(position_id)
+        if volume is not None:
+            # cTrader volume = lots * 10_000_000
+            req.volume = int(volume * 10_000_000)
+        print(f"[cTrader] Closing position {position_id}" +
+              (f" (partial: {volume} lots)" if volume else " (full)"))
+        self._send_via_reactor(req)
+        try:
+            return await asyncio.wait_for(future, timeout=15)
+        except asyncio.TimeoutError:
+            self._pending_requests.pop("position_close", None)
+            return OrderResult(success=False, message="Close timeout")
+
 
 # =============================================================================
 # Synchronous wrapper
@@ -1156,6 +1211,14 @@ class CTraderBrokerSync:
 
     def get_positions(self) -> List[Position]:
         return self._get_loop().run_until_complete(self.broker.get_positions())
+
+    def amend_position_sltp(self, position_id: str, stop_loss=None, take_profit=None) -> OrderResult:
+        return self._get_loop().run_until_complete(
+            self.broker.amend_position_sltp(position_id, stop_loss, take_profit))
+
+    def close_position(self, position_id: str, volume=None) -> OrderResult:
+        return self._get_loop().run_until_complete(
+            self.broker.close_position(position_id, volume))
 
     def get_last_tick(self, symbol: str) -> Optional[PriceTick]:
         return self.broker.get_last_tick(symbol)

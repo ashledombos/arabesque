@@ -2,7 +2,7 @@
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque  
-> **Dernière mise à jour** : 2026-02-28, session Opus 4.6 (weekend stale fix)
+> **Dernière mise à jour** : 2026-02-28, session Opus 4.6 (order dispatch fix + weekend stale)
 
 ---
 
@@ -190,6 +190,16 @@ Voir `config/prop_firm_profiles.yaml`.
 5. **`settings.yaml` — Risk 0.5% au lieu de 0.40%** : corrigé selon la validation v3.3 (DD 8.2% à 0.40%).
 
 6. **`bar_aggregator.py` — TypeError `live_mode`** : `TrendSignalGenerator.__init__()` n'accepte pas `live_mode=True` (contrairement à `BacktestSignalGenerator`). Retiré — pas nécessaire car le BarAggregator filtre déjà la dernière bougie côté appelant.
+
+7. **⚠️ CRITIQUE: `factory.py` + `engine.py` — instruments_mapping vide** : `create_all_brokers()` cherchait les instruments dans `settings["instruments"]` qui est `{}` (les instruments sont dans un fichier séparé `instruments.yaml`). Résultat : `map_symbol()` retournait toujours `None` → "non disponible" pour TOUS les symboles → 0 ordre placé sur 19 signaux. Fix : le moteur passe maintenant `self.instruments` au factory via un 3e paramètre. Log ajouté : `✅ broker_id connecté (N instruments mappés)`.
+
+8. **`tradelocker.py` — stop_price pour ordres stop** : la lib TradeLocker exige `stop_price` pour les ordres `type_='stop'`, pas `price`. L'erreur `Order of type_ = 'stop' specified with a price, instead of stop_price` apparaissait pour BCHUSD et BNBUSD sur GFT. Fix : `stop_price` pour stop, `price` pour limit.
+
+9. **`ctrader.py` + `base.py` — amend_position_sltp + close_position** : ajout des méthodes `amend_position_sltp()` (ProtoOAAmendPositionSLTPReq) et `close_position()` (ProtoOAClosePositionReq) au broker cTrader, avec wrappers synchrones. Le handler `_process_order_response` est refactorisé pour supporter les 4 types de requêtes (order_place, position_amend, position_close, order_cancel) via un système de priorité.
+
+10. **Scripts de test** :
+    - `scripts/test_order_flow.py` : test cycle complet (MARKET → amend SL → close) avec confirmation utilisateur et volume minimum (0.01 lots)
+    - `scripts/test_connectivity.py` : vérifie connexions, mappings instruments.yaml vs réalité broker, infos compte, historique (non destructif)
 
 ### Observations de la session Perplexity (review)
 - Confirmation que le TP est un mur absolu (broker ferme dès qu'il est touché)

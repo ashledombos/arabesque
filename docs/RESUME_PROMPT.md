@@ -10,7 +10,7 @@
 - BE 0.3R trigger / 0.20R offset
 - Risk 0.40%/trade (DD max 8.2% < FTMO 10%)
 
-## LIVE ENGINE — État 2026-02-28
+## LIVE ENGINE — État 2026-02-28 (session 2)
 - ✅ Connexion cTrader OK + 83/83 instruments chargés
 - ✅ PriceFeedManager avec tolérance symboles illiquides (30 min vs 5 min majeurs)
 - ✅ Détection weekend pour forex/métaux (pas de reconnexion inutile)
@@ -19,9 +19,20 @@
 - ✅ Fermetures de bougies visibles en INFO + résumé groupé
 - ✅ settings.yaml corrigé : strategy=trend, risk=0.40%
 - ✅ TrendSignalGenerator: retiré `live_mode=True` (non supporté, pas nécessaire)
-- ⚠️ TradeLocker (GFT) en maintenance — tester après rétablissement
-- ⚠️ 0 signaux émis en 6h30 de weekend (crypto seul) — normal (~0.15 sig/h)
-- Prochaine étape : relancer en heures de marché (lundi) et vérifier signaux + ordres
+- ✅ **FIX CRITIQUE: factory.py + engine.py — instruments_mapping était VIDE**
+  - Le factory lisait `settings["instruments"]` = `{}` au lieu de `instruments.yaml`
+  - Résultat : `map_symbol()` → None → "non disponible" → 0 ordres sur 19 signaux
+  - Fix : le moteur passe `self.instruments` au factory
+- ✅ **FIX: tradelocker.py — stop_price pour ordres stop**
+  - La lib exige `stop_price` (pas `price`) pour `type_='stop'`
+  - Causait l'erreur BCHUSD/BNBUSD sur GFT
+- ⚠️ TradeLocker (GFT) compte test expiré — tester avec nouveau compte
+- ⚠️ ETHUSD feed stale à 11:00 UTC (reconnexion inutile pendant 5h) — non bloquant
+- Prochaine étape : redéployer et vérifier que les ordres se placent effectivement
+
+## Scripts de test
+- `scripts/test_connectivity.py` : vérifie connexions + mappings (non destructif)
+- `scripts/test_order_flow.py` : cycle complet MARKET → amend SL → close (0.01 lots, confirmation requise)
 
 ## Tâche A : REPLAY DE CONFIRMATION (risk 0.40%)
 
