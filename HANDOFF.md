@@ -2,7 +2,7 @@
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque  
-> **Dernière mise à jour** : 2026-02-27, session Opus 4.6 (live stability fixes)
+> **Dernière mise à jour** : 2026-02-28, session Opus 4.6 (weekend stale fix)
 
 ---
 
@@ -179,6 +179,7 @@ Voir `config/prop_firm_profiles.yaml`.
    - Symboles mineurs : seuil stale 30 min (tolérance)
    - Détection weekend : forex/métaux stale tolérés ven 22h→dim 22h UTC
    - Reconnexion globale uniquement si >50% des symboles stale
+   - **FIX 2026-02-28** : le check global >50% ne tenait pas compte du weekend → 52 forex fermés = 63% > 50% → reconnexion en boucle toutes les 2 min (tentative #1→#150). Corrigé : pendant le weekend, le check global ne compte que les crypto (31 symboles). Ajout set `CRYPTO_SYMBOLS` pour classification propre.
 
 2. **`price_feed.py` — ALREADY_SUBSCRIBED** : lors de la reconnexion, le code clearait `_subscribed_symbol_ids` puis tentait de re-souscrire → erreur côté serveur. Fix : si broker déjà connecté et souscriptions actives, ne rafraîchir que les callbacks Python sans requête TCP.
 
@@ -187,6 +188,8 @@ Voir `config/prop_firm_profiles.yaml`.
 4. **`settings.yaml` — Stratégie "combined" au lieu de "trend"** : pas de section `strategy`, le code defaultait à combined (inclut mean-reversion perdante). Ajout `strategy.type: trend`.
 
 5. **`settings.yaml` — Risk 0.5% au lieu de 0.40%** : corrigé selon la validation v3.3 (DD 8.2% à 0.40%).
+
+6. **`bar_aggregator.py` — TypeError `live_mode`** : `TrendSignalGenerator.__init__()` n'accepte pas `live_mode=True` (contrairement à `BacktestSignalGenerator`). Retiré — pas nécessaire car le BarAggregator filtre déjà la dernière bougie côté appelant.
 
 ### Observations de la session Perplexity (review)
 - Confirmation que le TP est un mur absolu (broker ferme dès qu'il est touché)

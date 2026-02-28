@@ -664,3 +664,20 @@ ALGUSD, NEOUSD, XAGUSD (fermé le vendredi) déclenchaient ConnectionError dès 
 - `risk_percent: 0.5` au lieu de 0.40 validé. Corrigé.
 
 **Décision** : corrections opérationnelles uniquement. Aucune modification stratégique.
+
+### 2026-02-28 : Weekend stale fix + TypeError live_mode
+
+**Problème 5 : Reconnexion en boucle le weekend (tentative #1→#150)**
+
+Le check global `total_stale / total_symbols > 50%` ne tenait pas compte du weekend.
+52 paires forex/métaux fermées le vendredi soir = 63% des 83 symboles → seuil 50% dépassé → reconnexion toutes les 2 min, indéfiniment. Les bougies crypto se fermaient correctement malgré la boucle (pas de perte de données), mais le log était pollué et les callbacks étaient rafraîchis inutilement.
+
+**Fix** : pendant le weekend (ven 22h→dim 22h UTC), le check global ne compte que les crypto (31 symboles). Ajout d'un set `CRYPTO_SYMBOLS` pour classifier proprement forex vs crypto. Le check majeur utilisait déjà `{"BTCUSD", "ETHUSD"}` mais le check global ignorait le weekend.
+
+**Problème 6 : TypeError `TrendSignalGenerator.__init__() got an unexpected keyword argument 'live_mode'`**
+
+`_make_signal_generator()` passait `live_mode=True` à `TrendSignalGenerator` qui n'accepte pas ce paramètre (seul `BacktestSignalGenerator` le supporte). Crash au démarrage.
+
+**Fix** : retiré `live_mode=True`. Pas nécessaire car le `BarAggregator` filtre déjà la dernière bougie côté appelant (via `last_idx`).
+
+**Décision** : corrections opérationnelles. Le moteur crypto a tourné 6h30 sans interruption ni signal (normal : ~0.15 signaux/heure sur 31 crypto). Le vrai test viendra lundi avec le forex ouvert.

@@ -378,6 +378,17 @@ class PriceFeedManager:
             "AUDUSD", "NZDUSD", "XAUUSD", "BTCUSD", "ETHUSD",
         }
 
+        # Symboles crypto (tradés 24/7, y compris weekend)
+        CRYPTO_SYMBOLS = {
+            "AAVUSD", "ADAUSD", "ALGUSD", "AVAUSD", "BARUSD",
+            "BCHUSD", "BNBUSD", "BTCUSD", "DASHUSD", "DOGEUSD",
+            "DOTUSD", "ETCUSD", "ETHUSD", "FETUSD", "GALUSD",
+            "GRTUSD", "ICPUSD", "IMXUSD", "LNKUSD", "LTCUSD",
+            "MANUSD", "NERUSD", "NEOUSD", "SANUSD", "SOLUSD",
+            "UNIUSD", "VECUSD", "XLMUSD", "XMRUSD", "XRPUSD",
+            "XTZUSD",
+        }
+
         while self._running and self._connected:
             await asyncio.sleep(CHECK_INTERVAL_S)
 
@@ -387,12 +398,28 @@ class PriceFeedManager:
             now = datetime.now(timezone.utc)
             uptime_s = (now - self._start_time).total_seconds() if self._start_time else 0
 
+            # Weekend : vendredi 22h UTC → dimanche 22h UTC
+            weekday = now.weekday()  # 0=lundi, 4=vendredi, 5=samedi, 6=dimanche
+            hour = now.hour
+            is_weekend = (
+                (weekday == 4 and hour >= 22)
+                or weekday == 5
+                or (weekday == 6 and hour < 22)
+            )
+
             symbols_no_tick = []
             symbols_stale_major = []
             symbols_stale_minor = []
             symbols_ok = 0
+            # Compteurs weekend (crypto uniquement)
+            crypto_stale_count = 0
+            crypto_total = 0
 
             for symbol in self.symbols:
+                is_crypto = symbol in CRYPTO_SYMBOLS
+                if is_crypto:
+                    crypto_total += 1
+
                 last = self._last_tick_times.get(symbol)
                 if last is None:
                     symbols_no_tick.append(symbol)
@@ -402,24 +429,28 @@ class PriceFeedManager:
 
                 if is_major and age_s > STALE_MAJOR_S:
                     symbols_stale_major.append((symbol, age_s))
+                    if is_crypto:
+                        crypto_stale_count += 1
                 elif not is_major and age_s > STALE_MINOR_S:
                     symbols_stale_minor.append((symbol, age_s))
+                    if is_crypto:
+                        crypto_stale_count += 1
                 else:
                     symbols_ok += 1
 
-            total_active = symbols_ok + len(symbols_stale_minor)  # mineurs stale mais tolérés
             total_symbols = len(self.symbols)
             total_ticks = sum(self._tick_counts.values())
 
             # Résumé périodique (toutes les 5 min)
             if time.time() - _last_summary >= LOG_INTERVAL_S and total_ticks > 0:
                 _last_summary = time.time()
+                weekend_tag = " 🌙 WEEKEND" if is_weekend else ""
                 logger.info(
                     f"[PriceFeed] 📊 {symbols_ok}/{total_symbols} actifs, "
                     f"{len(symbols_stale_minor)} dormants, "
                     f"{len(symbols_stale_major)} stale majeurs, "
                     f"{len(symbols_no_tick)} jamais reçus — "
-                    f"{total_ticks} ticks total"
+                    f"{total_ticks} ticks total{weekend_tag}"
                 )
 
             # Reset warning si on reçoit des ticks
@@ -442,23 +473,14 @@ class PriceFeedManager:
 
             # Reconnexion : seulement si des MAJEURS sont stale
             if symbols_stale_major:
-                # Vérifier si c'est le weekend (vendredi 22h → dimanche 22h UTC)
-                weekday = now.weekday()  # 0=lundi, 4=vendredi, 5=samedi, 6=dimanche
-                hour = now.hour
-                is_weekend = (
-                    (weekday == 4 and hour >= 22)
-                    or weekday == 5
-                    or (weekday == 6 and hour < 22)
-                )
-
                 # Les forex/métaux sont fermés le weekend — ne pas reconnecter
                 forex_stale = [
                     (s, a) for s, a in symbols_stale_major
-                    if s not in {"BTCUSD", "ETHUSD"}
+                    if s not in CRYPTO_SYMBOLS
                 ]
                 crypto_stale = [
                     (s, a) for s, a in symbols_stale_major
-                    if s in {"BTCUSD", "ETHUSD"}
+                    if s in CRYPTO_SYMBOLS
                 ]
 
                 if is_weekend and not crypto_stale and forex_stale:
@@ -477,13 +499,21 @@ class PriceFeedManager:
                         f"depuis {worst[1]:.0f}s"
                     )
 
-            # Reconnexion globale : >50% de TOUS les symboles stale
-            total_stale = len(symbols_stale_major) + len(symbols_stale_minor)
-            if total_symbols > 0 and total_stale / total_symbols > STALE_GLOBAL_PCT:
-                raise ConnectionError(
-                    f"Feed stale global: {total_stale}/{total_symbols} symboles "
-                    f"sans tick récent"
-                )
+            # Reconnexion globale : >50% stale
+            # Weekend : ne compter que les crypto (forex fermé = normal)
+            if is_weekend:
+                if crypto_total > 0 and crypto_stale_count / crypto_total > STALE_GLOBAL_PCT:
+                    raise ConnectionError(
+                        f"Feed stale global (weekend/crypto): "
+                        f"{crypto_stale_count}/{crypto_total} cryptos sans tick récent"
+                    )
+            else:
+                total_stale = len(symbols_stale_major) + len(symbols_stale_minor)
+                if total_symbols > 0 and total_stale / total_symbols > STALE_GLOBAL_PCT:
+                    raise ConnectionError(
+                        f"Feed stale global: {total_stale}/{total_symbols} symboles "
+                        f"sans tick récent"
+                    )
 
     # ------------------------------------------------------------------
     # Refresh préventif du token cTrader
