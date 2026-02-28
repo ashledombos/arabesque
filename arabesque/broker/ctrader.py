@@ -1054,11 +1054,13 @@ class CTraderBroker(BaseBroker):
                 req.stopLoss = order.stop_loss
             if order.take_profit:
                 req.takeProfit = order.take_profit
-            if order.expiry_timestamp_ms:
-                req.timeInForce = self._enum_value(req, "timeInForce", "GOOD_TILL_DATE")
-                req.expirationTimestamp = order.expiry_timestamp_ms
-            else:
-                req.timeInForce = self._enum_value(req, "timeInForce", "GTC")
+            # timeInForce: pas nécessaire pour MARKET, obligatoire pour LIMIT/STOP
+            if order.order_type != OrderType.MARKET:
+                if order.expiry_timestamp_ms:
+                    req.timeInForce = self._enum_value(req, "timeInForce", "GOOD_TILL_DATE")
+                    req.expirationTimestamp = order.expiry_timestamp_ms
+                else:
+                    req.timeInForce = self._enum_value(req, "timeInForce", "GOOD_TILL_CANCEL")
             if order.label:
                 req.label = order.label[:50]
             if order.comment:
