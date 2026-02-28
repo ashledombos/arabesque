@@ -1047,8 +1047,9 @@ class CTraderBroker(BaseBroker):
                 if order.entry_price:
                     req.stopPrice = order.entry_price
             req.tradeSide = self._enum_value(req, "tradeSide", order.side.value)
-            volume_multiplier = 10000000
-            broker_volume = order.broker_volume or int(order.volume * volume_multiplier)
+            # cTrader volume = centilots (1 lot = 100)
+            volume_multiplier = 100
+            broker_volume = order.broker_volume or int(round(order.volume * volume_multiplier))
             req.volume = broker_volume
             if order.stop_loss:
                 req.stopLoss = order.stop_loss
@@ -1066,7 +1067,7 @@ class CTraderBroker(BaseBroker):
             if order.comment:
                 req.comment = order.comment[:100]
             print(f"[cTrader] Placing {order.order_type.value} {order.side.value} "
-                  f"{order.volume} lots on {order.symbol} @ {order.entry_price}")
+                  f"{order.volume} lots ({broker_volume} centilots) on {order.symbol} @ {order.entry_price}")
             from twisted.internet import reactor
             self._send_via_reactor(req)
             result = await asyncio.wait_for(future, timeout=30)
@@ -1151,8 +1152,8 @@ class CTraderBroker(BaseBroker):
         req.ctidTraderAccountId = self.account_id
         req.positionId = int(position_id)
         if volume is not None:
-            # cTrader volume = lots * 10_000_000
-            req.volume = int(volume * 10_000_000)
+            # cTrader volume = centilots (1 lot = 100)
+            req.volume = int(round(volume * 100))
         print(f"[cTrader] Closing position {position_id}" +
               (f" (partial: {volume} lots)" if volume else " (full)"))
         self._send_via_reactor(req)
