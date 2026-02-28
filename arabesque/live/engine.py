@@ -179,13 +179,19 @@ class LiveEngine:
 
     async def _connect_brokers(self) -> None:
         from arabesque.broker.factory import create_all_brokers
-        brokers_raw = create_all_brokers(self.settings, self.secrets)
+        brokers_raw = create_all_brokers(
+            self.settings, self.secrets, self.instruments
+        )
         for broker_id, broker in brokers_raw.items():
             try:
                 connected = await broker.connect()
                 if connected:
                     self._brokers[broker_id] = broker
-                    logger.info(f"[Engine] ✅ {broker_id} connecté")
+                    mapping_count = len(broker.config.get("instruments_mapping", {}))
+                    logger.info(
+                        f"[Engine] ✅ {broker_id} connecté "
+                        f"({mapping_count} instruments mappés)"
+                    )
                 else:
                     logger.warning(f"[Engine] ❌ {broker_id} connexion échouée")
             except Exception as e:

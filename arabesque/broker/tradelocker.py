@@ -272,8 +272,11 @@ class TradeLockerBroker(BaseBroker):
                 'side': tl_side,
                 'type_': tl_type,
             }
-            if tl_type != 'market':
+            if tl_type == 'limit':
                 order_params['price'] = order.entry_price
+                order_params['validity'] = 'GTC'
+            elif tl_type == 'stop':
+                order_params['stop_price'] = order.entry_price
                 order_params['validity'] = 'GTC'
             if order.stop_loss:
                 order_params['stop_loss'] = order.stop_loss

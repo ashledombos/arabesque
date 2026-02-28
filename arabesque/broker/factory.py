@@ -38,17 +38,23 @@ def create_broker(broker_id: str, config: dict) -> BaseBroker:
         )
 
 
-def create_all_brokers(settings: dict, secrets: dict) -> Dict[str, BaseBroker]:
+def create_all_brokers(
+    settings: dict, secrets: dict, instruments: Optional[dict] = None
+) -> Dict[str, BaseBroker]:
     """
     Instancie tous les brokers activés depuis settings + secrets.
 
-    settings: contenu de config/settings.yaml
-    secrets:  contenu de config/secrets.yaml
+    settings:    contenu de config/settings.yaml
+    secrets:     contenu de config/secrets.yaml
+    instruments: contenu de config/instruments.yaml (mapping symboles par broker)
 
     Retourne un dict broker_id -> instance.
     """
     brokers_cfg = settings.get("brokers", {})
     brokers_secrets = secrets  # secrets.yaml est au même niveau que les broker_ids
+
+    # Source des instruments : priorité au paramètre, sinon settings["instruments"]
+    instruments_cfg = instruments or settings.get("instruments", {})
 
     result: Dict[str, BaseBroker] = {}
 
@@ -63,7 +69,6 @@ def create_all_brokers(settings: dict, secrets: dict) -> Dict[str, BaseBroker]:
 
         # Ajouter le mapping instruments si disponible
         # (instruments[symbol][broker_id] -> nom broker)
-        instruments_cfg = settings.get("instruments", {})
         instruments_mapping = {}
         for symbol, inst_data in instruments_cfg.items():
             if isinstance(inst_data, dict) and broker_id in inst_data:
