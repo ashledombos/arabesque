@@ -1,8 +1,8 @@
-# ARABESQUE — Handoff v14
+# ARABESQUE — Handoff v15
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque  
-> **Dernière mise à jour** : 2026-02-28, session Opus 4.6 (order dispatch fix + weekend stale)
+> **Dernière mise à jour** : 2026-03-01, session Opus 4.6 (order flow validated, position management pending)
 
 ---
 
@@ -113,6 +113,14 @@ Le système survit à ses pires périodes sous les limites FTMO.
 
 ## 5. Prochaines étapes
 
+### P0 : ⚠️ LIVE POSITION MANAGER (CRITIQUE)
+Le `PositionManager` (breakeven 0.3/0.20R + trailing) existe dans `arabesque/position/manager.py` pour le backtest mais **N'EST PAS câblé dans le live engine**.
+- Les ordres sont placés avec SL/TP initial → pas de risque de perte catastrophique
+- Mais le mécanisme de breakeven ne se déclenche jamais → WR en live ≠ WR backtest
+- Besoin : wiring dans `engine.py`, suivi tick-by-tick des positions ouvertes, appel `amend_position_sltp()` quand conditions BE remplies
+- Retry logic pour amend failures (positions fantômes)
+- Réconciliation périodique des positions (broker ↔ état interne)
+
 ### P1 : MULTI-COMPTE PROP FIRM
 Voir `config/prop_firm_profiles.yaml`.
 - Distribution d'instruments entre comptes (pas de doublons même firm)
@@ -143,6 +151,9 @@ Voir `config/prop_firm_profiles.yaml`.
 |---|---|
 | `scripts/analyze_replay_v2.py FILE --grid` | Analyse complète + simulation BE/TP |
 | `scripts/analyze_replay_v2.py FILE --compare FILE2` | Comparaison 2 replays |
+| `scripts/test_connectivity.py -v` | Vérifie connexions + mappings (non destructif) |
+| `scripts/test_order_flow.py --symbol X --broker Y` | Test cycle MARKET → amend SL → close |
+| `scripts/close_positions.py [--close-all]` | Liste/ferme les positions ouvertes |
 
 ---
 
@@ -200,6 +211,18 @@ Voir `config/prop_firm_profiles.yaml`.
 10. **Scripts de test** :
     - `scripts/test_order_flow.py` : test cycle complet (MARKET → amend SL → close) avec confirmation utilisateur et volume minimum (0.01 lots)
     - `scripts/test_connectivity.py` : vérifie connexions, mappings instruments.yaml vs réalité broker, infos compte, historique (non destructif)
+
+11. **`ctrader.py` — timeInForce enum** : `GTC` n'existe pas dans le protobuf cTrader, le nom correct est `GOOD_TILL_CANCEL`. De plus, `timeInForce` ne doit pas être envoyé pour les ordres MARKET.
+
+12. **`ctrader.py` — volume multiplier** : `10_000_000` était incorrect. L'unité cTrader est le centilot (1 lot = 100). Le code lisait correctement les volumes en divisant par 100 mais envoyait avec ×10M → 0.01 lots devenait 1000 lots. Fix : `volume_multiplier = 100`.
+
+13. **`ctrader.py` — close_position volume obligatoire** : `ProtoOAClosePositionReq.volume` est un champ **requis** dans le protobuf. Si pas de volume fourni, on récupère celui de la position via `get_positions()`.
+
+14. **`ctrader.py` — _resolve_symbol_name** : les positions retournées par `ReconcileRes` contiennent un `symbolId` numérique (ex: 324). Le nouveau `_resolve_symbol_name()` résout cet ID en nom lisible (BTCUSD) via le catalogue `_symbols`.
+
+15. **`ctrader.py` — _process_order_response positionId** : le handler retourne maintenant le `positionId` (pas `orderId`) pour les opérations sur positions. Un MARKET fill crée un `orderId` ≠ `positionId` — seul le `positionId` est valide pour amend/close.
+
+16. **`scripts/close_positions.py`** : utilitaire pour lister/fermer les positions orphelines. Charge les symboles avant listing pour afficher les noms lisibles.
 
 ### Observations de la session Perplexity (review)
 - Confirmation que le TP est un mur absolu (broker ferme dès qu'il est touché)

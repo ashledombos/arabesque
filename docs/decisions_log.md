@@ -726,3 +726,22 @@ La lib tradelocker-python exige `stop_price` (pas `price`) pour les ordres `type
 **Naming instruments.yaml** : la clé YAML = nom unifié utilisé dans tout le pipeline. Doit correspondre au nom cTrader car les ticks arrivent avec ce nom. Le mapping broker-spécifique ne sert que quand le nom diffère (ex: EURUSD → EURUSD.X sur TradeLocker).
 
 **Décision** : ajouts opérationnels et outils de diagnostic.
+
+### 2026-03-01 : Order flow validé, gap breakeven identifié
+
+**Bugs corrigés dans `ctrader.py` (order flow)** :
+1. `timeInForce` enum `GTC` → `GOOD_TILL_CANCEL` (+ skip pour MARKET)
+2. Volume multiplier `10_000_000` → `100` (centilots)
+3. `close_position()` : champ volume obligatoire dans le protobuf
+4. `_process_order_response` : retourne positionId pour les opérations position
+5. `_resolve_symbol_name()` : résout symbolId numérique → nom lisible
+
+**Validation complète du cycle de vie** :
+- MARKET BUY → position créée ✅
+- amend SL → modifié (quand SL valide par rapport au bid) ✅  
+- close position → fermée ✅
+- close_positions.py → nettoyage des 4 orphelines ✅
+
+**Gap critique identifié** : le `PositionManager` (breakeven 0.3/0.20R + trailing) existe dans `position/manager.py` pour le backtest mais n'est PAS câblé dans le live engine. Concrètement, les ordres sont placés avec SL/TP initial, mais le mécanisme de breakeven qui génère 75.5% WR ne se déclenche jamais en live. Prochain chantier prioritaire (P0).
+
+**Décision** : valider le cycle d'ordres complet avant d'attaquer le position management live.

@@ -1,6 +1,6 @@
 # PROMPT DE REPRISE — Arabesque v3.3 (TREND-ONLY, BE 0.3/0.20, risk 0.40%)
 
-> Destiné à un modèle intermédiaire. Mis à jour 2026-02-28.
+> Destiné à un modèle intermédiaire. Mis à jour 2026-03-01.
 
 ## Lire : `HANDOFF.md` (obligatoire avant toute action)
 
@@ -10,29 +10,23 @@
 - BE 0.3R trigger / 0.20R offset
 - Risk 0.40%/trade (DD max 8.2% < FTMO 10%)
 
-## LIVE ENGINE — État 2026-02-28 (session 2)
-- ✅ Connexion cTrader OK + 83/83 instruments chargés
-- ✅ PriceFeedManager avec tolérance symboles illiquides (30 min vs 5 min majeurs)
-- ✅ Détection weekend pour forex/métaux (pas de reconnexion inutile)
-- ✅ Check global stale weekend-aware (ne compte que les 31 crypto le weekend)
-- ✅ Reconnexion sans ALREADY_SUBSCRIBED (callbacks-only refresh)
-- ✅ Fermetures de bougies visibles en INFO + résumé groupé
-- ✅ settings.yaml corrigé : strategy=trend, risk=0.40%
-- ✅ TrendSignalGenerator: retiré `live_mode=True` (non supporté, pas nécessaire)
-- ✅ **FIX CRITIQUE: factory.py + engine.py — instruments_mapping était VIDE**
-  - Le factory lisait `settings["instruments"]` = `{}` au lieu de `instruments.yaml`
-  - Résultat : `map_symbol()` → None → "non disponible" → 0 ordres sur 19 signaux
-  - Fix : le moteur passe `self.instruments` au factory
-- ✅ **FIX: tradelocker.py — stop_price pour ordres stop**
-  - La lib exige `stop_price` (pas `price`) pour `type_='stop'`
-  - Causait l'erreur BCHUSD/BNBUSD sur GFT
-- ⚠️ TradeLocker (GFT) compte test expiré — tester avec nouveau compte
-- ⚠️ ETHUSD feed stale à 11:00 UTC (reconnexion inutile pendant 5h) — non bloquant
-- Prochaine étape : redéployer et vérifier que les ordres se placent effectivement
+## LIVE ENGINE — État 2026-03-01
 
-## Scripts de test
-- `scripts/test_connectivity.py` : vérifie connexions + mappings (non destructif)
-- `scripts/test_order_flow.py` : cycle complet MARKET → amend SL → close (0.01 lots, confirmation requise)
+### ✅ Validé et fonctionnel
+- Connexion cTrader OK + 83/83 instruments mappés FTMO, 36/36 GFT
+- PriceFeedManager avec tolérance symboles illiquides + détection weekend
+- Signal generation trend-only + dispatch multi-broker
+- **Cycle d'ordres complet** : place → amend SL/TP → close position
+- Volume conversion : centilots (1 lot = 100)
+- Symbol resolution : symbolId numérique → nom unifié
+- Scripts : test_connectivity, test_order_flow, close_positions
+
+### ⚠️ Gap critique : PositionManager pas câblé en live
+Le breakeven (0.3/0.20R) et le trailing existent dans `position/manager.py` mais ne sont **PAS exécutés** par le live engine. Les ordres ont le SL/TP initial, pas de gestion dynamique. → Le WR live sera inférieur au backtest tant que non implémenté. C'est le P0.
+
+### Notes
+- TradeLocker (GFT) compte test expiré
+- FTMO impose des heures de trading même sur crypto (weekend)
 
 ## Tâche A : REPLAY DE CONFIRMATION (risk 0.40%)
 
