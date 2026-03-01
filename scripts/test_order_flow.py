@@ -53,8 +53,14 @@ async def run_test(broker_id: str, symbol: str, auto_confirm: bool):
             print("  ❌ Annulé.")
             return False
 
+    # Avertissement si le live engine tourne déjà
+    print("\n  ⚠️  Note: si le live engine tourne en parallèle (python -m arabesque.live.engine),")
+    print("  les deux connexions cTrader au même compte peuvent interférer.")
+    print("  Recommandation: arrêter le live engine avant ce test.")
+    print()
+
     # 1. Charger config et connecter
-    print("\n[1/7] Chargement de la configuration...")
+    print("[1/7] Chargement de la configuration...")
     settings, secrets, instruments = load_full_config()
 
     print("[2/7] Connexion au broker...")
@@ -110,62 +116,75 @@ async def run_test(broker_id: str, symbol: str, auto_confirm: bool):
         return False
 
     position_id = result.order_id
-    print(f"  ✅ Ordre placé — position/order ID: {position_id}")
+    print(f"  ✅ Ordre placé — ID retourné: {position_id}")
+    print(f"     Message: {result.message}")
 
-    # 4. Vérifier la position
+    # 4. Vérifier la position — récupérer le vrai positionId
     print(f"\n[4/7] Attente 3s puis vérification de la position...")
     await asyncio.sleep(3)
 
     positions = await broker.get_positions()
-    matching = [p for p in positions if str(p.position_id) == str(position_id)]
+    print(f"  Positions ouvertes: {len(positions)}")
+
+    # Trouver la position par ID ou par symbole+label récent
+    matching = None
+    for p in positions:
+        if str(p.position_id) == str(position_id):
+            matching = p
+            break
+    
+    if not matching:
+        # Fallback: chercher par symbole parmi les plus récentes
+        sym_positions = [p for p in positions if p.symbol == symbol or p.symbol == broker_sym]
+        if sym_positions:
+            matching = sym_positions[-1]  # la plus récente
+            print(f"  ⚠️  Position {position_id} non trouvée par ID exact, "
+                  f"utilisation de la dernière {symbol}: positionId={matching.position_id}")
 
     if matching:
-        pos = matching[0]
-        print(f"  ✅ Position trouvée: {pos.symbol} {pos.side} "
-              f"vol={pos.volume} entry={pos.entry_price:.5f} "
-              f"SL={pos.stop_loss or 'none'} TP={pos.take_profit or 'none'}")
-        use_id = pos.position_id
+        use_id = str(matching.position_id)
+        print(f"  ✅ Position trouvée: {matching.symbol} {matching.side} "
+              f"vol={matching.volume} entry={matching.entry_price:.5f} "
+              f"SL={matching.stop_loss or 'none'} TP={matching.take_profit or 'none'} "
+              f"positionId={use_id}")
     else:
-        print(f"  ⚠️  Position {position_id} non trouvée dans la liste "
-              f"({len(positions)} positions). Tentative avec l'ID retourné...")
-        use_id = position_id
+        use_id = str(position_id)
+        print(f"  ⚠️  Aucune position trouvée dans la liste ({len(positions)} positions)")
+        print(f"     Tentative avec l'ID retourné: {use_id}")
 
     # 5. Modifier le SL
     print(f"\n[5/7] Attente 3s puis modification du SL...")
     await asyncio.sleep(3)
 
     # Calculer un SL raisonnable (50 pips en dessous du prix)
-    if matching:
-        entry = matching[0].entry_price
-    else:
-        # Fallback: utiliser le dernier tick connu
-        entry = 0
+    entry = matching.entry_price if matching else 0
+    if not entry:
         tick = broker.get_last_tick(symbol) if hasattr(broker, 'get_last_tick') else None
         if tick:
             entry = tick.bid
-    
+
     if entry > 0:
         sl_offset = sym_info.pip_size * 50  # 50 pips
         new_sl = round(entry - sl_offset, sym_info.digits)
         print(f"  Nouveau SL: {new_sl} (entry={entry:.5f}, offset={sl_offset})")
 
         amend_result = await broker.amend_position_sltp(
-            str(use_id), stop_loss=new_sl
+            use_id, stop_loss=new_sl
         )
         if amend_result.success:
-            print(f"  ✅ SL modifié avec succès")
+            print(f"  ✅ SL modifié — {amend_result.message}")
         else:
             print(f"  ❌ Échec modification SL: {amend_result.message}")
     else:
         print(f"  ⚠️  Impossible de calculer le SL (pas de prix d'entrée)")
 
     # 6. Fermer la position
-    print(f"\n[6/7] Attente 3s puis fermeture de la position...")
+    print(f"\n[6/7] Attente 3s puis fermeture de la position (ID={use_id})...")
     await asyncio.sleep(3)
 
-    close_result = await broker.close_position(str(use_id))
+    close_result = await broker.close_position(use_id)
     if close_result.success:
-        print(f"  ✅ Position fermée avec succès")
+        print(f"  ✅ Position fermée — {close_result.message}")
     else:
         print(f"  ❌ Échec fermeture: {close_result.message}")
         print(f"     Tentative alternative: ordre opposé MARKET SELL...")
@@ -181,7 +200,7 @@ async def run_test(broker_id: str, symbol: str, auto_confirm: bool):
         )
         close_result2 = await broker.place_order(close_order)
         if close_result2.success:
-            print(f"  ✅ Fermée via ordre inverse")
+            print(f"  ✅ Fermée via ordre inverse — {close_result2.message}")
         else:
             print(f"  ❌ ATTENTION: position non fermée! ID={use_id}")
             print(f"     Fermez manuellement dans la plateforme.")

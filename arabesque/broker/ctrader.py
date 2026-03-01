@@ -903,10 +903,19 @@ class CTraderBroker(BaseBroker):
             ))
 
     def _process_order_response(self, payload, ptype: str):
-        print(f"[cTrader] DEBUG: Received {ptype}")
+        # Extraire les deux IDs possibles
+        order_id = None
+        position_id = None
+        if hasattr(payload, "order") and hasattr(payload.order, "orderId"):
+            order_id = payload.order.orderId
+        if hasattr(payload, "orderId"):
+            order_id = order_id or payload.orderId
+        if hasattr(payload, "position") and hasattr(payload.position, "positionId"):
+            position_id = payload.position.positionId
+
+        print(f"[cTrader] DEBUG: Received {ptype} orderId={order_id} positionId={position_id}")
 
         # Déterminer quelle requête en attente correspond
-        # Priorité : order_place > position_amend > position_close > order_cancel
         for key in ("order_place", "position_amend", "position_close", "order_cancel"):
             if key not in self._pending_requests:
                 continue
@@ -922,30 +931,24 @@ class CTraderBroker(BaseBroker):
                 ))
                 return
 
-            # Extraire l'ID (orderId ou positionId)
-            order_id = None
-            if hasattr(payload, "order") and hasattr(payload.order, "orderId"):
-                order_id = payload.order.orderId
-            if not order_id and hasattr(payload, "orderId"):
-                order_id = payload.orderId
-            if not order_id and hasattr(payload, "position"):
-                if hasattr(payload.position, "positionId"):
-                    order_id = payload.position.positionId
-
-            if order_id and order_id != 0:
-                self._resolve_future(future, OrderResult(
-                    success=True,
-                    order_id=str(order_id),
-                    message=f"{key} OK",
-                    broker_response=payload
-                ))
+            # Choisir l'ID approprié selon l'opération
+            # - position_amend/position_close → positionId obligatoire
+            # - order_place → positionId si MARKET fill, sinon orderId
+            # - order_cancel → orderId
+            if key in ("position_amend", "position_close"):
+                result_id = str(position_id) if position_id else str(order_id or "unknown")
+            elif key == "order_place":
+                # Pour un MARKET fill, retourner le positionId (plus utile)
+                result_id = str(position_id) if position_id else str(order_id or "unknown")
             else:
-                self._resolve_future(future, OrderResult(
-                    success=True,
-                    order_id="unknown",
-                    message=f"Response: {ptype}",
-                    broker_response=payload
-                ))
+                result_id = str(order_id) if order_id else str(position_id or "unknown")
+
+            self._resolve_future(future, OrderResult(
+                success=True,
+                order_id=result_id,
+                message=f"{key} OK (orderId={order_id}, positionId={position_id})",
+                broker_response=payload
+            ))
             return  # Un seul future résolu par message
 
     # ------------------------------------------------------------------
