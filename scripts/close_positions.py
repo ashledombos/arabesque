@@ -35,6 +35,10 @@ async def run(broker_id: str, close_all: bool, close_id: str):
         print(f"❌ Connexion échouée à {broker_id}")
         return False
 
+    # Charger les symboles pour résoudre les IDs dans les positions
+    if hasattr(broker, 'get_symbols'):
+        await broker.get_symbols()
+
     # Lister les positions
     positions = await broker.get_positions()
     if not positions:
@@ -51,8 +55,11 @@ async def run(broker_id: str, close_all: bool, close_id: str):
 
     if close_id:
         # Fermer une position spécifique
-        print(f"\n🔄 Fermeture de la position {close_id}...")
-        result = await broker.close_position(close_id)
+        matching = [p for p in positions if str(p.position_id) == str(close_id)]
+        vol = matching[0].volume if matching else None
+        print(f"\n🔄 Fermeture de la position {close_id}" +
+              (f" ({vol} lots)..." if vol else "..."))
+        result = await broker.close_position(close_id, volume=vol)
         if result.success:
             print(f"  ✅ Fermée — {result.message}")
         else:
@@ -66,8 +73,8 @@ async def run(broker_id: str, close_all: bool, close_id: str):
             return True
 
         for p in positions:
-            print(f"\n🔄 Fermeture {p.position_id} ({p.symbol} {p.side})...")
-            result = await broker.close_position(str(p.position_id))
+            print(f"\n🔄 Fermeture {p.position_id} ({p.symbol} {p.side} {p.volume} lots)...")
+            result = await broker.close_position(str(p.position_id), volume=p.volume)
             if result.success:
                 print(f"  ✅ Fermée — {result.message}")
             else:

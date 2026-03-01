@@ -870,6 +870,19 @@ class CTraderBroker(BaseBroker):
             is_demo=self.is_demo
         )
 
+    def _resolve_symbol_name(self, symbol_id: int) -> str:
+        """Résout un symbolId numérique en nom unifié."""
+        # D'abord chercher dans _symbol_id_to_unified (mapping des souscriptions)
+        if symbol_id in self._symbol_id_to_unified:
+            return self._symbol_id_to_unified[symbol_id]
+        # Ensuite dans _symbols (catalogue complet)
+        if symbol_id in self._symbols:
+            ctrader_name = self._symbols[symbol_id].symbol
+            # Essayer de trouver le nom unifié via reverse_map
+            unified = self.reverse_map_symbol(ctrader_name)
+            return unified or ctrader_name
+        return str(symbol_id)
+
     def _process_reconcile_response(self, payload):
         self._positions = []
         self._pending_orders = []
@@ -877,7 +890,7 @@ class CTraderBroker(BaseBroker):
             side = OrderSide.BUY if pos.tradeData.tradeSide == 1 else OrderSide.SELL
             self._positions.append(Position(
                 position_id=str(pos.positionId),
-                symbol=self.reverse_map_symbol(pos.tradeData.symbolId) or str(pos.tradeData.symbolId),
+                symbol=self._resolve_symbol_name(pos.tradeData.symbolId),
                 side=side,
                 volume=pos.tradeData.volume / 100,
                 entry_price=pos.price,
@@ -889,7 +902,7 @@ class CTraderBroker(BaseBroker):
             order_type = OrderType.LIMIT if order.orderType == 1 else OrderType.STOP
             self._pending_orders.append(PendingOrder(
                 order_id=str(order.orderId),
-                symbol=self.reverse_map_symbol(order.tradeData.symbolId) or str(order.tradeData.symbolId),
+                symbol=self._resolve_symbol_name(order.tradeData.symbolId),
                 side=side,
                 order_type=order_type,
                 volume=order.tradeData.volume / 100,
@@ -1145,20 +1158,37 @@ class CTraderBroker(BaseBroker):
     async def close_position(
         self, position_id: str, volume: Optional[float] = None
     ) -> OrderResult:
-        """Close a position via ProtoOAClosePositionReq."""
+        """Close a position via ProtoOAClosePositionReq.
+        
+        volume is REQUIRED by the protobuf. If not provided, we fetch
+        the position's current volume via get_positions().
+        """
         if not self._connected:
             return OrderResult(success=False, message="Not connected")
+
+        # Si pas de volume fourni, récupérer celui de la position
+        if volume is None:
+            positions = await self.get_positions()
+            matching = [p for p in positions if str(p.position_id) == str(position_id)]
+            if matching:
+                volume = matching[0].volume
+                print(f"[cTrader] Position {position_id}: volume={volume} lots")
+            else:
+                return OrderResult(
+                    success=False,
+                    message=f"Position {position_id} not found, cannot determine volume"
+                )
+
         loop = asyncio.get_event_loop()
         future = loop.create_future()
         self._pending_requests["position_close"] = future
         req = ProtoOAClosePositionReq()
         req.ctidTraderAccountId = self.account_id
         req.positionId = int(position_id)
-        if volume is not None:
-            # cTrader volume = centilots (1 lot = 100)
-            req.volume = int(round(volume * 100))
-        print(f"[cTrader] Closing position {position_id}" +
-              (f" (partial: {volume} lots)" if volume else " (full)"))
+        # cTrader volume = centilots (1 lot = 100)
+        req.volume = int(round(volume * 100))
+        print(f"[cTrader] Closing position {position_id} "
+              f"({volume} lots = {req.volume} centilots)")
         self._send_via_reactor(req)
         try:
             return await asyncio.wait_for(future, timeout=15)
