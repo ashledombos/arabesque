@@ -745,3 +745,23 @@ La lib tradelocker-python exige `stop_price` (pas `price`) pour les ordres `type
 **Gap critique identifié** : le `PositionManager` (breakeven 0.3/0.20R + trailing) existe dans `position/manager.py` pour le backtest mais n'est PAS câblé dans le live engine. Concrètement, les ordres sont placés avec SL/TP initial, mais le mécanisme de breakeven qui génère 75.5% WR ne se déclenche jamais en live. Prochain chantier prioritaire (P0).
 
 **Décision** : valider le cycle d'ordres complet avant d'attaquer le position management live.
+
+### 2026-03-01 (session 2) : Fix digits + Live Position Monitor
+
+**Root cause digits** : `ProtoOASymbolsListRes` retourne `ProtoOALightSymbol` qui n'a PAS de champ `digits` ni `pipPosition`. `getattr(s, "digits", 5)` retournait toujours 5 (défaut). Fix : après chargement des symboles légers, appel `ProtoOASymbolByIdReq` (par batch de 50) pour obtenir `ProtoOASymbol` complet avec digits, volumes, lot_size.
+
+**Live Position Monitor** (`arabesque/live/position_monitor.py`) :
+- `TrackedPosition` : dataclass avec entry, sl, R, mfe_r, breakeven_set, trailing state
+- `LivePositionMonitor.on_bar_closed()` : vérifie BE/trailing sur chaque H1 bar close
+- BE : MFE >= 0.3R → SL → entry + 0.20R (identique au backtest)
+- Trailing : tiers 1.5R/2.0R/3.0R → distances 0.7R/1.0R/1.5R
+- `_try_amend_sl()` : retry avec backoff (max 3 tentatives, anti-spam 5s)
+- `reconcile()` : nettoie les positions fermées (boucle 2 min dans engine)
+
+**Câblage engine.py** :
+- `_make_position_monitor()` : crée le monitor après connexion brokers (sauf dry_run)
+- `BarAggregator.add_bar_closed_callback()` : nouveau callback sur chaque H1 bar close
+- `_register_position_in_monitor()` : query get_positions() pour fill price, puis register
+- `_reconcile_loop()` : boucle asyncio 2 min
+
+**Décision** : implémenter uniquement BE + trailing (les 2 mécanismes les plus impactants). Giveback, deadfish, time-stop sont des optimisations secondaires.

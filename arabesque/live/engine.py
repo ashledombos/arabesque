@@ -52,9 +52,11 @@ class LiveEngine:
         self._price_feed = None
         self._bar_aggregator = None
         self._dispatcher = None
+        self._position_monitor = None
         self._brokers = {}
         self._running = False
         self._account_refresh_task: Optional[asyncio.Task] = None
+        self._reconcile_task: Optional[asyncio.Task] = None
 
     @classmethod
     def from_config(
@@ -95,17 +97,25 @@ class LiveEngine:
         # 2. Dispatcher
         self._dispatcher = self._make_dispatcher()
 
-        # 3. BarAggregator branché sur receive_signal
+        # 3. Position monitor (BE + trailing live)
+        if not self.dry_run:
+            self._position_monitor = self._make_position_monitor()
+
+        # 4. BarAggregator branché sur receive_signal
         await self._start_bar_aggregator()
 
-        # 4. Price feed branché sur bar_aggregator.on_tick
+        # 5. Price feed branché sur bar_aggregator.on_tick
         await self._start_price_feed()
 
-        # 5. État initial des comptes
+        # 6. État initial des comptes
         await self._refresh_account_state()
         self._account_refresh_task = asyncio.create_task(
             self._account_refresh_loop()
         )
+        if self._position_monitor:
+            self._reconcile_task = asyncio.create_task(
+                self._reconcile_loop()
+            )
 
         self._running = True
         logger.info(
@@ -117,6 +127,8 @@ class LiveEngine:
         self._running = False
         if self._account_refresh_task:
             self._account_refresh_task.cancel()
+        if self._reconcile_task:
+            self._reconcile_task.cancel()
         if self._price_feed:
             await self._price_feed.stop()
         for broker_id, broker in self._brokers.items():
@@ -171,6 +183,8 @@ class LiveEngine:
             stats["bar_aggregator"] = self._bar_aggregator.get_stats()
         if self._dispatcher:
             stats["dispatcher"] = await self._dispatcher.get_stats()
+        if self._position_monitor:
+            stats["position_monitor"] = self._position_monitor.get_stats()
         return stats
 
     # ------------------------------------------------------------------
@@ -234,6 +248,25 @@ class LiveEngine:
         dispatcher._price_feed = None
         return dispatcher
 
+    def _make_position_monitor(self):
+        from arabesque.live.position_monitor import LivePositionMonitor, MonitorConfig
+        monitor = LivePositionMonitor(
+            brokers=self._brokers,
+            config=MonitorConfig(),
+        )
+        logger.info("[Engine] 📋 Position monitor actif (BE 0.3/0.20R + trailing)")
+        return monitor
+
+    async def _reconcile_loop(self) -> None:
+        """Nettoie périodiquement les positions fermées du monitor."""
+        while self._running:
+            await asyncio.sleep(120)  # toutes les 2 minutes
+            if self._running and self._position_monitor:
+                try:
+                    await self._position_monitor.reconcile()
+                except Exception as e:
+                    logger.warning(f"[Engine] Reconcile error: {e}")
+
     # ------------------------------------------------------------------
     # BarAggregator
     # ------------------------------------------------------------------
@@ -286,6 +319,13 @@ class LiveEngine:
         )
 
         await self._bar_aggregator.initialize()
+
+        # Enregistrer le callback du position monitor sur chaque fermeture de bougie
+        if self._position_monitor:
+            self._bar_aggregator.add_bar_closed_callback(
+                self._position_monitor.on_bar_closed
+            )
+
         logger.info(
             f"[Engine] 📊 BarAggregator prêt — {len(symbols)} instrument(s): "
             f"{', '.join(symbols)}"
@@ -387,6 +427,11 @@ class LiveEngine:
                 f"[Engine] {status} {broker_id} | {signal.instrument} "
                 f"{signal.side.value} order_id={result.order_id}"
             )
+            # Enregistrer la position dans le monitor pour BE/trailing
+            if self._position_monitor and result.order_id:
+                await self._register_position_in_monitor(
+                    broker_id, signal, result
+                )
         else:
             logger.warning(
                 f"[Engine] {status} {broker_id} | {signal.instrument} "
@@ -394,6 +439,62 @@ class LiveEngine:
             )
         # TODO: notification via channels (Telegram/ntfy)
         await self._notify_order(broker_id, signal, result)
+
+    async def _register_position_in_monitor(self, broker_id, signal, result):
+        """Enregistre une position fraîchement ouverte dans le position monitor."""
+        try:
+            broker = self._brokers.get(broker_id)
+            if not broker:
+                return
+
+            # Attendre un instant pour que la position soit visible
+            await asyncio.sleep(1.0)
+
+            # Récupérer la position réelle pour le prix de fill et le volume
+            positions = await broker.get_positions()
+            matching = [
+                p for p in positions
+                if str(p.position_id) == str(result.order_id)
+            ]
+
+            if matching:
+                pos = matching[0]
+                entry = pos.entry_price
+                volume = pos.volume
+            else:
+                # Fallback: estimer depuis le signal
+                entry = signal.close
+                volume = 0.01  # minimum
+                logger.warning(
+                    f"[Engine] Position {result.order_id} not found in broker, "
+                    f"using signal.close={entry} as entry estimate"
+                )
+
+            # Digits du symbole
+            digits = 5  # défaut
+            try:
+                sinfo = await broker.get_symbol_info(signal.instrument)
+                if sinfo:
+                    digits = sinfo.digits
+            except Exception:
+                pass
+
+            from arabesque.models import Side
+            self._position_monitor.register_position(
+                broker_id=broker_id,
+                position_id=str(result.order_id),
+                symbol=signal.instrument,
+                side=signal.side,
+                entry=entry,
+                sl=signal.sl,
+                tp=signal.tp_indicative,
+                volume=volume,
+                digits=digits,
+            )
+        except Exception as e:
+            logger.error(
+                f"[Engine] Failed to register position in monitor: {e}"
+            )
 
     async def _notify_order(self, broker_id, signal, result) -> None:
         """Envoie une notification si les channels sont configurés."""

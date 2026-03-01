@@ -112,6 +112,14 @@ class BarAggregator:
         self._batch_start_time: Optional[float] = None
         self._BATCH_WINDOW_S = 120  # 2 min pour grouper les fermetures
 
+        # Callbacks additionnels appelés à chaque fermeture de bougie
+        # signature: async def callback(symbol, high, low, close)
+        self._bar_closed_callbacks: List[Callable] = []
+
+    def add_bar_closed_callback(self, callback: Callable):
+        """Ajoute un callback appelé à chaque fermeture de bougie H1."""
+        self._bar_closed_callbacks.append(callback)
+
     # ------------------------------------------------------------------
     # Initialisation
     # ------------------------------------------------------------------
@@ -290,6 +298,16 @@ class BarAggregator:
             self._batch_signals = 0
             self._batch_start_time = now
         self._batch_bars_closed += 1
+
+        # Notifier les callbacks de fermeture de bougie (position monitor etc.)
+        for cb in self._bar_closed_callbacks:
+            try:
+                if asyncio.iscoroutinefunction(cb):
+                    await cb(instrument, bar["high"], bar["low"], bar["close"])
+                else:
+                    cb(instrument, bar["high"], bar["low"], bar["close"])
+            except Exception as e:
+                logger.warning(f"[BarAggregator] bar_closed callback error: {e}")
 
         # Vérifier qu'on a assez de barres pour les indicateurs
         if len(cache) < self.cfg.min_bars:

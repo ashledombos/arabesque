@@ -21,8 +21,8 @@
 - Symbol resolution : symbolId numérique → nom unifié
 - Scripts : test_connectivity, test_order_flow, close_positions
 
-### ⚠️ Gap critique : PositionManager pas câblé en live
-Le breakeven (0.3/0.20R) et le trailing existent dans `position/manager.py` mais ne sont **PAS exécutés** par le live engine. Les ordres ont le SL/TP initial, pas de gestion dynamique. → Le WR live sera inférieur au backtest tant que non implémenté. C'est le P0.
+### ✅ Position Monitor live (BE + trailing)
+`arabesque/live/position_monitor.py` gère le breakeven (0.3/0.20R) et le trailing en live, câblé dans `engine.py`. Vérifié sur chaque H1 bar close, avec retry pour les amends échoués. Fix digits: `ProtoOASymbolByIdReq` pour obtenir les vrais digits (2 pour BTCUSD etc.).
 
 ### Notes
 - TradeLocker (GFT) compte test expiré

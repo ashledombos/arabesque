@@ -113,13 +113,16 @@ Le système survit à ses pires périodes sous les limites FTMO.
 
 ## 5. Prochaines étapes
 
-### P0 : ⚠️ LIVE POSITION MANAGER (CRITIQUE)
-Le `PositionManager` (breakeven 0.3/0.20R + trailing) existe dans `arabesque/position/manager.py` pour le backtest mais **N'EST PAS câblé dans le live engine**.
-- Les ordres sont placés avec SL/TP initial → pas de risque de perte catastrophique
-- Mais le mécanisme de breakeven ne se déclenche jamais → WR en live ≠ WR backtest
-- Besoin : wiring dans `engine.py`, suivi tick-by-tick des positions ouvertes, appel `amend_position_sltp()` quand conditions BE remplies
-- Retry logic pour amend failures (positions fantômes)
-- Réconciliation périodique des positions (broker ↔ état interne)
+### P0 : ✅ LIVE POSITION MANAGER (IMPLÉMENTÉ)
+Le `LivePositionMonitor` (`arabesque/live/position_monitor.py`) gère le breakeven et le trailing en live :
+- **Breakeven** : MFE >= 0.3R → SL déplacé à entry + 0.20R via `amend_position_sltp()`
+- **Trailing** : paliers 1.5R/2.0R/3.0R → SL suit le prix avec distances 0.7R/1.0R/1.5R
+- Retry avec backoff pour les amends échoués (max 3 tentatives)
+- Réconciliation périodique (2 min) pour nettoyer les positions fermées
+- Câblé dans `engine.py` : enregistrement au fill, callback sur chaque H1 bar close
+- **Fix digits** : `ProtoOASymbolByIdReq` appelé après chargement des symboles légers
+  pour obtenir les vrais digits (2 pour BTCUSD, 5 pour EURUSD). Tous les prix
+  (SL/TP/entry) sont arrondis dans le broker avant envoi au protobuf.
 
 ### P1 : MULTI-COMPTE PROP FIRM
 Voir `config/prop_firm_profiles.yaml`.

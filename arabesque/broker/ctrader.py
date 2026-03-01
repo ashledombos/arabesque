@@ -393,6 +393,12 @@ class CTraderBroker(BaseBroker):
                 if future and not future.done():
                     self._resolve_future(future, list(self._symbols.values()))
 
+            elif ptype == "ProtoOASymbolByIdRes":
+                self._process_symbol_details(payload)
+                future = self._pending_requests.pop("symbol_details", None)
+                if future and not future.done():
+                    self._resolve_future(future, True)
+
             elif ptype == "ProtoOATraderRes":
                 self._process_trader_response(payload)
                 future = self._pending_requests.pop("account_info", None)
@@ -840,26 +846,89 @@ class CTraderBroker(BaseBroker):
         for s in payload.symbol:
             symbol_id = s.symbolId
             symbol_name = getattr(s, "symbolName", f"ID:{symbol_id}")
-            digits = getattr(s, "digits", 5)
-            pip_position = getattr(s, "pipPosition", digits - 1)
-            tick_size = 10 ** (-digits)
-            pip_size = 10 ** (-pip_position) if pip_position > 0 else tick_size
-            min_volume = getattr(s, "minVolume", 1000) / 100
-            max_volume = getattr(s, "maxVolume", 10000000) / 100
-            step_volume = getattr(s, "stepVolume", 1000) / 100
+            # ProtoOALightSymbol n'a PAS digits/pipPosition
+            # On stocke des valeurs par défaut, elles seront mises à jour
+            # par _fetch_symbol_details() qui appelle ProtoOASymbolByIdReq
             self._symbols[symbol_id] = SymbolInfo(
                 symbol=symbol_name,
                 broker_symbol=str(symbol_id),
                 description=getattr(s, "description", ""),
+                digits=5,       # Sera corrigé par _fetch_symbol_details
+                tick_size=0.00001,
+                pip_size=0.0001,
+                min_volume=0.01,
+                max_volume=100000,
+                volume_step=0.01,
+                lot_size=100000,
+                is_tradable=True
+            )
+
+    def _process_symbol_details(self, payload):
+        """Traite ProtoOASymbolByIdRes avec les détails complets (digits, volumes, etc.)."""
+        for s in payload.symbol:
+            symbol_id = s.symbolId
+            if symbol_id not in self._symbols:
+                continue
+            existing = self._symbols[symbol_id]
+            digits = getattr(s, "digits", 5)
+            pip_position = getattr(s, "pipPosition", max(0, digits - 1))
+            tick_size = 10 ** (-digits) if digits > 0 else 0.00001
+            pip_size = 10 ** (-pip_position) if pip_position > 0 else tick_size
+            min_volume = getattr(s, "minVolume", 100) / 100
+            max_volume = getattr(s, "maxVolume", 10000000) / 100
+            step_volume = getattr(s, "stepVolume", 100) / 100
+            lot_size = getattr(s, "lotSize", 100000)
+            self._symbols[symbol_id] = SymbolInfo(
+                symbol=existing.symbol,
+                broker_symbol=existing.broker_symbol,
+                description=existing.description,
                 digits=digits,
                 tick_size=tick_size,
                 pip_size=pip_size,
                 min_volume=min_volume,
                 max_volume=max_volume,
                 volume_step=step_volume,
-                lot_size=100000,
+                lot_size=lot_size,
                 is_tradable=True
             )
+
+    async def fetch_symbol_details(self, symbol_ids: list[int] = None):
+        """Appelle ProtoOASymbolByIdReq pour obtenir digits/pipPosition/volumes.
+        
+        ProtoOASymbolsListRes ne retourne que ProtoOALightSymbol (pas de digits).
+        Il faut un appel séparé pour les détails complets.
+        """
+        if symbol_ids is None:
+            symbol_ids = list(self._symbols.keys())
+        if not symbol_ids:
+            return
+
+        from ctrader_open_api.messages.OpenApiMessages_pb2 import ProtoOASymbolByIdReq
+
+        # Batch par 50 pour éviter les limites cTrader
+        BATCH_SIZE = 50
+        for i in range(0, len(symbol_ids), BATCH_SIZE):
+            batch = symbol_ids[i:i + BATCH_SIZE]
+
+            loop = asyncio.get_event_loop()
+            future = loop.create_future()
+            self._pending_requests["symbol_details"] = future
+
+            req = ProtoOASymbolByIdReq()
+            req.ctidTraderAccountId = self.account_id
+            for sid in batch:
+                req.symbolId.append(sid)
+
+            self._send_via_reactor(req)
+            try:
+                await asyncio.wait_for(future, timeout=30)
+            except asyncio.TimeoutError:
+                self._pending_requests.pop("symbol_details", None)
+                print(f"[cTrader] ⚠️ fetch_symbol_details timeout (batch {i//BATCH_SIZE+1})")
+                break
+
+            if i + BATCH_SIZE < len(symbol_ids):
+                await asyncio.sleep(0.2)  # throttle entre batches
 
     def _process_trader_response(self, payload):
         trader = payload.trader
@@ -1036,10 +1105,22 @@ class CTraderBroker(BaseBroker):
             from twisted.internet import reactor
             self._send_via_reactor(req)
             try:
-                return await asyncio.wait_for(future, timeout=15)
+                result = await asyncio.wait_for(future, timeout=15)
             except asyncio.TimeoutError:
                 self._pending_requests.pop("symbols", None)
                 return []
+
+            # Charger les détails complets (digits, pipPosition, volumes)
+            # ProtoOALightSymbol n'a PAS ces champs
+            if self._symbols:
+                await self.fetch_symbol_details()
+                # Log un échantillon pour vérifier
+                sample = list(self._symbols.values())[:3]
+                for s in sample:
+                    print(f"[cTrader] Symbol {s.symbol}: digits={s.digits}, "
+                          f"pip_size={s.pip_size}, min_vol={s.min_volume}")
+
+            return list(self._symbols.values())
 
     async def get_symbol_info(self, symbol: str) -> Optional[SymbolInfo]:
         if not self._symbols:
