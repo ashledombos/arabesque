@@ -164,10 +164,11 @@ async def run_test(broker_id: str, symbol: str, auto_confirm: bool):
             entry = tick.bid
 
     if entry > 0:
-        # SL à environ 0.5% en dessous du prix (raisonnable pour un test)
-        sl_offset = round(entry * 0.005, sym_info.digits)
-        new_sl = round(entry - sl_offset, sym_info.digits)
-        print(f"  Nouveau SL: {new_sl} (entry={entry:.5f}, -0.5% = -{sl_offset})")
+        # SL à environ 0.5% en dessous du prix, arrondi aux digits autorisés
+        digits = sym_info.digits  # ex: 2 pour BTCUSD, 5 pour EURUSD
+        sl_offset = entry * 0.005
+        new_sl = round(entry - sl_offset, digits)
+        print(f"  Nouveau SL: {new_sl} (entry={entry:.{digits}f}, -0.5%, {digits} digits)")
 
         amend_result = await broker.amend_position_sltp(
             use_id, stop_loss=new_sl

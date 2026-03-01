@@ -128,6 +128,10 @@ class CTraderBroker(BaseBroker):
         self._symbol_id_to_unified: Dict[int, str] = {}
         # Diagnostic : log du premier tick par symbole
         self._first_tick_logged: set = set()
+        # Cache positions et mapping positionId → symbolId
+        self._positions: List = []
+        self._pending_orders: List = []
+        self._position_symbol_ids: Dict[str, int] = {}
 
     # ------------------------------------------------------------------
     # Token management
@@ -883,11 +887,40 @@ class CTraderBroker(BaseBroker):
             return unified or ctrader_name
         return str(symbol_id)
 
+    def _get_digits(self, symbol_id: int) -> int:
+        """Retourne le nombre de décimales autorisées pour un symbole."""
+        if symbol_id in self._symbols:
+            return self._symbols[symbol_id].digits
+        return 5  # défaut forex
+
+    def _round_price(self, price: float, symbol_id: int) -> float:
+        """Arrondit un prix au nombre de décimales du symbole."""
+        return round(price, self._get_digits(symbol_id))
+
+    def _get_symbol_id_for_position(self, position_id: str) -> Optional[int]:
+        """Trouve le symbolId d'une position via le cache reconcile."""
+        # Fast path: direct mapping
+        if hasattr(self, '_position_symbol_ids'):
+            sid = self._position_symbol_ids.get(str(position_id))
+            if sid:
+                return sid
+        # Slow path: reverse lookup from position name
+        for pos in self._positions:
+            if str(pos.position_id) == str(position_id):
+                sym_name = pos.symbol
+                for sid, sinfo in self._symbols.items():
+                    if sinfo.symbol == sym_name or self._resolve_symbol_name(sid) == sym_name:
+                        return sid
+        return None
+
     def _process_reconcile_response(self, payload):
         self._positions = []
         self._pending_orders = []
+        self._position_symbol_ids = {}  # position_id → symbolId
         for pos in payload.position:
             side = OrderSide.BUY if pos.tradeData.tradeSide == 1 else OrderSide.SELL
+            pos_id = str(pos.positionId)
+            self._position_symbol_ids[pos_id] = pos.tradeData.symbolId
             self._positions.append(Position(
                 position_id=str(pos.positionId),
                 symbol=self._resolve_symbol_name(pos.tradeData.symbolId),
@@ -1057,20 +1090,20 @@ class CTraderBroker(BaseBroker):
             elif order.order_type == OrderType.LIMIT:
                 req.orderType = self._enum_value(req, "orderType", "LIMIT")
                 if order.entry_price:
-                    req.limitPrice = order.entry_price
+                    req.limitPrice = self._round_price(order.entry_price, symbol_id)
             elif order.order_type == OrderType.STOP:
                 req.orderType = self._enum_value(req, "orderType", "STOP")
                 if order.entry_price:
-                    req.stopPrice = order.entry_price
+                    req.stopPrice = self._round_price(order.entry_price, symbol_id)
             req.tradeSide = self._enum_value(req, "tradeSide", order.side.value)
             # cTrader volume = centilots (1 lot = 100)
             volume_multiplier = 100
             broker_volume = order.broker_volume or int(round(order.volume * volume_multiplier))
             req.volume = broker_volume
             if order.stop_loss:
-                req.stopLoss = order.stop_loss
+                req.stopLoss = self._round_price(order.stop_loss, symbol_id)
             if order.take_profit:
-                req.takeProfit = order.take_profit
+                req.takeProfit = self._round_price(order.take_profit, symbol_id)
             # timeInForce: pas nécessaire pour MARKET, obligatoire pour LIMIT/STOP
             if order.order_type != OrderType.MARKET:
                 if order.expiry_timestamp_ms:
@@ -1087,6 +1120,9 @@ class CTraderBroker(BaseBroker):
             from twisted.internet import reactor
             self._send_via_reactor(req)
             result = await asyncio.wait_for(future, timeout=30)
+            # Enregistrer le mapping positionId → symbolId pour amend/close
+            if result.success and result.order_id:
+                self._position_symbol_ids[str(result.order_id)] = symbol_id
             return result
         except asyncio.TimeoutError:
             return OrderResult(success=False, message="Order timeout")
@@ -1137,6 +1173,20 @@ class CTraderBroker(BaseBroker):
         """Modify SL/TP on an open position via ProtoOAAmendPositionSLTPReq."""
         if not self._connected:
             return OrderResult(success=False, message="Not connected")
+
+        # Arrondir aux digits du symbole pour éviter TRADING_BAD_STOPS
+        sym_id = self._get_symbol_id_for_position(position_id)
+        if not sym_id:
+            # Cache vide ou position pas trouvée — rafraîchir
+            await self.get_positions()
+            sym_id = self._get_symbol_id_for_position(position_id)
+        if sym_id:
+            digits = self._get_digits(sym_id)
+            if stop_loss is not None:
+                stop_loss = round(stop_loss, digits)
+            if take_profit is not None:
+                take_profit = round(take_profit, digits)
+
         loop = asyncio.get_event_loop()
         future = loop.create_future()
         self._pending_requests["position_amend"] = future
@@ -1147,7 +1197,8 @@ class CTraderBroker(BaseBroker):
             req.stopLoss = stop_loss
         if take_profit is not None:
             req.takeProfit = take_profit
-        print(f"[cTrader] Amending position {position_id}: SL={stop_loss} TP={take_profit}")
+        print(f"[cTrader] Amending position {position_id}: SL={stop_loss} TP={take_profit}"
+              + (f" ({digits} digits)" if sym_id else " (symbol unknown, no rounding)"))
         self._send_via_reactor(req)
         try:
             return await asyncio.wait_for(future, timeout=15)
