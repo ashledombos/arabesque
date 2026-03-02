@@ -792,3 +792,26 @@ La lib tradelocker-python exige `stop_price` (pas `price`) pour les ordres `type
 - Arrondi au step_volume automatique
 
 **Décision** : le diviseur 10^5 est hardcodé car empiriquement correct pour tous les symboles testés (forex, JPY, crypto). Si un broker cTrader utilise un diviseur différent, il faudra le paramétrer dans settings.yaml.
+
+### 2026-03-02 (session 2) : Volume sizing par-broker + validation post-trade
+
+**Root cause volumes trop bas** : `_compute_lots()` dans le dispatcher utilisait un seul `pip_value_per_lot` de instruments.yaml, identique pour tous les brokers. Or les brokers ont des `contract_size` (lot_size) différents pour le même symbole :
+- cTrader FTMO : BNBUSD lot_size=100 (1 lot = 100 BNB) → 0.4L × $10.09 × 100 = $400 ✓
+- TradeLocker GFT : BNBUSD lot_size=1 (1 lot = 1 BNB) → 0.4L × $10.09 × 1 = $4 ✗
+
+**Fix** : `_compute_lots_for_broker()` — calcule le volume par-broker :
+- Query `broker.get_symbol_info()` pour obtenir le `lot_size` réel
+- `pip_value_per_lot = lot_size × pip_size` (calculé dynamiquement)
+- Fallback sur instruments.yaml si SymbolInfo indisponible
+- Log détaillé : lot_size source, pip_value calculé vs yaml, contraintes broker
+
+**Validation post-trade** :
+- `_log_trade_validation()` dans le dispatcher : logge type d'ordre, slippage, SL/TP, RR
+- `_register_position_in_monitor()` : retry 3× avec délai croissant (2/4/6s) pour trouver la position
+- Log de fill confirmé : entry réel vs signal, slippage mesuré, SL/TP effectifs
+
+**Position monitor** :
+- Grace period de 5 minutes : `reconcile()` ne retire plus les positions < 5 min
+- Log amélioré à la suppression : MFE, état BE, tier trailing
+
+**Décision** : le lot_size du broker est la source de vérité pour le sizing. `instruments.yaml pip_value_per_lot` ne sert plus que de fallback. Pas besoin de normalizer séparé pour le sizing — chaque broker a son propre lot_size dans SymbolInfo.

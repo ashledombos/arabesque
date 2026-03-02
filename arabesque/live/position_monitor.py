@@ -49,6 +49,7 @@ class TrackedPosition:
     trailing_tier: int = 0
     last_amend_time: float = 0.0
     amend_failures: int = 0
+    registered_at: float = 0.0     # time.time() à l'enregistrement
 
     @property
     def R(self) -> float:
@@ -141,6 +142,7 @@ class LivePositionMonitor:
             volume=volume,
             digits=digits,
             max_favorable_price=entry,
+            registered_at=time.time(),
         )
         self._positions[key] = pos
         logger.info(
@@ -298,9 +300,16 @@ class LivePositionMonitor:
         return False
 
     async def reconcile(self):
-        """Synchronise avec le broker — retire les positions fermées."""
+        """Synchronise avec le broker — retire les positions fermées.
+
+        Grace period: ne retire pas les positions < 5 min (le broker peut
+        mettre du temps à confirmer le fill).
+        """
         if not self._positions:
             return
+
+        GRACE_PERIOD_S = 300  # 5 minutes
+        now = time.time()
 
         # Grouper par broker
         by_broker: Dict[str, List[str]] = {}
@@ -319,12 +328,28 @@ class LivePositionMonitor:
                 # Retirer les positions qui n'existent plus sur le broker
                 for key in keys:
                     pos = self._positions.get(key)
-                    if pos and pos.position_id not in broker_pos_ids:
-                        self._positions.pop(key, None)
-                        logger.info(
-                            f"[Monitor] 🗑️ Position {pos.symbol} {pos.position_id} "
-                            f"closed on broker — removed from monitor"
+                    if not pos:
+                        continue
+                    if pos.position_id in broker_pos_ids:
+                        continue  # Toujours ouverte
+
+                    # Vérifier la grace period
+                    age = now - pos.registered_at
+                    if age < GRACE_PERIOD_S:
+                        logger.debug(
+                            f"[Monitor] Position {pos.symbol} {pos.position_id} "
+                            f"non trouvée mais enregistrée il y a {age:.0f}s < "
+                            f"{GRACE_PERIOD_S}s — conservée (grace period)"
                         )
+                        continue
+
+                    self._positions.pop(key, None)
+                    logger.info(
+                        f"[Monitor] 🗑️ Position {pos.symbol} {pos.position_id} "
+                        f"non trouvée sur {broker_id} après {age:.0f}s — retirée "
+                        f"(MFE={pos.mfe_r:.2f}R BE={'✓' if pos.breakeven_set else '✗'} "
+                        f"trail={pos.trailing_tier})"
+                    )
             except Exception as e:
                 logger.warning(f"[Monitor] Reconcile error for {broker_id}: {e}")
 

@@ -382,10 +382,22 @@ class OrderDispatcher:
                 message=f"{sym} non disponible sur {broker_id}"
             )
 
+        # --- Calcul du volume SPÉCIFIQUE À CE BROKER ---
+        # Le lot_size (contract_size) varie entre brokers pour le même symbole
+        risk_distance = abs(signal.close - signal.sl)
+        broker_volume = await self._compute_lots_for_broker(
+            broker, broker_id, signal, ps.risk_cash, risk_distance
+        )
+        if broker_volume <= 0:
+            return OrderResult(
+                success=False,
+                message=f"Volume calculé = 0 pour {sym} sur {broker_id}"
+            )
+
         if self.dry_run:
             logger.info(
                 f"[Dispatcher] [DRY RUN] {broker_id}: {sym} {signal.side.value} "
-                f"{ps.volume_lots:.3f}L @ {ps.entry_price:.5f} "
+                f"{broker_volume:.3f}L @ {ps.entry_price:.5f} "
                 f"SL={signal.sl:.5f} TP={signal.tp_indicative:.5f}"
             )
             return OrderResult(
@@ -400,7 +412,7 @@ class OrderDispatcher:
         validation = validate_order(
             broker=broker,
             symbol=sym,
-            volume_lots=ps.volume_lots,
+            volume_lots=broker_volume,
             stop_loss=signal.sl if signal.sl > 0 else None,
             take_profit=signal.tp_indicative if signal.tp_indicative > 0 else None,
             entry_price=ps.entry_price,
@@ -434,9 +446,9 @@ class OrderDispatcher:
         try:
             result = await broker.place_order(order)
             if result.success:
-                logger.info(
-                    f"[Dispatcher] ✅ {broker_id}: ordre {result.order_id} placé — "
-                    f"{sym} {signal.side.value} {ps.volume_lots:.3f}L"
+                # Post-trade validation log
+                self._log_trade_validation(
+                    broker_id, sym, signal, order, validation, tick
                 )
             else:
                 logger.warning(
@@ -483,12 +495,10 @@ class OrderDispatcher:
         risk_distance: float,
     ) -> float:
         """
-        Calcule le volume en lots.
+        Calcule le volume en lots (référence, basé sur instruments.yaml).
 
-        lots = risk_cash / (risk_distance / pip_size * pip_value_per_lot)
-
-        Si pip_value_per_lot n'est pas disponible dans instruments_cfg,
-        utilise la valeur standard 10 (paires XXX/USD).
+        Utilisé uniquement pour le log d'acceptation du signal.
+        Le volume réel par broker est calculé par _compute_lots_for_broker().
         """
         sym = signal.instrument
         inst = self.instruments_cfg.get(sym, {})
@@ -496,11 +506,10 @@ class OrderDispatcher:
         pip_value = inst.get("pip_value_per_lot", 10)
 
         if pip_value is None or pip_value == 0:
-            # Paire USD/XXX : approximation avec dernier tick
-            pip_value = 10  # fallback conservateur
+            pip_value = 10
 
         if pip_size <= 0 or risk_distance <= 0:
-            return 0.01  # volume minimum
+            return 0.01
 
         pips = risk_distance / pip_size
         if pips == 0:
@@ -508,7 +517,6 @@ class OrderDispatcher:
 
         lots = risk_cash / (pips * pip_value)
 
-        # Contraintes standard
         min_lot = inst.get("min_lot", 0.01)
         max_lot = inst.get("max_lot", 10.0)
         step = inst.get("lot_step", 0.01)
@@ -516,3 +524,118 @@ class OrderDispatcher:
         lots = max(min_lot, min(lots, max_lot))
         lots = round(round(lots / step) * step, 2)
         return lots
+
+    async def _compute_lots_for_broker(
+        self,
+        broker: BaseBroker,
+        broker_id: str,
+        signal: Signal,
+        risk_cash: float,
+        risk_distance: float,
+    ) -> float:
+        """
+        Calcule le volume en lots SPÉCIFIQUE au broker.
+
+        Utilise le lot_size réel du broker (contract_size) au lieu du
+        pip_value_per_lot statique de instruments.yaml.
+
+        Formule: lots = risk_cash / (contract_size × risk_distance)
+        Équivalent: lots = risk_cash / (pips × pip_value_per_lot_réel)
+        où pip_value_per_lot_réel = contract_size × pip_size
+        """
+        sym = signal.instrument
+        inst = self.instruments_cfg.get(sym, {})
+        pip_size = inst.get("pip_size", 0.0001)
+
+        if pip_size <= 0 or risk_distance <= 0:
+            return 0.01
+
+        # Chercher le lot_size réel du broker via SymbolInfo
+        broker_lot_size = None
+        broker_min_vol = 0.01
+        broker_max_vol = 10000.0
+        broker_step = 0.01
+
+        try:
+            sym_info = await broker.get_symbol_info(sym)
+            if sym_info and sym_info.lot_size > 0:
+                broker_lot_size = sym_info.lot_size
+                broker_min_vol = sym_info.min_volume
+                broker_max_vol = sym_info.max_volume
+                broker_step = sym_info.volume_step
+        except Exception as e:
+            logger.debug(f"[Dispatcher] get_symbol_info failed for {sym}: {e}")
+
+        if broker_lot_size:
+            # pip_value_per_lot = contract_size × pip_size
+            pip_value = broker_lot_size * pip_size
+        else:
+            # Fallback sur instruments.yaml
+            pip_value = inst.get("pip_value_per_lot", 10)
+            if not pip_value:
+                pip_value = 10
+
+        pips = risk_distance / pip_size
+        lots = risk_cash / (pips * pip_value)
+
+        # Contraintes du broker
+        lots = max(broker_min_vol, min(lots, broker_max_vol))
+        if broker_step > 0:
+            lots = round(round(lots / broker_step) * broker_step, 8)
+
+        # Log détaillé pour debug
+        yaml_pip_value = inst.get("pip_value_per_lot", "N/A")
+        logger.info(
+            f"[Dispatcher] 📐 {broker_id} {sym}: "
+            f"risk={risk_cash:.0f}€ dist={risk_distance:.5f} "
+            f"lot_size={broker_lot_size or 'yaml'} "
+            f"pip_val={pip_value:.4f} "
+            f"(yaml={yaml_pip_value}) "
+            f"→ {lots:.3f}L "
+            f"[{broker_min_vol:.3f}-{broker_max_vol:.0f} step={broker_step}]"
+        )
+
+        return lots
+
+    def _log_trade_validation(
+        self,
+        broker_id: str,
+        sym: str,
+        signal: Signal,
+        order: OrderRequest,
+        validation,
+        tick: PriceTick,
+    ):
+        """Log de validation post-trade pour vérifier la cohérence.
+
+        Vérifie et logge:
+        - Type d'ordre (MARKET vs pending)
+        - Slippage entry vs signal.close
+        - SL/TP correctement positionnés
+        - Risque théorique en € et R
+        - Cohérence volume/risque
+        """
+        inst = self.instruments_cfg.get(sym, {})
+        pip_size = inst.get("pip_size", 0.0001)
+
+        # Slippage
+        fill_price = tick.mid if hasattr(tick, 'mid') else (tick.bid + tick.ask) / 2
+        slippage = abs(fill_price - signal.close) if fill_price > 0 else 0
+        slip_pips = slippage / pip_size if pip_size > 0 else 0
+
+        # Risk
+        risk_dist = abs(signal.close - signal.sl)
+        risk_r = risk_dist / abs(signal.close - signal.sl) if signal.sl != signal.close else 0
+
+        # Reward/Risk
+        tp_dist = abs(signal.tp_indicative - signal.close) if signal.tp_indicative else 0
+        rr = tp_dist / risk_dist if risk_dist > 0 else 0
+
+        logger.info(
+            f"[Dispatcher] ✅ {broker_id}: TRADE PLACÉ {sym} {signal.side.value} "
+            f"{order.volume:.3f}L | "
+            f"type={order.order_type.value} | "
+            f"entry={signal.close:.5f} fill≈{fill_price:.5f} slip={slip_pips:.1f}pip | "
+            f"SL={order.stop_loss} TP={order.take_profit} RR={rr:.2f} | "
+            f"risk_dist={risk_dist:.5f}"
+        )

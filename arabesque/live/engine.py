@@ -447,27 +447,40 @@ class LiveEngine:
             if not broker:
                 return
 
-            # Attendre un instant pour que la position soit visible
-            await asyncio.sleep(1.0)
+            # Chercher la position avec retry (le broker peut mettre du temps)
+            entry = signal.close
+            volume = 0.01
+            found = False
 
-            # Récupérer la position réelle pour le prix de fill et le volume
-            positions = await broker.get_positions()
-            matching = [
-                p for p in positions
-                if str(p.position_id) == str(result.order_id)
-            ]
+            for attempt in range(3):
+                await asyncio.sleep(2.0 * (attempt + 1))
+                positions = await broker.get_positions()
+                matching = [
+                    p for p in positions
+                    if str(p.position_id) == str(result.order_id)
+                ]
+                if matching:
+                    pos = matching[0]
+                    entry = pos.entry_price
+                    volume = pos.volume
+                    found = True
 
-            if matching:
-                pos = matching[0]
-                entry = pos.entry_price
-                volume = pos.volume
-            else:
-                # Fallback: estimer depuis le signal
-                entry = signal.close
-                volume = 0.01  # minimum
+                    # Log de validation post-fill
+                    slip = abs(entry - signal.close)
+                    logger.info(
+                        f"[Engine] 📋 Fill confirmé: {signal.instrument} "
+                        f"{signal.side.value} {volume:.3f}L "
+                        f"entry={entry:.5f} (signal={signal.close:.5f} "
+                        f"slip={slip:.5f}) "
+                        f"SL={pos.stop_loss} TP={pos.take_profit}"
+                    )
+                    break
+
+            if not found:
                 logger.warning(
-                    f"[Engine] Position {result.order_id} not found in broker, "
-                    f"using signal.close={entry} as entry estimate"
+                    f"[Engine] Position {result.order_id} not found after 3 attempts, "
+                    f"registering with signal values "
+                    f"(entry={entry}, vol=estimated)"
                 )
 
             # Digits du symbole
