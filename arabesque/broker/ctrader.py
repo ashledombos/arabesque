@@ -861,6 +861,9 @@ class CTraderBroker(BaseBroker):
 
         Met à jour SymbolInfo avec les vrais digits/pipPosition/volumes du broker.
         NOTE: Ne touche PAS _symbol_divisors — le diviseur de prix est FIXE.
+
+        Volumes proto: en centilots (1/100 de lot). Ex: minVolume=1 → 0.01 lots.
+        ATTENTION aux defaults: un champ proto absent NE signifie PAS 1 lot.
         """
         count = 0
         for s in payload.symbol:
@@ -872,10 +875,31 @@ class CTraderBroker(BaseBroker):
             pip_position = getattr(s, "pipPosition", max(0, digits - 1))
             tick_size = 10 ** (-digits) if digits > 0 else 0.00001
             pip_size = 10 ** (-pip_position) if pip_position > 0 else tick_size
-            min_volume = getattr(s, "minVolume", 100) / 100  # centilots → lots
-            max_volume = getattr(s, "maxVolume", 10000000) / 100
-            step_volume = getattr(s, "stepVolume", 100) / 100
+
+            # Volumes proto en centilots. Defaults conservateurs (0.01 lot min)
+            min_vol_raw = getattr(s, "minVolume", 1)      # 1 centilot = 0.01 lots
+            max_vol_raw = getattr(s, "maxVolume", 10000000)
+            step_vol_raw = getattr(s, "stepVolume", 1)     # 1 centilot = 0.01 lots
             lot_size = getattr(s, "lotSize", 100000)
+
+            min_volume = min_vol_raw / 100   # centilots → lots
+            max_volume = max_vol_raw / 100
+            step_volume = step_vol_raw / 100
+
+            # Log les symboles intéressants pour debug (crypto + JPY)
+            if (existing.symbol in (
+                "BNBUSD", "BTCUSD", "ETHUSD", "SOLUSD",
+                "FETUSD", "GALUSD", "USDJPY"
+            ) or min_volume > 0.1):  # Alerter si min > 0.1 lots
+                print(
+                    f"[cTrader] 📊 {existing.symbol}: "
+                    f"digits={digits} pipPos={pip_position} "
+                    f"minVol={min_vol_raw}→{min_volume:.4f}L "
+                    f"maxVol={max_vol_raw}→{max_volume:.1f}L "
+                    f"step={step_vol_raw}→{step_volume:.4f}L "
+                    f"lotSize={lot_size}"
+                )
+
             self._symbols[symbol_id] = SymbolInfo(
                 symbol=existing.symbol,
                 broker_symbol=existing.broker_symbol,

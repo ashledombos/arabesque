@@ -815,3 +815,16 @@ La lib tradelocker-python exige `stop_price` (pas `price`) pour les ordres `type
 - Log amélioré à la suppression : MFE, état BE, tier trailing
 
 **Décision** : le lot_size du broker est la source de vérité pour le sizing. `instruments.yaml pip_value_per_lot` ne sert plus que de fallback. Pas besoin de normalizer séparé pour le sizing — chaque broker a son propre lot_size dans SymbolInfo.
+
+### 2026-03-02 (session 3) : Fix minVolume default — faux rejet BNBUSD
+
+**Root cause** : `_process_symbol_details()` utilisait `getattr(s, "minVolume", 100)` comme défaut. En proto2, si le serveur ne remplit pas le champ `minVolume`, le default de 100 s'applique → `100/100 = 1.0 lot` minimum au lieu de `0.01 lot`. Résultat : BNBUSD (0.4L calculé) rejeté en pré-vol parce que `0.4 < 1.0`.
+
+**Fix** : Changement des defaults proto :
+- `minVolume` : 100 → 1 (1 centilot = 0.01 lots)
+- `stepVolume` : 100 → 1 (1 centilot = 0.01 lots)
+- Ajout de logging pour les symboles crypto : valeurs brutes du proto à chaque chargement
+
+**Diagnostic** : `scripts/diag_symbol_specs.py` — affiche les valeurs brutes du proto (minVolume, maxVolume, stepVolume, lotSize, digits, pipPosition) pour vérifier ce que le serveur renvoie réellement. À lancer sur FTMO pour confirmer.
+
+**Note** : Perplexity confirme que FTMO autorise 0.01 lot minimum pour BNBUSD (1 BNB ≈ $645), pas 1 lot (100 BNB ≈ $64,500). Le min_volume=1.0L venait du mauvais default, pas du serveur.
