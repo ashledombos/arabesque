@@ -24,6 +24,12 @@
 ### ✅ Position Monitor live (BE + trailing)
 `arabesque/live/position_monitor.py` gère le breakeven (0.3/0.20R) et le trailing en live, câblé dans `engine.py`. Vérifié sur chaque H1 bar close, avec retry pour les amends échoués. Fix digits: `ProtoOASymbolByIdReq` pour obtenir les vrais digits (2 pour BTCUSD etc.).
 
+### ✅ Fix diviseur de prix cTrader (2026-03-02)
+Les SpotEvents et Trendbars cTrader encodent TOUS les prix en entiers avec diviseur FIXE 10^5 (100000), indépendant de digits/pipPosition. L'ancien code dérivait le diviseur de `pip_size` → changement de pip_size par `_process_symbol_details` cassait le décodage (USDJPY 100x trop grand → volumes 100x trop petits → TRADING_BAD_VOLUME).
+- `_symbol_divisors` : dict séparé, jamais modifié par symbol details
+- `broker/normalizer.py` : validation pré-envoi volume min/max/step
+- Validation intégrée dans `place_order()` et `order_dispatcher.py`
+
 ### Notes
 - TradeLocker (GFT) compte test expiré
 - FTMO impose des heures de trading même sur crypto (weekend)
@@ -56,3 +62,6 @@ python scripts/analyze_replay_v2.py dry_run_XXXXXXXX_XXXXXX.jsonl --grid
 ```
 
 Cibles : DD < 10%, return > +80%, WR > 70%.
+
+## ⛔ NE PAS MODIFIER de fichiers code
+## ⛔ NE PAS interpréter les résultats pour modifier la stratégie

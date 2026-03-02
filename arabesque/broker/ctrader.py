@@ -133,6 +133,14 @@ class CTraderBroker(BaseBroker):
         self._pending_orders: List = []
         self._position_symbol_ids: Dict[str, int] = {}
 
+        # Diviseur de prix cTrader : les SpotEvents et Trendbars encodent les prix
+        # en entiers. Le diviseur pour décoder est FIXE et ne dépend PAS de
+        # pipPosition/digits (qui ne servent qu'à l'arrondi).
+        # Sur cTrader, tous les prix sont encodés avec 10^5 de précision,
+        # même pour les paires JPY (digits=3) ou crypto (digits=2).
+        self._symbol_divisors: Dict[int, int] = {}
+        self._DEFAULT_DIVISOR = 100000  # 10^5, standard cTrader
+
     # ------------------------------------------------------------------
     # Token management
     # ------------------------------------------------------------------
@@ -486,15 +494,8 @@ class CTraderBroker(BaseBroker):
             print(f"[cTrader] get_history: symbole '{symbol}' non trouvé")
             return []
 
-        # Résolution du diviseur de prix (pipPosition)
-        sym_info = self._symbols.get(symbol_id)
-        if sym_info:
-            # pipPosition est stocké implicitement via pip_size
-            import math
-            pip_pos = -int(round(math.log10(sym_info.pip_size)))
-            divisor = 10 ** (pip_pos + 1)  # digits = pipPosition + 1
-        else:
-            divisor = 100000  # défaut 5 décimales
+        # Diviseur de prix cTrader (fixe, indépendant de digits/pipPosition)
+        divisor = self._get_divisor(symbol_id)
 
         # Résolution du timeframe
         tf_upper = timeframe.upper()
@@ -565,12 +566,7 @@ class CTraderBroker(BaseBroker):
             return
 
         sym_info = self._symbols.get(symbol_id)
-        if sym_info:
-            import math
-            pip_pos = -int(round(math.log10(sym_info.pip_size)))
-            divisor = 10 ** (pip_pos + 1)
-        else:
-            divisor = 100000
+        divisor = self._get_divisor(symbol_id)
 
         bars = [
             self._decode_trendbar(tb, divisor)
@@ -770,13 +766,8 @@ class CTraderBroker(BaseBroker):
         symbol_id = payload.symbolId
         sym_info = self._symbols.get(symbol_id)
 
-        # Utiliser le diviseur spécifique au symbole (basé sur digits/pipPosition)
-        if sym_info:
-            import math
-            pip_pos = -int(round(math.log10(sym_info.pip_size)))
-            divisor = 10 ** (pip_pos + 1)
-        else:
-            divisor = 100000  # fallback 5 décimales (majeurs FX)
+        # Diviseur de prix cTrader (fixe, NE dépend PAS de digits/pipPosition)
+        divisor = self._get_divisor(symbol_id)
 
         bid = getattr(payload, 'bid', 0)
         ask = getattr(payload, 'ask', 0)
@@ -862,9 +853,16 @@ class CTraderBroker(BaseBroker):
                 lot_size=100000,
                 is_tradable=True
             )
+            # Diviseur de prix FIXE pour cTrader — NE PAS changer après
+            self._symbol_divisors[symbol_id] = self._DEFAULT_DIVISOR
 
     def _process_symbol_details(self, payload):
-        """Traite ProtoOASymbolByIdRes avec les détails complets (digits, volumes, etc.)."""
+        """Traite ProtoOASymbolByIdRes avec les détails complets (digits, volumes, etc.).
+
+        Met à jour SymbolInfo avec les vrais digits/pipPosition/volumes du broker.
+        NOTE: Ne touche PAS _symbol_divisors — le diviseur de prix est FIXE.
+        """
+        count = 0
         for s in payload.symbol:
             symbol_id = s.symbolId
             if symbol_id not in self._symbols:
@@ -874,7 +872,7 @@ class CTraderBroker(BaseBroker):
             pip_position = getattr(s, "pipPosition", max(0, digits - 1))
             tick_size = 10 ** (-digits) if digits > 0 else 0.00001
             pip_size = 10 ** (-pip_position) if pip_position > 0 else tick_size
-            min_volume = getattr(s, "minVolume", 100) / 100
+            min_volume = getattr(s, "minVolume", 100) / 100  # centilots → lots
             max_volume = getattr(s, "maxVolume", 10000000) / 100
             step_volume = getattr(s, "stepVolume", 100) / 100
             lot_size = getattr(s, "lotSize", 100000)
@@ -891,6 +889,8 @@ class CTraderBroker(BaseBroker):
                 lot_size=lot_size,
                 is_tradable=True
             )
+            count += 1
+        print(f"[cTrader] ✅ Symbol details loaded: {count} symbols updated")
 
     async def fetch_symbol_details(self, symbol_ids: list[int] = None):
         """Appelle ProtoOASymbolByIdReq pour obtenir digits/pipPosition/volumes.
@@ -955,6 +955,15 @@ class CTraderBroker(BaseBroker):
             unified = self.reverse_map_symbol(ctrader_name)
             return unified or ctrader_name
         return str(symbol_id)
+
+    def _get_divisor(self, symbol_id: int) -> int:
+        """Retourne le diviseur de prix pour décoder les entiers cTrader.
+
+        IMPORTANT: Ce diviseur est FIXE (10^5) et ne change PAS quand
+        _process_symbol_details met à jour digits/pipPosition.
+        Les digits du symbole ne servent qu'à l'arrondi des prix.
+        """
+        return self._symbol_divisors.get(symbol_id, self._DEFAULT_DIVISOR)
 
     def _get_digits(self, symbol_id: int) -> int:
         """Retourne le nombre de décimales autorisées pour un symbole."""
@@ -1177,9 +1186,35 @@ class CTraderBroker(BaseBroker):
                 if order.entry_price:
                     req.stopPrice = self._round_price(order.entry_price, symbol_id)
             req.tradeSide = self._enum_value(req, "tradeSide", order.side.value)
-            # cTrader volume = centilots (1 lot = 100)
-            volume_multiplier = 100
-            broker_volume = order.broker_volume or int(round(order.volume * volume_multiplier))
+            # cTrader volume = centilots (1 lot = 100 centilots)
+            CENTILOTS = 100
+            broker_volume = order.broker_volume or int(round(order.volume * CENTILOTS))
+
+            # Validation volume contre les limites réelles du symbole
+            sym_info = self._symbols.get(symbol_id)
+            if sym_info:
+                min_centilots = int(round(sym_info.min_volume * CENTILOTS))
+                max_centilots = int(round(sym_info.max_volume * CENTILOTS))
+                step_centilots = max(1, int(round(sym_info.volume_step * CENTILOTS)))
+
+                if broker_volume < min_centilots:
+                    return OrderResult(
+                        success=False,
+                        message=f"Volume {order.volume:.3f}L ({broker_volume} centilots) "
+                                f"< min {sym_info.min_volume:.3f}L ({min_centilots} centilots) "
+                                f"pour {order.symbol}. "
+                                f"Augmenter risk_percent ou réduire le nombre d'instruments."
+                    )
+                if broker_volume > max_centilots:
+                    broker_volume = max_centilots
+                    print(f"[cTrader] ⚠️ Volume capé au maximum: {max_centilots} centilots "
+                          f"({sym_info.max_volume:.1f}L) pour {order.symbol}")
+
+                # Arrondir au step
+                if step_centilots > 1:
+                    broker_volume = max(min_centilots,
+                                       (broker_volume // step_centilots) * step_centilots)
+
             req.volume = broker_volume
             if order.stop_loss:
                 req.stopLoss = self._round_price(order.stop_loss, symbol_id)
@@ -1197,7 +1232,10 @@ class CTraderBroker(BaseBroker):
             if order.comment:
                 req.comment = order.comment[:100]
             print(f"[cTrader] Placing {order.order_type.value} {order.side.value} "
-                  f"{order.volume} lots ({broker_volume} centilots) on {order.symbol} @ {order.entry_price}")
+                  f"{order.volume:.3f} lots ({broker_volume} centilots) on {order.symbol} "
+                  f"@ {order.entry_price}"
+                  + (f" SL={req.stopLoss} TP={req.takeProfit}" if order.stop_loss else "")
+                  + (f" [min={sym_info.min_volume:.3f}L digits={sym_info.digits}]" if sym_info else ""))
             from twisted.internet import reactor
             self._send_via_reactor(req)
             result = await asyncio.wait_for(future, timeout=30)

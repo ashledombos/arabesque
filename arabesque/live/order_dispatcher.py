@@ -394,17 +394,38 @@ class OrderDispatcher:
                 message="[DRY RUN] Ordre simulé"
             )
 
-        # Construire la requête d'ordre
+        # Validation pré-envoi (volume min/max, arrondi prix)
+        from arabesque.broker.normalizer import validate_order
         order_side = OrderSide.BUY if signal.side == Side.LONG else OrderSide.SELL
+        validation = validate_order(
+            broker=broker,
+            symbol=sym,
+            volume_lots=ps.volume_lots,
+            stop_loss=signal.sl if signal.sl > 0 else None,
+            take_profit=signal.tp_indicative if signal.tp_indicative > 0 else None,
+            entry_price=ps.entry_price,
+            side=order_side.value,
+        )
+        if not validation.valid:
+            logger.warning(
+                f"[Dispatcher] ⛔ {broker_id}: pré-vol rejeté {sym} — "
+                f"{validation.reason}"
+            )
+            return OrderResult(
+                success=False,
+                message=f"Pre-flight: {validation.reason}"
+            )
+
+        # Construire la requête d'ordre avec valeurs validées
 
         order = OrderRequest(
             symbol=sym,
             side=order_side,
             order_type=ps.order_type,
-            volume=ps.volume_lots,
+            volume=validation.volume_lots,
             entry_price=ps.entry_price if ps.order_type != OrderType.MARKET else None,
-            stop_loss=signal.sl if signal.sl > 0 else None,
-            take_profit=signal.tp_indicative if signal.tp_indicative > 0 else None,
+            stop_loss=validation.stop_loss if validation.stop_loss > 0 else None,
+            take_profit=validation.take_profit if validation.take_profit > 0 else None,
             broker_symbol=broker_sym,
             label=f"arabesque_{signal.signal_id[:8]}",
             comment=f"{signal.strategy_type}/{signal.regime}",

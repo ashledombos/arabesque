@@ -765,3 +765,30 @@ La lib tradelocker-python exige `stop_price` (pas `price`) pour les ordres `type
 - `_reconcile_loop()` : boucle asyncio 2 min
 
 **Décision** : implémenter uniquement BE + trailing (les 2 mécanismes les plus impactants). Giveback, deadfish, time-stop sont des optimisations secondaires.
+
+### 2026-03-02 : Fix diviseur de prix cTrader + Normalizer + Volume validation
+
+**Root cause prix 100x gonflés** : `_process_symbol_details()` changeait `pip_size` (ex: USDJPY 0.0001→0.01), ce qui changeait le diviseur de décodage des prix cTrader de 100000 → 1000. Les SpotEvents et Trendbars cTrader encodent TOUS les prix en entiers avec une précision fixe de 10^5 (100000), indépendamment de `digits` ou `pipPosition` du symbole. Le `digits` proto ne sert qu'à l'arrondi des prix dans les ordres.
+
+**Fix** : Séparation complète du diviseur de prix et des métadonnées symbole :
+- `_symbol_divisors: Dict[int, int]` stocke le diviseur fixe (100000) par symbole
+- `_get_divisor(symbol_id)` utilisé dans les 3 points de décodage (spots, trendbars, historique)
+- `_process_symbol_details()` met à jour digits/volumes mais ne touche PLUS au diviseur
+- Suppression de toute dérivation `pip_pos = -log10(pip_size)` pour le diviseur
+
+**Conséquences du bug** :
+- USDJPY décodé à 15683 au lieu de 156.83 → risk_distance 100x trop grand → volume 100x trop petit → TRADING_BAD_VOLUME
+- BTCUSD décodé à 6714355 au lieu de 67143.55 → même problème
+- FETUSD/GALUSD : problème séparé de min_volume trop élevé sur cTrader (10-100 lots minimum pour certains crypto)
+
+**Normalizer** (`arabesque/broker/normalizer.py`) :
+- `validate_order()` : validation pré-envoi (volume min/max/step, arrondi prix, cohérence SL/TP)
+- `get_broker_volume_info()` : debug des contraintes volume par symbole
+- Câblé dans `order_dispatcher.py` : rejet clair AVANT envoi au broker
+
+**Volume validation dans cTrader** :
+- `place_order()` vérifie maintenant volume vs min/max/step du symbole
+- Rejet local avec message explicite au lieu d'attendre l'erreur cTrader
+- Arrondi au step_volume automatique
+
+**Décision** : le diviseur 10^5 est hardcodé car empiriquement correct pour tous les symboles testés (forex, JPY, crypto). Si un broker cTrader utilise un diviseur différent, il faudra le paramétrer dans settings.yaml.

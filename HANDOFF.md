@@ -240,6 +240,8 @@ Voir `config/prop_firm_profiles.yaml`.
 4. **Thread-safety globale** : `_resolve_future()`/`_reject_future()` helpers pour tous les handlers. `_asyncio_loop` stocké dès `connect()`.
 5. **`_process_spot_event()` — `asyncio.get_event_loop()` dans thread Twisted** : crash `RuntimeError: no current event loop`. Remplacé par `self._asyncio_loop`.
 6. **⚠️ CRITIQUE: `_symbol_id_for_name()` — condition toujours vraie** : `sinfo.broker_symbol == str(sid)` retournait TOUJOURS le premier symbole du dict. **Toutes les souscriptions spots ET tous les get_history utilisaient le même symbolId** (EURUSD). Corrigé avec recherche par nom exact + normalisation (EUR/USD → EURUSD).
+7. **⚠️ CRITIQUE: diviseur de prix dérivé de pip_size** : `_process_symbol_details()` changeait `pip_size` (USDJPY: 0.0001→0.01) → diviseur passait de 100000→1000 → TOUS les prix décodés 100x trop grands → volumes 100x trop petits → TRADING_BAD_VOLUME. Fix: diviseur fixe 10^5 stocké dans `_symbol_divisors`, indépendant de digits/pipPosition.
+8. **Volume non validé avant envoi** : `place_order()` envoyait le volume sans vérifier min/max/step du symbole → rejet côté cTrader. Fix: validation pré-envoi + normalizer dans le dispatcher.
 
 ### Architecture
 7. **PriceFeedManager réutilise le broker existant** : plus de 2e connexion TCP → plus de `ALREADY_LOGGED_IN`.
