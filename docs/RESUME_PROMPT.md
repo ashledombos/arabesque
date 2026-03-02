@@ -56,6 +56,3 @@ python scripts/analyze_replay_v2.py dry_run_XXXXXXXX_XXXXXX.jsonl --grid
 ```
 
 Cibles : DD < 10%, return > +80%, WR > 70%.
-
-## ⛔ NE PAS MODIFIER de fichiers code
-## ⛔ NE PAS interpréter les résultats pour modifier la stratégie
