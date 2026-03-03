@@ -133,6 +133,11 @@ class PositionManager:
     - Le webhook live (une bougie à la fois)
     - Le backtest runner (itération sur OHLC historique)
     Même code, zéro divergence.
+
+    NOTE: BE et trailing valident que le SL est faisable au prix
+    de clôture (close) avant de le poser. Aligné sur le live
+    qui vérifie SL <= bid (LONG) / SL >= ask (SHORT) avant
+    d'envoyer l'amend au broker.
     """
 
     def __init__(self, config: ManagerConfig | None = None):
@@ -376,10 +381,17 @@ class PositionManager:
             be_level = pos.entry + self.cfg.be_offset_r * pos.R
             if be_level <= pos.sl:
                 return None
+            # Validation faisabilité : SL doit être <= prix courant (LONG)
+            # Aligné sur le live (cTrader exige SL <= bid pour BUY)
+            if be_level > current_price:
+                return None
             pos.sl = be_level
         else:
             be_level = pos.entry - self.cfg.be_offset_r * pos.R
             if be_level >= pos.sl:
+                return None
+            # Validation faisabilité : SL doit être >= prix courant (SHORT)
+            if be_level < current_price:
                 return None
             pos.sl = be_level
 
@@ -415,11 +427,17 @@ class PositionManager:
             new_sl = pos.max_favorable_price - best_tier.trail_distance_r * pos.R
             if new_sl <= pos.sl:
                 return None
+            # Validation faisabilité : SL ne peut pas être > prix courant
+            if new_sl > current_price:
+                return None
             old_sl = pos.sl
             pos.sl = new_sl
         else:
             new_sl = pos.max_favorable_price + best_tier.trail_distance_r * pos.R
             if new_sl >= pos.sl:
+                return None
+            # Validation faisabilité : SL ne peut pas être < prix courant
+            if new_sl < current_price:
                 return None
             old_sl = pos.sl
             pos.sl = new_sl

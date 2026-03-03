@@ -873,3 +873,20 @@ Si SL infaisable, log "price fell back" et retry au bar suivant.
 - get_history print : supprime (83 lignes)  
 - Premier tick : supprime (83 lignes)
 - PriceFeed symbols : count au lieu de liste
+
+### 2026-03-03 (session 2b) : Alignement backtest/live BE faisabilite
+
+**Divergence identifiee** : le PositionManager (backtest) posait le BE meme quand
+be_level > close (LONG) ou be_level < close (SHORT). Le live rejette via
+TRADING_BAD_STOPS. Resultat : le backtest surestimait les wins de +0.2R sur les
+trades ou le prix retombait apres avoir touche le trigger.
+
+**Fix** : _update_breakeven et _update_trailing dans manager.py verifient maintenant
+que le new_sl est faisable au prix de cloture avant de le poser.
+- LONG : be_level <= close requis (sinon skip, retry bar suivant)
+- SHORT : be_level >= close requis
+
+Identique au live qui valide new_sl <= bid (LONG) dans _try_amend_sl.
+
+**Impact attendu** : degradation de ~1-3% du win rate sur replay.
+A valider par un re-replay complet sur 20 mois.
