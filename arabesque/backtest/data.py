@@ -478,6 +478,24 @@ def list_available_parquet(
     return available
 
 
+def print_data_status(instruments: list[str], data_root: str | None = None) -> None:
+    """Affiche la disponibilité des données Parquet pour les instruments."""
+    if data_root is None:
+        data_root = _default_data_root()
+    
+    available = list_available_parquet(data_root=data_root)
+    
+    print(f"\nDisponibilité des données Parquet ({data_root}):")
+    print("-" * 70)
+    for inst in instruments:
+        inst_upper = inst.upper()
+        if inst_upper in available:
+            print(f"✓ {inst_upper:15s} → {available[inst_upper]}")
+        else:
+            print(f"✗ {inst_upper:15s} → Parquet non trouvé (fallback Yahoo)")
+    print("-" * 70)
+
+
 def list_all_ftmo_instruments() -> list[dict]:
     """Liste tous les instruments depuis config/prop_firms.yaml.
 
