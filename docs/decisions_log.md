@@ -857,20 +857,19 @@ cTrader API utilise des "cents" (1/100 de l'unité de base) pour TOUS les volume
 - Exécution events DEBUG : supprimé (commenté)
 - Résultat : en opération normale, seuls signaux, trades, BE/trailing, et erreurs apparaissent
 
-### 2026-03-03 : Fix conversion devise cotation (pip_value)
+### 2026-03-03 (session 2) : Fix pip_value devise cotation + BE price validation
 
-**Root cause USDJPY 0.01L au lieu de 1.60L** :
-`pip_value = lot_size * pip_size` donne la pip value en DEVISE DE COTATION, pas en USD.
-USDJPY: 100000 * 0.01 = 1000 JPY/pip/lot, mais le risk est en USD.
-Correct: 1000 JPY / 157.8 = 6.34 USD/pip/lot.
+**Bug sizing USDJPY** : `pip_value = lot_size * pip_size` = 1000 JPY, mais risk en USD.
+Fix : conversion selon devise de cotation (XXX/USD=direct, USD/XXX=/price, cross=yaml).
+USDJPY: 1000/157.8 = 6.34 USD/pip/lot -> 1.60L au lieu de 0.01L.
 
-**Fix** : Conversion selon la devise de cotation :
-- XXX/USD (EURUSD, crypto) : pip_value directement en USD (pas de conversion)
-- USD/XXX (USDJPY, USDCAD) : pip_value = raw / current_price
-- Cross (NZDCAD, EURGBP) : fallback sur instruments.yaml pip_value_per_lot
+**Bug BE TRADING_BAD_STOPS** : MFE calcul sur high (0.37R), mais bid retombe a 157.718
+alors que BE target = 157.886. cTrader rejette SL > bid pour BUY.
+Fix : validation prix courant dans _try_amend_sl avant envoi au broker.
+Si SL infaisable, log "price fell back" et retry au bar suivant.
 
 **Log reduction** :
-- `get_history(X, H1): N barres` : supprime (83 lignes au startup)
-- `X: 249 barres historiques` : DEBUG au lieu de INFO (83 lignes)
-- PriceFeed symboles list : remplace par count (1 ligne vs. 83 noms)
+- Individual bar load : DEBUG (83 lignes)
+- get_history print : supprime (83 lignes)  
 - Premier tick : supprime (83 lignes)
+- PriceFeed symbols : count au lieu de liste

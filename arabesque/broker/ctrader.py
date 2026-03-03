@@ -539,6 +539,10 @@ class CTraderBroker(BaseBroker):
 
         try:
             bars = await asyncio.wait_for(future, timeout=20.0)
+            print(
+                f"[cTrader] 📊 get_history({symbol}, {timeframe}): "
+                f"{len(bars)} barres chargées"
+            )
             return bars
         except asyncio.TimeoutError:
             print(f"[cTrader] ⏱ get_history({symbol}, {timeframe}): timeout")
@@ -806,7 +810,7 @@ class CTraderBroker(BaseBroker):
         )
         self._price_ticks[symbol_id] = tick
 
-        # Compteur premiers ticks (pas de log individuel)
+        # Compteur premiers ticks (log silencieux)
         if symbol_id not in self._first_tick_logged:
             self._first_tick_logged.add(symbol_id)
 

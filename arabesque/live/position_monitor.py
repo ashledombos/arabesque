@@ -206,7 +206,7 @@ class LivePositionMonitor:
             f"{self._cfg.be_trigger_r}R → SL {pos.sl:.{pos.digits}f} → {new_sl:.{pos.digits}f}"
         )
 
-        success = await self._try_amend_sl(pos, new_sl)
+        success = await self._try_amend_sl(pos, new_sl, current_price)
         if success:
             pos.sl = new_sl
             pos.breakeven_set = True
@@ -245,14 +245,37 @@ class LivePositionMonitor:
             f"(dist={distance}R from peak={pos.max_favorable_price:.{pos.digits}f})"
         )
 
-        success = await self._try_amend_sl(pos, new_sl)
+        success = await self._try_amend_sl(pos, new_sl, current_price)
         if success:
             pos.sl = new_sl
             pos.trailing_active = True
             pos.trailing_tier = best_idx
 
-    async def _try_amend_sl(self, pos: TrackedPosition, new_sl: float) -> bool:
-        """Tente de modifier le SL sur le broker avec retry."""
+    async def _try_amend_sl(
+        self, pos: TrackedPosition, new_sl: float, current_price: float = 0
+    ) -> bool:
+        """Tente de modifier le SL sur le broker avec retry.
+
+        Valide que le new_sl est faisable par rapport au prix courant
+        avant d'envoyer au broker (évite TRADING_BAD_STOPS).
+        """
+        # Validation prix : le broker exige SL <= bid (LONG) ou SL >= ask (SELL)
+        if current_price > 0:
+            if pos.side == Side.LONG and new_sl > current_price:
+                logger.info(
+                    f"[Monitor] ⏸ BE/Trail skipped: {pos.symbol} "
+                    f"new_sl={new_sl:.{pos.digits}f} > bid={current_price:.{pos.digits}f} "
+                    f"(price fell back, will retry next bar)"
+                )
+                return False
+            elif pos.side == Side.SHORT and new_sl < current_price:
+                logger.info(
+                    f"[Monitor] ⏸ BE/Trail skipped: {pos.symbol} "
+                    f"new_sl={new_sl:.{pos.digits}f} < ask={current_price:.{pos.digits}f} "
+                    f"(price fell back, will retry next bar)"
+                )
+                return False
+
         # Anti-spam: pas plus d'un amend toutes les N secondes
         now = time.time()
         if now - pos.last_amend_time < self._cfg.min_amend_interval_s:

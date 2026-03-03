@@ -535,12 +535,19 @@ class OrderDispatcher:
         risk_distance: float,
         current_price: float = 0,
     ) -> float:
-        """Volume par broker avec conversion devise cotation."""
+        """Volume par broker avec conversion devise cotation.
+
+        pip_value en USD selon la devise de cotation :
+        - XXX/USD (EURUSD, crypto) : lot_size * pip_size (direct)
+        - USD/XXX (USDJPY)         : lot_size * pip_size / price
+        - Cross (NZDCAD, EURGBP)   : fallback instruments.yaml
+        """
         sym = signal.instrument
         inst = self.instruments_cfg.get(sym, {})
         pip_size = inst.get("pip_size", 0.0001)
         if pip_size <= 0 or risk_distance <= 0:
             return 0.01
+
         broker_lot_size = None
         broker_min_vol = 0.01
         broker_max_vol = 10000.0
@@ -554,19 +561,25 @@ class OrderDispatcher:
                 broker_step = sym_info.volume_step
         except Exception as e:
             logger.debug(f"[Dispatcher] get_symbol_info failed for {sym}: {e}")
+
         pip_value = None
         conversion = "direct"
+
         if broker_lot_size:
-            raw_pip_value = broker_lot_size * pip_size
+            raw_pip_value = broker_lot_size * pip_size  # en devise de cotation
             quote_ccy = sym[-3:] if len(sym) >= 6 else ''
             base_ccy = sym[:3] if len(sym) >= 6 else ''
+
             if quote_ccy == "USD":
+                # XXX/USD ou crypto : pip_value directement en USD
                 pip_value = raw_pip_value
                 conversion = "USD-quoted"
             elif base_ccy == "USD" and current_price > 0:
+                # USD/XXX : diviser par le prix courant
                 pip_value = raw_pip_value / current_price
                 conversion = f"/{current_price:.3f}"
             else:
+                # Cross pair : utiliser yaml pip_value_per_lot
                 yaml_pv = inst.get("pip_value_per_lot")
                 if yaml_pv and yaml_pv > 0:
                     pip_value = yaml_pv
@@ -574,16 +587,20 @@ class OrderDispatcher:
                 else:
                     pip_value = raw_pip_value / max(current_price, 1)
                     conversion = f"est/{current_price:.3f}"
+
         if not pip_value or pip_value <= 0:
             pip_value = inst.get("pip_value_per_lot", 10)
             if not pip_value:
                 pip_value = 10
             conversion = "yaml-fallback"
+
         pips = risk_distance / pip_size
         lots = risk_cash / (pips * pip_value)
+
         lots = max(broker_min_vol, min(lots, broker_max_vol))
         if broker_step > 0:
             lots = round(round(lots / broker_step) * broker_step, 8)
+
         yaml_pip_value = inst.get("pip_value_per_lot", "N/A")
         logger.info(
             f"[Dispatcher] sizing {broker_id} {sym}: "
