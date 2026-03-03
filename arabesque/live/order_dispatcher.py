@@ -386,7 +386,8 @@ class OrderDispatcher:
         # Le lot_size (contract_size) varie entre brokers pour le même symbole
         risk_distance = abs(signal.close - signal.sl)
         broker_volume = await self._compute_lots_for_broker(
-            broker, broker_id, signal, ps.risk_cash, risk_distance
+            broker, broker_id, signal, ps.risk_cash, risk_distance,
+            current_price=signal.close,
         )
         if broker_volume <= 0:
             return OrderResult(
@@ -532,30 +533,18 @@ class OrderDispatcher:
         signal: Signal,
         risk_cash: float,
         risk_distance: float,
+        current_price: float = 0,
     ) -> float:
-        """
-        Calcule le volume en lots SPÉCIFIQUE au broker.
-
-        Utilise le lot_size réel du broker (contract_size) au lieu du
-        pip_value_per_lot statique de instruments.yaml.
-
-        Formule: lots = risk_cash / (contract_size × risk_distance)
-        Équivalent: lots = risk_cash / (pips × pip_value_per_lot_réel)
-        où pip_value_per_lot_réel = contract_size × pip_size
-        """
+        """Volume par broker avec conversion devise cotation."""
         sym = signal.instrument
         inst = self.instruments_cfg.get(sym, {})
         pip_size = inst.get("pip_size", 0.0001)
-
         if pip_size <= 0 or risk_distance <= 0:
             return 0.01
-
-        # Chercher le lot_size réel du broker via SymbolInfo
         broker_lot_size = None
         broker_min_vol = 0.01
         broker_max_vol = 10000.0
         broker_step = 0.01
-
         try:
             sym_info = await broker.get_symbol_info(sym)
             if sym_info and sym_info.lot_size > 0:
@@ -565,36 +554,46 @@ class OrderDispatcher:
                 broker_step = sym_info.volume_step
         except Exception as e:
             logger.debug(f"[Dispatcher] get_symbol_info failed for {sym}: {e}")
-
+        pip_value = None
+        conversion = "direct"
         if broker_lot_size:
-            # pip_value_per_lot = contract_size × pip_size
-            pip_value = broker_lot_size * pip_size
-        else:
-            # Fallback sur instruments.yaml
+            raw_pip_value = broker_lot_size * pip_size
+            quote_ccy = sym[-3:] if len(sym) >= 6 else ''
+            base_ccy = sym[:3] if len(sym) >= 6 else ''
+            if quote_ccy == "USD":
+                pip_value = raw_pip_value
+                conversion = "USD-quoted"
+            elif base_ccy == "USD" and current_price > 0:
+                pip_value = raw_pip_value / current_price
+                conversion = f"/{current_price:.3f}"
+            else:
+                yaml_pv = inst.get("pip_value_per_lot")
+                if yaml_pv and yaml_pv > 0:
+                    pip_value = yaml_pv
+                    conversion = "yaml-cross"
+                else:
+                    pip_value = raw_pip_value / max(current_price, 1)
+                    conversion = f"est/{current_price:.3f}"
+        if not pip_value or pip_value <= 0:
             pip_value = inst.get("pip_value_per_lot", 10)
             if not pip_value:
                 pip_value = 10
-
+            conversion = "yaml-fallback"
         pips = risk_distance / pip_size
         lots = risk_cash / (pips * pip_value)
-
-        # Contraintes du broker
         lots = max(broker_min_vol, min(lots, broker_max_vol))
         if broker_step > 0:
             lots = round(round(lots / broker_step) * broker_step, 8)
-
-        # Log détaillé pour debug
         yaml_pip_value = inst.get("pip_value_per_lot", "N/A")
         logger.info(
-            f"[Dispatcher] 📐 {broker_id} {sym}: "
-            f"risk={risk_cash:.0f}€ dist={risk_distance:.5f} "
+            f"[Dispatcher] sizing {broker_id} {sym}: "
+            f"risk={risk_cash:.0f}$ dist={risk_distance:.5f} "
             f"lot_size={broker_lot_size or 'yaml'} "
-            f"pip_val={pip_value:.4f} "
+            f"pip_val={pip_value:.4f}({conversion}) "
             f"(yaml={yaml_pip_value}) "
-            f"→ {lots:.3f}L "
-            f"[{broker_min_vol:.3f}-{broker_max_vol:.0f} step={broker_step}]"
+            f"-> {lots:.3f}L "
+            f"[{broker_min_vol:.4f}-{broker_max_vol:.0f} step={broker_step}]"
         )
-
         return lots
 
     def _log_trade_validation(

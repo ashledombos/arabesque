@@ -539,10 +539,6 @@ class CTraderBroker(BaseBroker):
 
         try:
             bars = await asyncio.wait_for(future, timeout=20.0)
-            print(
-                f"[cTrader] 📊 get_history({symbol}, {timeframe}): "
-                f"{len(bars)} barres chargées"
-            )
             return bars
         except asyncio.TimeoutError:
             print(f"[cTrader] ⏱ get_history({symbol}, {timeframe}): timeout")
@@ -810,15 +806,9 @@ class CTraderBroker(BaseBroker):
         )
         self._price_ticks[symbol_id] = tick
 
-        # Diagnostic : log le premier tick de chaque symbole
+        # Compteur premiers ticks (pas de log individuel)
         if symbol_id not in self._first_tick_logged:
             self._first_tick_logged.add(symbol_id)
-            ct_name = sym_info.symbol if sym_info else "?"
-            print(
-                f"[cTrader] 🔔 Premier tick: {unified_name} "
-                f"(cTrader: {ct_name}, ID:{symbol_id}) "
-                f"bid={bid_f:.5f} ask={ask_f:.5f}"
-            )
 
         # Dispatcher les callbacks vers le thread asyncio
         # (on est dans le thread Twisted, pas d'event loop asyncio ici)

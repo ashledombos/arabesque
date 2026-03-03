@@ -210,7 +210,7 @@ class PriceFeedManager:
         self._token_refresh_task = asyncio.create_task(self._token_refresh_loop())
         logger.info(
             f"[PriceFeed] Démarrage — broker: {self.broker_id}, "
-            f"symboles: {self.symbols}"
+            f"{len(self.symbols)} symboles"
         )
 
     async def stop(self) -> None:

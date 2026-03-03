@@ -192,7 +192,7 @@ class BarAggregator:
                 if bars:
                     # Initialiser le timestamp de la dernière bougie connue
                     self._current_bar_start[instrument] = bars[-1]["ts"]
-                logger.info(
+                logger.debug(
                     f"[BarAggregator] {instrument}: {len(bars)} barres historiques chargées"
                 )
             else:

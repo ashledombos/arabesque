@@ -856,3 +856,21 @@ cTrader API utilise des "cents" (1/100 de l'unité de base) pour TOUS les volume
 - Account state : refresh toutes les heures au lieu de 5 min, DEBUG au lieu de INFO
 - Exécution events DEBUG : supprimé (commenté)
 - Résultat : en opération normale, seuls signaux, trades, BE/trailing, et erreurs apparaissent
+
+### 2026-03-03 : Fix conversion devise cotation (pip_value)
+
+**Root cause USDJPY 0.01L au lieu de 1.60L** :
+`pip_value = lot_size * pip_size` donne la pip value en DEVISE DE COTATION, pas en USD.
+USDJPY: 100000 * 0.01 = 1000 JPY/pip/lot, mais le risk est en USD.
+Correct: 1000 JPY / 157.8 = 6.34 USD/pip/lot.
+
+**Fix** : Conversion selon la devise de cotation :
+- XXX/USD (EURUSD, crypto) : pip_value directement en USD (pas de conversion)
+- USD/XXX (USDJPY, USDCAD) : pip_value = raw / current_price
+- Cross (NZDCAD, EURGBP) : fallback sur instruments.yaml pip_value_per_lot
+
+**Log reduction** :
+- `get_history(X, H1): N barres` : supprime (83 lignes au startup)
+- `X: 249 barres historiques` : DEBUG au lieu de INFO (83 lignes)
+- PriceFeed symboles list : remplace par count (1 ligne vs. 83 noms)
+- Premier tick : supprime (83 lignes)
