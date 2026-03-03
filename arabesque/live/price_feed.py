@@ -445,7 +445,9 @@ class PriceFeedManager:
             if time.time() - _last_summary >= LOG_INTERVAL_S and total_ticks > 0:
                 _last_summary = time.time()
                 weekend_tag = " 🌙 WEEKEND" if is_weekend else ""
-                logger.info(
+                has_issues = symbols_stale_major or symbols_no_tick
+                log_fn = logger.info if has_issues else logger.debug
+                log_fn(
                     f"[PriceFeed] 📊 {symbols_ok}/{total_symbols} actifs, "
                     f"{len(symbols_stale_minor)} dormants, "
                     f"{len(symbols_stale_major)} stale majeurs, "

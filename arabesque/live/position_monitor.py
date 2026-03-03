@@ -50,6 +50,7 @@ class TrackedPosition:
     last_amend_time: float = 0.0
     amend_failures: int = 0
     registered_at: float = 0.0     # time.time() à l'enregistrement
+    _amend_in_progress: bool = False  # Guard contre les amends concurrents
 
     @property
     def R(self) -> float:
@@ -257,47 +258,56 @@ class LivePositionMonitor:
         if now - pos.last_amend_time < self._cfg.min_amend_interval_s:
             return False
 
+        # Guard concurrence : un seul amend à la fois par position
+        if pos._amend_in_progress:
+            return False
+        pos._amend_in_progress = True
+
         broker = self._brokers.get(pos.broker_id)
         if not broker:
             logger.error(f"[Monitor] Broker {pos.broker_id} not found")
+            pos._amend_in_progress = False
             return False
 
-        for attempt in range(1, self._cfg.max_amend_retries + 1):
-            try:
-                result = await broker.amend_position_sltp(
-                    pos.position_id, stop_loss=new_sl
-                )
-                pos.last_amend_time = time.time()
-
-                if result.success:
-                    pos.amend_failures = 0
-                    logger.info(
-                        f"[Monitor] ✅ SL amended: {pos.symbol} "
-                        f"→ {new_sl:.{pos.digits}f} ({result.message})"
+        try:
+            for attempt in range(1, self._cfg.max_amend_retries + 1):
+                try:
+                    result = await broker.amend_position_sltp(
+                        pos.position_id, stop_loss=new_sl
                     )
-                    return True
-                else:
+                    pos.last_amend_time = time.time()
+
+                    if result.success:
+                        pos.amend_failures = 0
+                        logger.info(
+                            f"[Monitor] ✅ SL amended: {pos.symbol} "
+                            f"→ {new_sl:.{pos.digits}f} ({result.message})"
+                        )
+                        return True
+                    else:
+                        pos.amend_failures += 1
+                        logger.warning(
+                            f"[Monitor] ❌ Amend failed (attempt {attempt}/"
+                            f"{self._cfg.max_amend_retries}): {result.message}"
+                        )
+                        if attempt < self._cfg.max_amend_retries:
+                            await asyncio.sleep(2 * attempt)  # backoff
+
+                except Exception as e:
                     pos.amend_failures += 1
-                    logger.warning(
-                        f"[Monitor] ❌ Amend failed (attempt {attempt}/"
-                        f"{self._cfg.max_amend_retries}): {result.message}"
+                    logger.error(
+                        f"[Monitor] ❌ Amend exception (attempt {attempt}): {e}"
                     )
                     if attempt < self._cfg.max_amend_retries:
-                        await asyncio.sleep(2 * attempt)  # backoff
+                        await asyncio.sleep(2 * attempt)
 
-            except Exception as e:
-                pos.amend_failures += 1
-                logger.error(
-                    f"[Monitor] ❌ Amend exception (attempt {attempt}): {e}"
-                )
-                if attempt < self._cfg.max_amend_retries:
-                    await asyncio.sleep(2 * attempt)
-
-        logger.error(
-            f"[Monitor] ⚠️ SL amend ABANDONED after {self._cfg.max_amend_retries} "
-            f"attempts: {pos.symbol} {pos.position_id} target_sl={new_sl}"
-        )
-        return False
+            logger.error(
+                f"[Monitor] ⚠️ SL amend ABANDONED after {self._cfg.max_amend_retries} "
+                f"attempts: {pos.symbol} {pos.position_id} target_sl={new_sl}"
+            )
+            return False
+        finally:
+            pos._amend_in_progress = False
 
     async def reconcile(self):
         """Synchronise avec le broker — retire les positions fermées.

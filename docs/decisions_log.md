@@ -828,3 +828,31 @@ La lib tradelocker-python exige `stop_price` (pas `price`) pour les ordres `type
 **Diagnostic** : `scripts/diag_symbol_specs.py` — affiche les valeurs brutes du proto (minVolume, maxVolume, stepVolume, lotSize, digits, pipPosition) pour vérifier ce que le serveur renvoie réellement. À lancer sur FTMO pour confirmer.
 
 **Note** : Perplexity confirme que FTMO autorise 0.01 lot minimum pour BNBUSD (1 BNB ≈ $645), pas 1 lot (100 BNB ≈ $64,500). Le min_volume=1.0L venait du mauvais default, pas du serveur.
+
+### 2026-03-03 : Fix fondamental unités volume cTrader + barres dupliquées + logs
+
+**Root cause volume NZDCAD 0.01L au lieu de 2.30L** :
+cTrader API utilise des "cents" (1/100 de l'unité de base) pour TOUS les volumes, y compris `lotSize`, `minVolume`, `maxVolume`, `stepVolume`, et `req.volume`. Notre code multipliait par 100 (hardcodé) au lieu de multiplier par `lotSize`.
+
+- NZDCAD: lotSize=10,000,000 (=100,000 NZD/lot). Notre 2.30L × 100 = 230 → cTrader lit 230/10M = 0.000023 lots. Devrait être 2.30L × 10M = 23M → cTrader lit 23M/10M = 2.30 lots.
+- BTCUSD: lotSize=100 (=1 BTC/lot). 0.01L × 100 = 1 → cTrader lit 1/100 = 0.01 lots. Marchait PAR COINCIDENCE.
+
+**Fix complet** :
+- `_lot_size_cents[symbol_id]` : stocke le lotSize brut du proto par symbole
+- `_get_lot_size_cents()` : helper pour récupérer
+- `place_order()` : `req.volume = lots × lot_size_cents` au lieu de `lots × 100`
+- `close_position()` : idem
+- `_process_reconcile_response()` : `lots = volume / lot_size_cents` au lieu de `volume / 100`
+- `_process_symbol_details()` : `min_volume = minVolume / lotSize` au lieu de `minVolume / 100`
+
+**Fix barres dupliquées** : Race condition async dans `on_tick()`. Plusieurs ticks NZDCAD arrivant en même temps voyaient tous `bar_start_ts > current_start` avant la mise à jour → 12 fermetures de bougie → 12 BE triggers → 12 amends → timeout cascade. Fix: `_last_closed_ts` per-symbol dedup guard.
+
+**Fix amend spam** : `_amend_in_progress` flag per-position dans TrackedPosition, vérifié dans `_try_amend_sl`. Un seul amend à la fois par position.
+
+**Réduction logs** :
+- Barres individuelles : INFO → DEBUG (invisible en production)
+- Résumé barres : conservé en INFO
+- PriceFeed status : INFO → DEBUG sauf s'il y a des problèmes (stale/no ticks)
+- Account state : refresh toutes les heures au lieu de 5 min, DEBUG au lieu de INFO
+- Exécution events DEBUG : supprimé (commenté)
+- Résultat : en opération normale, seuls signaux, trades, BE/trailing, et erreurs apparaissent

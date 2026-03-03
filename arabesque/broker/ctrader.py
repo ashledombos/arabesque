@@ -141,6 +141,14 @@ class CTraderBroker(BaseBroker):
         self._symbol_divisors: Dict[int, int] = {}
         self._DEFAULT_DIVISOR = 100000  # 10^5, standard cTrader
 
+        # lotSize brut du proto (en "cents" = 1/100 de l'unité de base).
+        # NZDCAD: lotSize=10_000_000 → 100_000 NZD par lot.
+        # BTCUSD: lotSize=100 → 1 BTC par lot.
+        # Utilisé pour convertir lots ↔ volume API:
+        #   req.volume = lots × _lot_size_cents[symbol_id]
+        #   lots = volume / _lot_size_cents[symbol_id]
+        self._lot_size_cents: Dict[int, int] = {}
+
     # ------------------------------------------------------------------
     # Token management
     # ------------------------------------------------------------------
@@ -855,6 +863,8 @@ class CTraderBroker(BaseBroker):
             )
             # Diviseur de prix FIXE pour cTrader — NE PAS changer après
             self._symbol_divisors[symbol_id] = self._DEFAULT_DIVISOR
+            # lotSize par défaut en cents (forex standard: 100K unités = 10M cents)
+            self._lot_size_cents[symbol_id] = 10_000_000
 
     def _process_symbol_details(self, payload):
         """Traite ProtoOASymbolByIdRes avec les détails complets (digits, volumes, etc.).
@@ -862,8 +872,15 @@ class CTraderBroker(BaseBroker):
         Met à jour SymbolInfo avec les vrais digits/pipPosition/volumes du broker.
         NOTE: Ne touche PAS _symbol_divisors — le diviseur de prix est FIXE.
 
-        Volumes proto: en centilots (1/100 de lot). Ex: minVolume=1 → 0.01 lots.
-        ATTENTION aux defaults: un champ proto absent NE signifie PAS 1 lot.
+        VOLUMES cTrader: TOUS les volumes proto (minVolume, maxVolume, stepVolume,
+        lotSize, et req.volume dans les ordres) sont en "CENTS" = 1/100 de l'unité
+        de base (EUR, NZD, BTC...).
+
+        Conversions:
+          lots → API: req.volume = lots × lotSize
+          API → lots: lots = volume / lotSize
+          min_lots = minVolume / lotSize
+          lot_size_units = lotSize / 100  (pour pip_value = lot_size_units × pip_size)
         """
         count = 0
         for s in payload.symbol:
@@ -876,28 +893,40 @@ class CTraderBroker(BaseBroker):
             tick_size = 10 ** (-digits) if digits > 0 else 0.00001
             pip_size = 10 ** (-pip_position) if pip_position > 0 else tick_size
 
-            # Volumes proto en centilots. Defaults conservateurs (0.01 lot min)
-            min_vol_raw = getattr(s, "minVolume", 1)      # 1 centilot = 0.01 lots
-            max_vol_raw = getattr(s, "maxVolume", 10000000)
-            step_vol_raw = getattr(s, "stepVolume", 1)     # 1 centilot = 0.01 lots
-            lot_size = getattr(s, "lotSize", 100000)
+            # Volumes proto — TOUS en cents (1/100 de l'unité de base)
+            lot_size_cents = getattr(s, "lotSize", 10_000_000)  # défaut forex
+            min_vol_cents = getattr(s, "minVolume", lot_size_cents // 100)  # défaut 0.01 lots
+            max_vol_cents = getattr(s, "maxVolume", lot_size_cents * 1000)
+            step_vol_cents = getattr(s, "stepVolume", lot_size_cents // 100)
 
-            min_volume = min_vol_raw / 100   # centilots → lots
-            max_volume = max_vol_raw / 100
-            step_volume = step_vol_raw / 100
+            # Stocker le lotSize brut pour les conversions volume API
+            self._lot_size_cents[symbol_id] = lot_size_cents
 
-            # Log les symboles intéressants pour debug (crypto + JPY)
+            # Convertir en lots pour SymbolInfo (human-readable)
+            if lot_size_cents > 0:
+                min_volume = min_vol_cents / lot_size_cents
+                max_volume = max_vol_cents / lot_size_cents
+                step_volume = step_vol_cents / lot_size_cents
+                lot_size_units = lot_size_cents / 100  # unités réelles
+            else:
+                min_volume = 0.01
+                max_volume = 100
+                step_volume = 0.01
+                lot_size_units = 100000
+
+            # Log les symboles intéressants pour debug
             if (existing.symbol in (
                 "BNBUSD", "BTCUSD", "ETHUSD", "SOLUSD",
-                "FETUSD", "GALUSD", "USDJPY"
-            ) or min_volume > 0.1):  # Alerter si min > 0.1 lots
+                "FETUSD", "GALUSD", "USDJPY", "EURUSD",
+                "NZDCAD", "GBPUSD",
+            ) or min_volume > 1.0):  # Alerter si min > 1 lot
                 print(
                     f"[cTrader] 📊 {existing.symbol}: "
                     f"digits={digits} pipPos={pip_position} "
-                    f"minVol={min_vol_raw}→{min_volume:.4f}L "
-                    f"maxVol={max_vol_raw}→{max_volume:.1f}L "
-                    f"step={step_vol_raw}→{step_volume:.4f}L "
-                    f"lotSize={lot_size}"
+                    f"lotSize={lot_size_cents}→{lot_size_units:.0f}u/lot "
+                    f"min={min_vol_cents}→{min_volume:.4f}L "
+                    f"max={max_vol_cents}→{max_volume:.1f}L "
+                    f"step={step_vol_cents}→{step_volume:.4f}L"
                 )
 
             self._symbols[symbol_id] = SymbolInfo(
@@ -910,7 +939,7 @@ class CTraderBroker(BaseBroker):
                 min_volume=min_volume,
                 max_volume=max_volume,
                 volume_step=step_volume,
-                lot_size=lot_size,
+                lot_size=lot_size_units,  # unités par lot (100K pour forex)
                 is_tradable=True
             )
             count += 1
@@ -980,6 +1009,14 @@ class CTraderBroker(BaseBroker):
             return unified or ctrader_name
         return str(symbol_id)
 
+    def _get_lot_size_cents(self, symbol_id: int) -> int:
+        """Retourne le lotSize brut (en cents) pour les conversions volume API.
+
+        lots → API volume: req.volume = lots × lot_size_cents
+        API volume → lots: lots = volume / lot_size_cents
+        """
+        return self._lot_size_cents.get(symbol_id, 10_000_000)  # défaut forex
+
     def _get_divisor(self, symbol_id: int) -> int:
         """Retourne le diviseur de prix pour décoder les entiers cTrader.
 
@@ -1022,12 +1059,14 @@ class CTraderBroker(BaseBroker):
         for pos in payload.position:
             side = OrderSide.BUY if pos.tradeData.tradeSide == 1 else OrderSide.SELL
             pos_id = str(pos.positionId)
-            self._position_symbol_ids[pos_id] = pos.tradeData.symbolId
+            sym_id = pos.tradeData.symbolId
+            self._position_symbol_ids[pos_id] = sym_id
+            lot_cents = self._get_lot_size_cents(sym_id)
             self._positions.append(Position(
                 position_id=str(pos.positionId),
-                symbol=self._resolve_symbol_name(pos.tradeData.symbolId),
+                symbol=self._resolve_symbol_name(sym_id),
                 side=side,
-                volume=pos.tradeData.volume / 100,
+                volume=pos.tradeData.volume / lot_cents,  # API units → lots
                 entry_price=pos.price,
                 stop_loss=getattr(pos, "stopLoss", None),
                 take_profit=getattr(pos, "takeProfit", None),
@@ -1035,12 +1074,14 @@ class CTraderBroker(BaseBroker):
         for order in payload.order:
             side = OrderSide.BUY if order.tradeData.tradeSide == 1 else OrderSide.SELL
             order_type = OrderType.LIMIT if order.orderType == 1 else OrderType.STOP
+            sym_id = order.tradeData.symbolId
+            lot_cents = self._get_lot_size_cents(sym_id)
             self._pending_orders.append(PendingOrder(
                 order_id=str(order.orderId),
-                symbol=self._resolve_symbol_name(order.tradeData.symbolId),
+                symbol=self._resolve_symbol_name(sym_id),
                 side=side,
                 order_type=order_type,
-                volume=order.tradeData.volume / 100,
+                volume=order.tradeData.volume / lot_cents,  # API units → lots
                 entry_price=getattr(order, "limitPrice", getattr(order, "stopPrice", 0)),
                 stop_loss=getattr(order, "stopLoss", None),
                 take_profit=getattr(order, "takeProfit", None),
@@ -1061,7 +1102,8 @@ class CTraderBroker(BaseBroker):
         if hasattr(payload, "position") and hasattr(payload.position, "positionId"):
             position_id = payload.position.positionId
 
-        print(f"[cTrader] DEBUG: Received {ptype} orderId={order_id} positionId={position_id}")
+        # Removed verbose print — use DEBUG logging if needed:
+        # import logging; logging.getLogger("ctrader").debug(f"ExecEvent {ptype} orderId={order_id} positionId={position_id}")
 
         # Déterminer quelle requête en attente correspond
         for key in ("order_place", "position_amend", "position_close", "order_cancel"):
@@ -1210,34 +1252,36 @@ class CTraderBroker(BaseBroker):
                 if order.entry_price:
                     req.stopPrice = self._round_price(order.entry_price, symbol_id)
             req.tradeSide = self._enum_value(req, "tradeSide", order.side.value)
-            # cTrader volume = centilots (1 lot = 100 centilots)
-            CENTILOTS = 100
-            broker_volume = order.broker_volume or int(round(order.volume * CENTILOTS))
+
+            # cTrader volumes API = lots × lotSize (tout en "cents" = 1/100 unité base)
+            # NZDCAD: 2.30 lots × 10_000_000 = 23_000_000
+            # BTCUSD: 0.01 lots × 100 = 1
+            lot_cents = self._get_lot_size_cents(symbol_id)
+            broker_volume = order.broker_volume or int(round(order.volume * lot_cents))
 
             # Validation volume contre les limites réelles du symbole
             sym_info = self._symbols.get(symbol_id)
             if sym_info:
-                min_centilots = int(round(sym_info.min_volume * CENTILOTS))
-                max_centilots = int(round(sym_info.max_volume * CENTILOTS))
-                step_centilots = max(1, int(round(sym_info.volume_step * CENTILOTS)))
+                min_vol = int(round(sym_info.min_volume * lot_cents))
+                max_vol = int(round(sym_info.max_volume * lot_cents))
+                step_vol = max(1, int(round(sym_info.volume_step * lot_cents)))
 
-                if broker_volume < min_centilots:
+                if broker_volume < min_vol:
                     return OrderResult(
                         success=False,
-                        message=f"Volume {order.volume:.3f}L ({broker_volume} centilots) "
-                                f"< min {sym_info.min_volume:.3f}L ({min_centilots} centilots) "
-                                f"pour {order.symbol}. "
-                                f"Augmenter risk_percent ou réduire le nombre d'instruments."
+                        message=f"Volume {order.volume:.4f}L ({broker_volume} units) "
+                                f"< min {sym_info.min_volume:.4f}L ({min_vol} units) "
+                                f"pour {order.symbol}."
                     )
-                if broker_volume > max_centilots:
-                    broker_volume = max_centilots
-                    print(f"[cTrader] ⚠️ Volume capé au maximum: {max_centilots} centilots "
-                          f"({sym_info.max_volume:.1f}L) pour {order.symbol}")
+                if broker_volume > max_vol:
+                    broker_volume = max_vol
+                    print(f"[cTrader] ⚠️ Volume capé au max: "
+                          f"{sym_info.max_volume:.1f}L pour {order.symbol}")
 
                 # Arrondir au step
-                if step_centilots > 1:
-                    broker_volume = max(min_centilots,
-                                       (broker_volume // step_centilots) * step_centilots)
+                if step_vol > 1:
+                    broker_volume = max(min_vol,
+                                       (broker_volume // step_vol) * step_vol)
 
             req.volume = broker_volume
             if order.stop_loss:
@@ -1256,10 +1300,11 @@ class CTraderBroker(BaseBroker):
             if order.comment:
                 req.comment = order.comment[:100]
             print(f"[cTrader] Placing {order.order_type.value} {order.side.value} "
-                  f"{order.volume:.3f} lots ({broker_volume} centilots) on {order.symbol} "
+                  f"{order.volume:.3f} lots ({broker_volume} vol_units) on {order.symbol} "
                   f"@ {order.entry_price}"
                   + (f" SL={req.stopLoss} TP={req.takeProfit}" if order.stop_loss else "")
-                  + (f" [min={sym_info.min_volume:.3f}L digits={sym_info.digits}]" if sym_info else ""))
+                  + (f" [min={sym_info.min_volume:.4f}L digits={sym_info.digits} "
+                     f"lotSize={lot_cents}]" if sym_info else ""))
             from twisted.internet import reactor
             self._send_via_reactor(req)
             result = await asyncio.wait_for(future, timeout=30)
@@ -1379,10 +1424,12 @@ class CTraderBroker(BaseBroker):
         req = ProtoOAClosePositionReq()
         req.ctidTraderAccountId = self.account_id
         req.positionId = int(position_id)
-        # cTrader volume = centilots (1 lot = 100)
-        req.volume = int(round(volume * 100))
+        # Volume en API units: lots × lotSize_cents
+        sym_id = self._get_symbol_id_for_position(position_id)
+        lot_cents = self._get_lot_size_cents(sym_id) if sym_id else 10_000_000
+        req.volume = int(round(volume * lot_cents))
         print(f"[cTrader] Closing position {position_id} "
-              f"({volume} lots = {req.volume} centilots)")
+              f"({volume:.3f} lots = {req.volume} vol_units, lotSize={lot_cents})")
         self._send_via_reactor(req)
         try:
             return await asyncio.wait_for(future, timeout=15)

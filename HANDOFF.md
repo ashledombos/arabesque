@@ -242,6 +242,8 @@ Voir `config/prop_firm_profiles.yaml`.
 6. **⚠️ CRITIQUE: `_symbol_id_for_name()` — condition toujours vraie** : `sinfo.broker_symbol == str(sid)` retournait TOUJOURS le premier symbole du dict. **Toutes les souscriptions spots ET tous les get_history utilisaient le même symbolId** (EURUSD). Corrigé avec recherche par nom exact + normalisation (EUR/USD → EURUSD).
 7. **⚠️ CRITIQUE: diviseur de prix dérivé de pip_size** : `_process_symbol_details()` changeait `pip_size` (USDJPY: 0.0001→0.01) → diviseur passait de 100000→1000 → TOUS les prix décodés 100x trop grands → volumes 100x trop petits → TRADING_BAD_VOLUME. Fix: diviseur fixe 10^5 stocké dans `_symbol_divisors`, indépendant de digits/pipPosition.
 8. **Volume non validé avant envoi** : `place_order()` envoyait le volume sans vérifier min/max/step du symbole → rejet côté cTrader. Fix: validation pré-envoi + normalizer dans le dispatcher.
+9. **⚠️ CRITIQUE: unités volume cTrader ×100 au lieu de ×lotSize** : cTrader API utilise des "cents" (1/100 unité base). Notre code multipliait par 100 (hardcodé) → marchait pour BTCUSD (lotSize=100) mais NZDCAD envoyait 0.000023 lots au lieu de 2.30. Fix: `req.volume = lots × _lot_size_cents[symbol_id]`. Aussi affecte reconcile (`volume / lotSize` au lieu de `/ 100`) et minVolume/maxVolume/stepVolume.
+10. **Race condition barres dupliquées** : `on_tick()` async sans lock → 12 ticks NZDCAD ferment 12 fois la même bougie → 12 BE triggers → 12 amends → timeout cascade. Fix: `_last_closed_ts` per-symbol dedup guard + `_amend_in_progress` flag.
 
 ### Architecture
 7. **PriceFeedManager réutilise le broker existant** : plus de 2e connexion TCP → plus de `ALREADY_LOGGED_IN`.

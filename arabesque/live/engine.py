@@ -403,7 +403,7 @@ class LiveEngine:
                     daily_start_balance=info.balance,
                 )
                 self._dispatcher.update_account_state(state)
-                logger.info(
+                logger.debug(
                     f"[Engine] 💰 {primary_id}: "
                     f"balance={info.balance:.2f} equity={info.equity:.2f} {info.currency}"
                 )
@@ -412,7 +412,7 @@ class LiveEngine:
 
     async def _account_refresh_loop(self) -> None:
         while self._running:
-            await asyncio.sleep(300)
+            await asyncio.sleep(3600)  # Toutes les heures (startup handled separately)
             if self._running:
                 await self._refresh_account_state()
 

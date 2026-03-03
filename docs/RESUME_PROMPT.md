@@ -30,6 +30,14 @@ Les SpotEvents et Trendbars cTrader encodent TOUS les prix en entiers avec divis
 - `broker/normalizer.py` : validation pré-envoi volume min/max/step
 - Validation intégrée dans `place_order()` et `order_dispatcher.py`
 
+### ✅ Fix unités volume cTrader (2026-03-03)
+cTrader API utilise des "cents" (1/100 unité base) pour TOUS les volumes. L'ancien code multipliait par 100 (centilots) → marchait par coïncidence pour BTCUSD (lotSize=100) mais pas pour forex (lotSize=10M) ni la plupart des crypto.
+- `_lot_size_cents[symbol_id]` : lotSize brut du proto
+- `req.volume = lots × lot_size_cents` (pas `lots × 100`)
+- `_process_symbol_details()` : min/max/step = proto / lotSize (pas proto / 100)
+- Race condition barres dupliquées fixée (`_last_closed_ts` dedup)
+- Amend spam fixé (`_amend_in_progress` flag per-position)
+
 ### Notes
 - TradeLocker (GFT) compte test expiré
 - FTMO impose des heures de trading même sur crypto (weekend)

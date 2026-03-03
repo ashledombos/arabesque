@@ -98,6 +98,8 @@ class BarAggregator:
 
         # Timestamp de début de la bougie courante
         self._current_bar_start: Dict[str, int] = {}
+        # Guard contre les fermetures dupliquées (race condition async)
+        self._last_closed_ts: Dict[str, int] = {}
 
         # Générateur de signaux
         self._sig_gen = self._make_signal_generator()
@@ -235,6 +237,22 @@ class BarAggregator:
 
         if bar_start_ts > current_start:
             # Nouvelle période : fermer la bougie précédente
+            # Guard contre la race condition async : si déjà fermée, skip
+            last_closed = self._last_closed_ts.get(sym, 0)
+            if current_start <= last_closed:
+                # Déjà fermée par un tick concurrent — juste mettre à jour
+                self._current_bar_start[sym] = bar_start_ts
+                bar = self._current_bar.get(sym)
+                if bar:
+                    bar["high"] = max(bar["high"], mid)
+                    bar["low"] = min(bar["low"], mid)
+                    bar["close"] = mid
+                    bar["volume"] = bar.get("volume", 0) + 1
+                else:
+                    self._current_bar[sym] = self._new_bar(bar_start_ts, mid)
+                return
+
+            self._last_closed_ts[sym] = current_start
             closed = self._current_bar.get(sym)
             if closed:
                 await self._on_bar_closed(sym, closed)
@@ -270,7 +288,7 @@ class BarAggregator:
         Ajoute la bougie au cache, génère les signaux.
         """
         ts_dt = datetime.fromtimestamp(bar["ts"], tz=timezone.utc)
-        logger.info(
+        logger.debug(
             f"[BarAggregator] 🕯️ {instrument} Bar H1 fermée @ {ts_dt.strftime('%H:%M')} UTC "
             f"O={bar['open']:.5f} H={bar['high']:.5f} "
             f"L={bar['low']:.5f} C={bar['close']:.5f} "
