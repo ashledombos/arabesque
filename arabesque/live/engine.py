@@ -441,7 +441,10 @@ class LiveEngine:
         await self._notify_order(broker_id, signal, result)
 
     async def _register_position_in_monitor(self, broker_id, signal, result):
-        """Enregistre une position fraîchement ouverte dans le position monitor."""
+        """Enregistre une position fraîchement ouverte dans le position monitor.
+
+        Valide que le fill correspond bien au signal (détection mismatch).
+        """
         try:
             broker = self._brokers.get(broker_id)
             if not broker:
@@ -451,6 +454,7 @@ class LiveEngine:
             entry = signal.close
             volume = 0.01
             found = False
+            pos = None
 
             for attempt in range(3):
                 await asyncio.sleep(2.0 * (attempt + 1))
@@ -464,16 +468,6 @@ class LiveEngine:
                     entry = pos.entry_price
                     volume = pos.volume
                     found = True
-
-                    # Log de validation post-fill
-                    slip = abs(entry - signal.close)
-                    logger.info(
-                        f"[Engine] 📋 Fill confirmé: {signal.instrument} "
-                        f"{signal.side.value} {volume:.3f}L "
-                        f"entry={entry:.5f} (signal={signal.close:.5f} "
-                        f"slip={slip:.5f}) "
-                        f"SL={pos.stop_loss} TP={pos.take_profit}"
-                    )
                     break
 
             if not found:
@@ -481,6 +475,29 @@ class LiveEngine:
                     f"[Engine] Position {result.order_id} not found after 3 attempts, "
                     f"registering with signal values "
                     f"(entry={entry}, vol=estimated)"
+                )
+
+            # Validation fill mismatch : si le slip est absurde, c'est un bug de routage
+            if found:
+                slip = abs(entry - signal.close)
+                risk_distance = abs(signal.close - signal.sl) if signal.sl else 1.0
+                slip_in_r = slip / risk_distance if risk_distance > 0 else 0
+
+                if slip_in_r > 5.0:
+                    logger.error(
+                        f"[Engine] 🔴 FILL MISMATCH DÉTECTÉ: {signal.instrument} "
+                        f"signal_close={signal.close:.5f} fill_entry={entry:.5f} "
+                        f"slip={slip:.5f} ({slip_in_r:.1f}R) — position NON enregistrée. "
+                        f"Vérifier manuellement position_id={result.order_id}"
+                    )
+                    return  # Ne PAS enregistrer une position corrompue
+
+                logger.info(
+                    f"[Engine] 📋 Fill confirmé: {signal.instrument} "
+                    f"{signal.side.value} {volume:.3f}L "
+                    f"entry={entry:.5f} (signal={signal.close:.5f} "
+                    f"slip={slip:.5f}) "
+                    f"SL={pos.stop_loss} TP={pos.take_profit}"
                 )
 
             # Digits du symbole
@@ -492,6 +509,10 @@ class LiveEngine:
             except Exception:
                 pass
 
+            # Utiliser SL/TP du broker si disponibles (plus fiables que le signal)
+            sl = pos.stop_loss if (found and pos.stop_loss) else signal.sl
+            tp = pos.take_profit if (found and pos.take_profit) else signal.tp_indicative
+
             from arabesque.models import Side
             self._position_monitor.register_position(
                 broker_id=broker_id,
@@ -499,8 +520,8 @@ class LiveEngine:
                 symbol=signal.instrument,
                 side=signal.side,
                 entry=entry,
-                sl=signal.sl,
-                tp=signal.tp_indicative,
+                sl=sl,
+                tp=tp,
                 volume=volume,
                 digits=digits,
             )

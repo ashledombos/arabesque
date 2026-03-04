@@ -912,3 +912,21 @@ A valider par un re-replay complet sur 20 mois.
 **Basket validation rapide (11 instruments):**
 BTCUSD ETHUSD SOLUSD BNBUSD LNKUSD ICPUSD EURUSD USDJPY GBPUSD NZDCAD XAUUSD
 Couvre: crypto USD-quoted, forex USD/XXX (conversion /price), forex cross (yaml), metal.
+
+### 2026-03-04 (P0) : Fix fill mismatch concurrent orders
+
+**Root cause:** _pending_requests est un dict avec une cle fixe "order_place" par type
+d'operation. Quand 3 ordres partent en concurrence (3x create_task sur
+_dispatch_to_all_brokers), chaque appel a place_order() ecrase la future du precedent.
+Resultat: le fill SOLUSD resout la future de BNBUSD → signal/fill mismatch.
+Les ordres orphelins timeout apres 30s → positions non trackees.
+
+**Fix:** asyncio.Lock (self._order_lock) serialise place_order, amend_position_sltp,
+close_position et cancel_order. Un seul appel en vol a la fois → pas d'ecrasement.
+
+**Defense en profondeur:** validation dans _register_position_in_monitor:
+si abs(fill_entry - signal_close) > 5R → FILL MISMATCH detecte, position non enregistree.
+Log CRITICAL pour investigation manuelle.
+
+**Bonus:** SL/TP du monitor utilise maintenant les valeurs du broker (pos.stop_loss,
+pos.take_profit) au lieu du signal quand disponibles → plus precise apres slippage.

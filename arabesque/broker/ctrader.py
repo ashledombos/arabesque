@@ -117,6 +117,11 @@ class CTraderBroker(BaseBroker):
 
         # Lock pour empêcher les appels concurrents à get_symbols()
         self._symbols_lock = asyncio.Lock()
+        # Lock pour sérialiser les opérations de trading (place/amend/close/cancel)
+        # CRITIQUE: _pending_requests utilise des clés fixes ("order_place",
+        # "position_amend", etc.). Sans lock, des appels concurrents écrasent
+        # les futures des uns par les autres → fills mal routés.
+        self._order_lock = asyncio.Lock()
         # Référence au loop asyncio pour les callbacks thread-safe depuis Twisted
         self._asyncio_loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -539,10 +544,6 @@ class CTraderBroker(BaseBroker):
 
         try:
             bars = await asyncio.wait_for(future, timeout=20.0)
-            print(
-                f"[cTrader] 📊 get_history({symbol}, {timeframe}): "
-                f"{len(bars)} barres chargées"
-            )
             return bars
         except asyncio.TimeoutError:
             print(f"[cTrader] ⏱ get_history({symbol}, {timeframe}): timeout")
@@ -1227,105 +1228,109 @@ class CTraderBroker(BaseBroker):
         if not symbol_id:
             return OrderResult(success=False, message=f"Could not resolve symbol ID for {broker_symbol}")
 
-        loop = asyncio.get_event_loop()
-        future = loop.create_future()
-        self._pending_requests["order_place"] = future
+        # Sérialiser les ordres : un seul en vol à la fois
+        # Empêche l'écrasement de _pending_requests["order_place"]
+        async with self._order_lock:
+            loop = asyncio.get_event_loop()
+            future = loop.create_future()
+            self._pending_requests["order_place"] = future
 
-        try:
-            req = ProtoOANewOrderReq()
-            req.ctidTraderAccountId = self.account_id
-            req.symbolId = symbol_id
-            if order.order_type == OrderType.MARKET:
-                req.orderType = self._enum_value(req, "orderType", "MARKET")
-            elif order.order_type == OrderType.LIMIT:
-                req.orderType = self._enum_value(req, "orderType", "LIMIT")
-                if order.entry_price:
-                    req.limitPrice = self._round_price(order.entry_price, symbol_id)
-            elif order.order_type == OrderType.STOP:
-                req.orderType = self._enum_value(req, "orderType", "STOP")
-                if order.entry_price:
-                    req.stopPrice = self._round_price(order.entry_price, symbol_id)
-            req.tradeSide = self._enum_value(req, "tradeSide", order.side.value)
+            try:
+                req = ProtoOANewOrderReq()
+                req.ctidTraderAccountId = self.account_id
+                req.symbolId = symbol_id
+                if order.order_type == OrderType.MARKET:
+                    req.orderType = self._enum_value(req, "orderType", "MARKET")
+                elif order.order_type == OrderType.LIMIT:
+                    req.orderType = self._enum_value(req, "orderType", "LIMIT")
+                    if order.entry_price:
+                        req.limitPrice = self._round_price(order.entry_price, symbol_id)
+                elif order.order_type == OrderType.STOP:
+                    req.orderType = self._enum_value(req, "orderType", "STOP")
+                    if order.entry_price:
+                        req.stopPrice = self._round_price(order.entry_price, symbol_id)
+                req.tradeSide = self._enum_value(req, "tradeSide", order.side.value)
 
-            # cTrader volumes API = lots × lotSize (tout en "cents" = 1/100 unité base)
-            # NZDCAD: 2.30 lots × 10_000_000 = 23_000_000
-            # BTCUSD: 0.01 lots × 100 = 1
-            lot_cents = self._get_lot_size_cents(symbol_id)
-            broker_volume = order.broker_volume or int(round(order.volume * lot_cents))
+                # cTrader volumes API = lots × lotSize (tout en "cents" = 1/100 unité base)
+                # NZDCAD: 2.30 lots × 10_000_000 = 23_000_000
+                # BTCUSD: 0.01 lots × 100 = 1
+                lot_cents = self._get_lot_size_cents(symbol_id)
+                broker_volume = order.broker_volume or int(round(order.volume * lot_cents))
 
-            # Validation volume contre les limites réelles du symbole
-            sym_info = self._symbols.get(symbol_id)
-            if sym_info:
-                min_vol = int(round(sym_info.min_volume * lot_cents))
-                max_vol = int(round(sym_info.max_volume * lot_cents))
-                step_vol = max(1, int(round(sym_info.volume_step * lot_cents)))
+                # Validation volume contre les limites réelles du symbole
+                sym_info = self._symbols.get(symbol_id)
+                if sym_info:
+                    min_vol = int(round(sym_info.min_volume * lot_cents))
+                    max_vol = int(round(sym_info.max_volume * lot_cents))
+                    step_vol = max(1, int(round(sym_info.volume_step * lot_cents)))
 
-                if broker_volume < min_vol:
-                    return OrderResult(
-                        success=False,
-                        message=f"Volume {order.volume:.4f}L ({broker_volume} units) "
-                                f"< min {sym_info.min_volume:.4f}L ({min_vol} units) "
-                                f"pour {order.symbol}."
-                    )
-                if broker_volume > max_vol:
-                    broker_volume = max_vol
-                    print(f"[cTrader] ⚠️ Volume capé au max: "
-                          f"{sym_info.max_volume:.1f}L pour {order.symbol}")
+                    if broker_volume < min_vol:
+                        return OrderResult(
+                            success=False,
+                            message=f"Volume {order.volume:.4f}L ({broker_volume} units) "
+                                    f"< min {sym_info.min_volume:.4f}L ({min_vol} units) "
+                                    f"pour {order.symbol}."
+                        )
+                    if broker_volume > max_vol:
+                        broker_volume = max_vol
+                        print(f"[cTrader] ⚠️ Volume capé au max: "
+                              f"{sym_info.max_volume:.1f}L pour {order.symbol}")
 
-                # Arrondir au step
-                if step_vol > 1:
-                    broker_volume = max(min_vol,
-                                       (broker_volume // step_vol) * step_vol)
+                    # Arrondir au step
+                    if step_vol > 1:
+                        broker_volume = max(min_vol,
+                                           (broker_volume // step_vol) * step_vol)
 
-            req.volume = broker_volume
-            if order.stop_loss:
-                req.stopLoss = self._round_price(order.stop_loss, symbol_id)
-            if order.take_profit:
-                req.takeProfit = self._round_price(order.take_profit, symbol_id)
-            # timeInForce: pas nécessaire pour MARKET, obligatoire pour LIMIT/STOP
-            if order.order_type != OrderType.MARKET:
-                if order.expiry_timestamp_ms:
-                    req.timeInForce = self._enum_value(req, "timeInForce", "GOOD_TILL_DATE")
-                    req.expirationTimestamp = order.expiry_timestamp_ms
-                else:
-                    req.timeInForce = self._enum_value(req, "timeInForce", "GOOD_TILL_CANCEL")
-            if order.label:
-                req.label = order.label[:50]
-            if order.comment:
-                req.comment = order.comment[:100]
-            print(f"[cTrader] Placing {order.order_type.value} {order.side.value} "
-                  f"{order.volume:.3f} lots ({broker_volume} vol_units) on {order.symbol} "
-                  f"@ {order.entry_price}"
-                  + (f" SL={req.stopLoss} TP={req.takeProfit}" if order.stop_loss else "")
-                  + (f" [min={sym_info.min_volume:.4f}L digits={sym_info.digits} "
-                     f"lotSize={lot_cents}]" if sym_info else ""))
-            from twisted.internet import reactor
-            self._send_via_reactor(req)
-            result = await asyncio.wait_for(future, timeout=30)
-            # Enregistrer le mapping positionId → symbolId pour amend/close
-            if result.success and result.order_id:
-                self._position_symbol_ids[str(result.order_id)] = symbol_id
-            return result
-        except asyncio.TimeoutError:
-            return OrderResult(success=False, message="Order timeout")
-        except Exception as e:
-            return OrderResult(success=False, message=str(e))
+                req.volume = broker_volume
+                if order.stop_loss:
+                    req.stopLoss = self._round_price(order.stop_loss, symbol_id)
+                if order.take_profit:
+                    req.takeProfit = self._round_price(order.take_profit, symbol_id)
+                # timeInForce: pas nécessaire pour MARKET, obligatoire pour LIMIT/STOP
+                if order.order_type != OrderType.MARKET:
+                    if order.expiry_timestamp_ms:
+                        req.timeInForce = self._enum_value(req, "timeInForce", "GOOD_TILL_DATE")
+                        req.expirationTimestamp = order.expiry_timestamp_ms
+                    else:
+                        req.timeInForce = self._enum_value(req, "timeInForce", "GOOD_TILL_CANCEL")
+                if order.label:
+                    req.label = order.label[:50]
+                if order.comment:
+                    req.comment = order.comment[:100]
+                print(f"[cTrader] Placing {order.order_type.value} {order.side.value} "
+                      f"{order.volume:.3f} lots ({broker_volume} vol_units) on {order.symbol} "
+                      f"@ {order.entry_price}"
+                      + (f" SL={req.stopLoss} TP={req.takeProfit}" if order.stop_loss else "")
+                      + (f" [min={sym_info.min_volume:.4f}L digits={sym_info.digits} "
+                         f"lotSize={lot_cents}]" if sym_info else ""))
+                from twisted.internet import reactor
+                self._send_via_reactor(req)
+                result = await asyncio.wait_for(future, timeout=30)
+                # Enregistrer le mapping positionId → symbolId pour amend/close
+                if result.success and result.order_id:
+                    self._position_symbol_ids[str(result.order_id)] = symbol_id
+                return result
+            except asyncio.TimeoutError:
+                return OrderResult(success=False, message="Order timeout")
+            except Exception as e:
+                return OrderResult(success=False, message=str(e))
 
     async def cancel_order(self, order_id: str) -> OrderResult:
         if not self._connected:
             return OrderResult(success=False, message="Not connected")
         loop = asyncio.get_event_loop()
-        future = loop.create_future()
-        self._pending_requests["order_cancel"] = future
-        req = ProtoOACancelOrderReq()
-        req.ctidTraderAccountId = self.account_id
-        req.orderId = int(order_id)
-        from twisted.internet import reactor
-        self._send_via_reactor(req)
-        try:
-            return await asyncio.wait_for(future, timeout=15)
-        except asyncio.TimeoutError:
-            return OrderResult(success=False, message="Cancel timeout")
+        async with self._order_lock:
+            future = loop.create_future()
+            self._pending_requests["order_cancel"] = future
+            req = ProtoOACancelOrderReq()
+            req.ctidTraderAccountId = self.account_id
+            req.orderId = int(order_id)
+            from twisted.internet import reactor
+            self._send_via_reactor(req)
+            try:
+                return await asyncio.wait_for(future, timeout=15)
+            except asyncio.TimeoutError:
+                return OrderResult(success=False, message="Cancel timeout")
 
     async def get_pending_orders(self) -> List[PendingOrder]:
         if not self._connected:
@@ -1370,23 +1375,24 @@ class CTraderBroker(BaseBroker):
                 take_profit = round(take_profit, digits)
 
         loop = asyncio.get_event_loop()
-        future = loop.create_future()
-        self._pending_requests["position_amend"] = future
-        req = ProtoOAAmendPositionSLTPReq()
-        req.ctidTraderAccountId = self.account_id
-        req.positionId = int(position_id)
-        if stop_loss is not None:
-            req.stopLoss = stop_loss
-        if take_profit is not None:
-            req.takeProfit = take_profit
-        print(f"[cTrader] Amending position {position_id}: SL={stop_loss} TP={take_profit}"
-              + (f" ({digits} digits)" if sym_id else " (symbol unknown, no rounding)"))
-        self._send_via_reactor(req)
-        try:
-            return await asyncio.wait_for(future, timeout=15)
-        except asyncio.TimeoutError:
-            self._pending_requests.pop("position_amend", None)
-            return OrderResult(success=False, message="Amend timeout")
+        async with self._order_lock:
+            future = loop.create_future()
+            self._pending_requests["position_amend"] = future
+            req = ProtoOAAmendPositionSLTPReq()
+            req.ctidTraderAccountId = self.account_id
+            req.positionId = int(position_id)
+            if stop_loss is not None:
+                req.stopLoss = stop_loss
+            if take_profit is not None:
+                req.takeProfit = take_profit
+            print(f"[cTrader] Amending position {position_id}: SL={stop_loss} TP={take_profit}"
+                  + (f" ({digits} digits)" if sym_id else " (symbol unknown, no rounding)"))
+            self._send_via_reactor(req)
+            try:
+                return await asyncio.wait_for(future, timeout=15)
+            except asyncio.TimeoutError:
+                self._pending_requests.pop("position_amend", None)
+                return OrderResult(success=False, message="Amend timeout")
 
     async def close_position(
         self, position_id: str, volume: Optional[float] = None
@@ -1413,23 +1419,24 @@ class CTraderBroker(BaseBroker):
                 )
 
         loop = asyncio.get_event_loop()
-        future = loop.create_future()
-        self._pending_requests["position_close"] = future
-        req = ProtoOAClosePositionReq()
-        req.ctidTraderAccountId = self.account_id
-        req.positionId = int(position_id)
-        # Volume en API units: lots × lotSize_cents
-        sym_id = self._get_symbol_id_for_position(position_id)
-        lot_cents = self._get_lot_size_cents(sym_id) if sym_id else 10_000_000
-        req.volume = int(round(volume * lot_cents))
-        print(f"[cTrader] Closing position {position_id} "
-              f"({volume:.3f} lots = {req.volume} vol_units, lotSize={lot_cents})")
-        self._send_via_reactor(req)
-        try:
-            return await asyncio.wait_for(future, timeout=15)
-        except asyncio.TimeoutError:
-            self._pending_requests.pop("position_close", None)
-            return OrderResult(success=False, message="Close timeout")
+        async with self._order_lock:
+            future = loop.create_future()
+            self._pending_requests["position_close"] = future
+            req = ProtoOAClosePositionReq()
+            req.ctidTraderAccountId = self.account_id
+            req.positionId = int(position_id)
+            # Volume en API units: lots × lotSize_cents
+            sym_id = self._get_symbol_id_for_position(position_id)
+            lot_cents = self._get_lot_size_cents(sym_id) if sym_id else 10_000_000
+            req.volume = int(round(volume * lot_cents))
+            print(f"[cTrader] Closing position {position_id} "
+                  f"({volume:.3f} lots = {req.volume} vol_units, lotSize={lot_cents})")
+            self._send_via_reactor(req)
+            try:
+                return await asyncio.wait_for(future, timeout=15)
+            except asyncio.TimeoutError:
+                self._pending_requests.pop("position_close", None)
+                return OrderResult(success=False, message="Close timeout")
 
 
 # =============================================================================
