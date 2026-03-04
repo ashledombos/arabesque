@@ -890,3 +890,25 @@ Identique au live qui valide new_sl <= bid (LONG) dans _try_amend_sl.
 
 **Impact attendu** : degradation de ~1-3% du win rate sur replay.
 A valider par un re-replay complet sur 20 mois.
+
+### 2026-03-04 : Analyse live, outils comparaison, bugs identifies
+
+**Nouveaux scripts:**
+- `scripts/parse_live_trades.py` : parse live.log → rapport structuré + export jsonl
+- `scripts/fast_validate.sh` : backtest rapide sur basket representatif (11 instruments, 3/6/20 mois)
+
+**Bugs identifies dans le live du 03-04/03:**
+1. FILL_MISMATCH (CRITIQUE): fill LNKUSD (entry=9.192, 1L) enregistre comme SOLUSD.
+   Cause probable: routage des fills asynchrones quand 3 ordres simultanes.
+   Le monitor a un "SOLUSD" avec R=78.67 (absurde). Position non trackee correctement.
+2. ORDER_TIMEOUT phantom: LNKUSD et BNBUSD reportes timeout mais ouverts chez le broker
+   (visibles dans cTrader). Le fill arrive apres le timeout → position non trackee.
+3. XAUUSD stale feed: 31 reconnections en boucle (21:55-23:11). Le callback refresh
+   ne suffit pas — marche ferme, pas de ticks a recevoir.
+4. ICPUSD BE jamais pose: trigger 3x (04:00, 05:00, 06:00) mais prix toujours
+   en-dessous du be_level au close → skip 3x → SL hit. Perte -$410 (-1R).
+   Le monitoring minute avec paliers aurait pu poser le BE pendant les mèches.
+
+**Basket validation rapide (11 instruments):**
+BTCUSD ETHUSD SOLUSD BNBUSD LNKUSD ICPUSD EURUSD USDJPY GBPUSD NZDCAD XAUUSD
+Couvre: crypto USD-quoted, forex USD/XXX (conversion /price), forex cross (yaml), metal.
