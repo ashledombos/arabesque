@@ -113,6 +113,8 @@ class LiveEngine:
             self._account_refresh_loop()
         )
         if self._position_monitor:
+            # 6b. Réconciliation au démarrage : enregistrer les positions déjà ouvertes
+            await self._reconcile_existing_positions()
             self._reconcile_task = asyncio.create_task(
                 self._reconcile_loop()
             )
@@ -266,6 +268,80 @@ class LiveEngine:
                     await self._position_monitor.reconcile()
                 except Exception as e:
                     logger.warning(f"[Engine] Reconcile error: {e}")
+
+    async def _reconcile_existing_positions(self) -> None:
+        """Au démarrage, enregistre les positions déjà ouvertes dans le monitor.
+
+        Permet de reprendre le BE/trailing sur des positions ouvertes lors
+        d'un redémarrage de l'engine (crash, mise à jour, etc.).
+        """
+        if not self._position_monitor:
+            return
+
+        from arabesque.broker.base import OrderSide
+        from arabesque.models import Side
+
+        total = 0
+        for broker_id, broker in self._brokers.items():
+            try:
+                positions = await broker.get_positions()
+                if not positions:
+                    continue
+
+                for pos in positions:
+                    # Convertir OrderSide → Side
+                    side = Side.LONG if pos.side == OrderSide.BUY else Side.SHORT
+
+                    # Digits du symbole
+                    digits = 5
+                    try:
+                        sinfo = await broker.get_symbol_info(pos.symbol)
+                        if sinfo:
+                            digits = sinfo.digits
+                    except Exception:
+                        pass
+
+                    # SL et TP depuis le broker
+                    sl = pos.stop_loss or 0.0
+                    tp = pos.take_profit or 0.0
+
+                    if sl <= 0:
+                        logger.warning(
+                            f"[Engine] ⚠️ Position {pos.symbol} {pos.position_id} "
+                            f"sans SL — non enregistrée dans le monitor"
+                        )
+                        continue
+
+                    self._position_monitor.register_position(
+                        broker_id=broker_id,
+                        position_id=str(pos.position_id),
+                        symbol=pos.symbol,
+                        side=side,
+                        entry=pos.entry_price,
+                        sl=sl,
+                        tp=tp,
+                        volume=pos.volume,
+                        digits=digits,
+                    )
+                    total += 1
+                    logger.info(
+                        f"[Engine] 📋 Réconciliation: {pos.symbol} "
+                        f"{side.value} entry={pos.entry_price:.5f} "
+                        f"SL={sl} TP={tp} vol={pos.volume:.3f}L "
+                        f"({broker_id}:{pos.position_id})"
+                    )
+
+            except Exception as e:
+                logger.error(
+                    f"[Engine] Erreur réconciliation {broker_id}: {e}"
+                )
+
+        if total:
+            logger.info(
+                f"[Engine] ✅ Réconciliation: {total} position(s) existante(s) enregistrée(s)"
+            )
+        else:
+            logger.info("[Engine] 📋 Réconciliation: aucune position ouverte")
 
     # ------------------------------------------------------------------
     # BarAggregator

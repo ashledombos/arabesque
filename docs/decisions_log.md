@@ -930,3 +930,30 @@ Log CRITICAL pour investigation manuelle.
 
 **Bonus:** SL/TP du monitor utilise maintenant les valeurs du broker (pos.stop_loss,
 pos.take_profit) au lieu du signal quand disponibles → plus precise apres slippage.
+
+### 2026-03-05 : Fix dispatch séquentiel, réconciliation startup, resubscribe TCP
+
+**Constat live 04-05/03:** Malgré le lock dans ctrader.py, les ordres sont toujours concurrents
+(3 ordres avec order_id=3124148). Cause: create_task() lance des tâches parallèles qui
+entrent toutes dans place_order avant que le lock ne soit évalué (même event loop tick).
+
+**Fix 1 — Dispatch séquentiel (order_dispatcher.py):**
+- Remplacé create_task(_dispatch_to_all_brokers) par une asyncio.Queue FIFO
+- Worker unique traite les signaux un par un
+- Garantit : UN SEUL ordre en vol à la fois, peu importe combien de signaux triggent
+
+**Fix 2 — Réconciliation startup (engine.py):**
+- _reconcile_existing_positions() au démarrage de l'engine
+- Interroge tous les brokers pour les positions ouvertes
+- Les enregistre dans le monitor (BE/trailing reprend automatiquement)
+- Corrige: positions orphelines après restart/crash
+
+**Fix 3 — Resubscribe TCP après échecs (price_feed.py):**
+- Après 5 tentatives de reconnexion échouées: force un resubscribe TCP complet
+- Clear _subscribed_symbol_ids → batch subscribe like initial connection
+- Corrige: ETHUSD stale pendant 17h+ (451 tentatives) sans resubscription
+
+**Impact attendu:**
+- Fills correctement routés (chaque ordre = unique position_id)
+- Positions pré-existantes trackées pour BE/trailing
+- Feed stale récupéré en <10 min au lieu de jamais

@@ -152,6 +152,11 @@ class OrderDispatcher:
         # Signaux en attente, indexés par symbole
         self._pending: Dict[str, List[PendingSignal]] = {}
 
+        # File d'attente pour dispatch séquentiel (FIFO)
+        # Empêche les placements concurrents qui corrompent _pending_requests
+        self._dispatch_queue: asyncio.Queue = asyncio.Queue()
+        self._dispatch_worker_task: Optional[asyncio.Task] = None
+
         # État du compte consolidé (mis à jour après chaque placement)
         self._account_state = AccountState()
 
@@ -292,10 +297,33 @@ class OrderDispatcher:
         # Mettre à jour la liste
         self._pending[sym] = still_pending
 
-        # Dispatcher les déclenchés
+        # Dispatcher les déclenchés — FIFO séquentiel (pas de create_task !)
         for ps in triggered:
             self._stats["signals_triggered"] += 1
-            asyncio.create_task(self._dispatch_to_all_brokers(ps, tick))
+            await self._dispatch_queue.put((ps, tick))
+            # Démarrer le worker si pas encore actif
+            if self._dispatch_worker_task is None or self._dispatch_worker_task.done():
+                self._dispatch_worker_task = asyncio.create_task(
+                    self._dispatch_worker()
+                )
+
+    async def _dispatch_worker(self) -> None:
+        """Worker FIFO : traite les signaux déclenchés un par un.
+
+        Garantit qu'un seul ordre est en vol à la fois, évitant la corruption
+        de _pending_requests dans le broker (clé fixe "order_place").
+        """
+        while not self._dispatch_queue.empty():
+            try:
+                ps, tick = await asyncio.wait_for(
+                    self._dispatch_queue.get(), timeout=1.0
+                )
+                await self._dispatch_to_all_brokers(ps, tick)
+                self._dispatch_queue.task_done()
+            except asyncio.TimeoutError:
+                break  # Queue vide, worker s'arrête
+            except Exception as e:
+                logger.error(f"[Dispatcher] Worker error: {e}")
 
     async def get_stats(self) -> dict:
         """Statistiques du dispatcher."""

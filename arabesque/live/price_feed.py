@@ -312,6 +312,18 @@ class PriceFeedManager:
             symbols_and_callbacks[symbol] = cbs
 
         if already_subscribed:
+            # Après 5 tentatives échouées, forcer un resubscribe TCP complet
+            # car la souscription est probablement perdue pour certains symboles
+            if self._reconnect_count > 5 and self._reconnect_count % 5 == 0:
+                logger.warning(
+                    f"[PriceFeed] 🔄 Tentative #{self._reconnect_count}: "
+                    f"forçage resubscribe TCP complet"
+                )
+                self._broker._subscribed_symbol_ids.clear()
+                self._broker._spot_callbacks.clear()
+                already_subscribed = False
+
+        if already_subscribed:
             # Broker déjà souscrit — juste mettre à jour les callbacks Python
             # sans envoyer de requête TCP (évite ALREADY_SUBSCRIBED)
             for symbol, callbacks in symbols_and_callbacks.items():
