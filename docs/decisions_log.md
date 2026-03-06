@@ -987,3 +987,31 @@ BNBUSD: monté +1R en intrabar puis crash au SL. BE skippé 7x en H1 pour LNKUSD
 Le monitoring tick est un avantage live-only. Pour backtester avec des M1, il faudra
 adapter ParquetClock pour charger les barres M1 et y brancher le check BE/trailing.
 Les données M1 existent dans barres_au_sol/data/{ccxt,dukascopy}/min1/.
+
+### 2026-03-06 (P0) : Fix duplicate positions + log spam + account state
+
+**Root cause des 21 trades/jour:** _refresh_account_state ne remplissait JAMAIS 
+open_instruments ni open_positions. Toujours [] et 0. Le guard _duplicate_instrument
+ne rejetait donc aucun signal → EURCHF ouvert 3x, EURCAD 2x, etc.
+
+**Fix 1 — AccountState complet (engine.py):**
+- _refresh_account_state interroge maintenant get_positions() + position_monitor
+- Remplit open_positions, open_instruments, open_risk_cash
+- Rafraîchi toutes les 2 minutes (au lieu de 1h)
+- Rafraîchi après chaque ordre placé
+
+**Fix 2 — Marquage immédiat (order_dispatcher.py):**
+- Dès qu'un signal est accepté, son instrument est ajouté à open_instruments
+- Empêche les doublons dans la même batch (5 signaux à H1 close)
+
+**Fix 3 — Log spam (position_monitor.py):**
+- Premier skip → INFO, suivants → DEBUG
+- Élimine les 200+ lignes de "BE/Trail skipped" par heure
+
+**Impact attendu:**
+- ~5 trades/jour au lieu de 21 (un seul par instrument)
+- Guards fonctionnels: duplicate instrument, max_positions, worst_case_budget
+- Logs lisibles
+
+**Note TSL v7:** Le TSL tick a sauvé $3,055 sur la journée (6 trades clôturés en 
+profit grâce au BE). Sans le TSL, la perte aurait été -$8,079 au lieu de -$5,024.

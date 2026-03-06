@@ -52,6 +52,7 @@ class TrackedPosition:
     amend_failures: int = 0
     registered_at: float = 0.0     # time.time() à l'enregistrement
     _amend_in_progress: bool = False  # Guard contre les amends concurrents
+    _skip_count: int = 0              # Compteur de skips (anti-spam log)
 
     @property
     def R(self) -> float:
@@ -256,7 +257,8 @@ class LivePositionMonitor:
                 return  # SL déjà en-dessous du BE
 
         new_sl = round(be_level, pos.digits)
-        logger.info(
+        lvl = logging.INFO if pos._skip_count == 0 else logging.DEBUG
+        logger.log(lvl,
             f"[Monitor] 🔄 BE trigger: {pos.symbol} MFE={pos.mfe_r:.2f}R >= "
             f"{self._cfg.be_trigger_r}R → SL {pos.sl:.{pos.digits}f} → {new_sl:.{pos.digits}f}"
         )
@@ -317,17 +319,21 @@ class LivePositionMonitor:
         # Validation prix : le broker exige SL <= bid (LONG) ou SL >= ask (SELL)
         if current_price > 0:
             if pos.side == Side.LONG and new_sl > current_price:
-                logger.info(
+                lvl = logging.INFO if pos._skip_count == 0 else logging.DEBUG
+                pos._skip_count += 1
+                logger.log(lvl,
                     f"[Monitor] ⏸ BE/Trail skipped: {pos.symbol} "
                     f"new_sl={new_sl:.{pos.digits}f} > bid={current_price:.{pos.digits}f} "
-                    f"(price fell back, will retry next bar)"
+                    f"(price fell back, will retry — skip #{pos._skip_count})"
                 )
                 return False
             elif pos.side == Side.SHORT and new_sl < current_price:
-                logger.info(
+                lvl = logging.INFO if pos._skip_count == 0 else logging.DEBUG
+                pos._skip_count += 1
+                logger.log(lvl,
                     f"[Monitor] ⏸ BE/Trail skipped: {pos.symbol} "
                     f"new_sl={new_sl:.{pos.digits}f} < ask={current_price:.{pos.digits}f} "
-                    f"(price fell back, will retry next bar)"
+                    f"(price fell back, will retry — skip #{pos._skip_count})"
                 )
                 return False
 
@@ -357,6 +363,7 @@ class LivePositionMonitor:
 
                     if result.success:
                         pos.amend_failures = 0
+                        pos._skip_count = 0
                         logger.info(
                             f"[Monitor] ✅ SL amended: {pos.symbol} "
                             f"→ {new_sl:.{pos.digits}f} ({result.message})"

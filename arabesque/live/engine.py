@@ -478,24 +478,48 @@ class LiveEngine:
         try:
             info = await self._brokers[primary_id].get_account_info()
             if info:
+                # Récupérer les positions ouvertes pour les guards
+                open_instruments = []
+                open_positions = 0
+                open_risk_cash = 0.0
+                try:
+                    positions = await self._brokers[primary_id].get_positions()
+                    open_positions = len(positions)
+                    open_instruments = [p.symbol for p in positions]
+                    # Estimer le risk cash des positions ouvertes
+                    # (approximation: chaque position risque ~$400)
+                    open_risk_cash = open_positions * 400.0
+                except Exception:
+                    pass
+
+                # Compléter avec les positions du monitor si disponible
+                if self._position_monitor:
+                    for pos in self._position_monitor.open_positions:
+                        if pos.symbol not in open_instruments:
+                            open_instruments.append(pos.symbol)
+
                 from arabesque.guards import AccountState
                 state = AccountState(
                     balance=info.balance,
                     equity=info.equity,
                     start_balance=info.balance,
                     daily_start_balance=info.balance,
+                    open_positions=open_positions,
+                    open_instruments=open_instruments,
+                    open_risk_cash=open_risk_cash,
                 )
                 self._dispatcher.update_account_state(state)
                 logger.debug(
                     f"[Engine] 💰 {primary_id}: "
-                    f"balance={info.balance:.2f} equity={info.equity:.2f} {info.currency}"
+                    f"balance={info.balance:.2f} equity={info.equity:.2f} {info.currency} "
+                    f"| {open_positions} position(s) ouvertes: {open_instruments}"
                 )
         except Exception as e:
             logger.warning(f"[Engine] _refresh_account_state: {e}")
 
     async def _account_refresh_loop(self) -> None:
         while self._running:
-            await asyncio.sleep(3600)  # Toutes les heures (startup handled separately)
+            await asyncio.sleep(120)  # Toutes les 2 minutes (positions changent vite)
             if self._running:
                 await self._refresh_account_state()
 
@@ -515,6 +539,9 @@ class LiveEngine:
                 await self._register_position_in_monitor(
                     broker_id, signal, result
                 )
+            # Rafraîchir l'état du compte (open_instruments, open_positions)
+            # pour que les guards bloquent les doublons
+            await self._refresh_account_state()
         else:
             logger.warning(
                 f"[Engine] {status} {broker_id} | {signal.instrument} "

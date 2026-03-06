@@ -213,6 +213,12 @@ class OrderDispatcher:
             )
             return False
 
+        # Marquer immédiatement l'instrument comme "en cours" pour bloquer
+        # les doublons avant que l'ordre ne soit effectivement placé
+        if signal.instrument not in self._account_state.open_instruments:
+            self._account_state.open_instruments.append(signal.instrument)
+            self._account_state.open_positions += 1
+
         # Sizing
         sizing = self.guards.compute_sizing(signal, self._account_state)
         if sizing.get("risk_cash", 0) <= 0:
