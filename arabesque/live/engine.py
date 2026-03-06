@@ -453,6 +453,13 @@ class LiveEngine:
         for sym in symbols:
             await self._price_feed.subscribe(sym, self._dispatcher.on_tick)
 
+        # Brancher le position monitor sur les ticks pour BE/trailing en temps réel
+        if self._position_monitor:
+            for sym in symbols:
+                await self._price_feed.subscribe(
+                    sym, self._position_monitor.on_tick
+                )
+
         self._dispatcher._price_feed = self._price_feed
 
         await self._price_feed.start()

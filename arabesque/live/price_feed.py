@@ -506,11 +506,20 @@ class PriceFeedManager:
                         f"Feed stale (majeur crypto): aucun tick pour {worst[0]} "
                         f"depuis {worst[1]:.0f}s"
                     )
-                elif forex_stale and not is_weekend:
+                elif len(forex_stale) >= 2 and not is_weekend:
+                    # Au moins 2 forex majeurs stale → problème réel
                     worst = max(forex_stale, key=lambda x: x[1])
                     raise ConnectionError(
                         f"Feed stale (majeur forex): aucun tick pour {worst[0]} "
                         f"depuis {worst[1]:.0f}s"
+                    )
+                elif forex_stale and not is_weekend:
+                    # 1 seul forex stale (ex: XAUUSD maintenance 21-22h)
+                    # Ne pas reconnecter, juste logger en DEBUG
+                    worst = max(forex_stale, key=lambda x: x[1])
+                    logger.debug(
+                        f"[PriceFeed] 1 majeur forex stale ({worst[0]}, "
+                        f"{worst[1]:.0f}s) — maintenance probable, pas de reconnexion"
                     )
 
             # Reconnexion globale : >50% stale

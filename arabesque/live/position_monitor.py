@@ -48,6 +48,7 @@ class TrackedPosition:
     trailing_active: bool = False
     trailing_tier: int = 0
     last_amend_time: float = 0.0
+    last_tick_check: float = 0.0   # Throttle pour on_tick
     amend_failures: int = 0
     registered_at: float = 0.0     # time.time() à l'enregistrement
     _amend_in_progress: bool = False  # Guard contre les amends concurrents
@@ -76,6 +77,16 @@ class TrackedPosition:
             else:
                 self.max_favorable_price = min(self.max_favorable_price, low)
 
+    def update_mfe_tick(self, price: float):
+        """Met à jour le MFE avec un prix tick (bid pour LONG, ask pour SHORT)."""
+        if self.side == Side.LONG:
+            self.max_favorable_price = max(self.max_favorable_price, price)
+        else:
+            if self.max_favorable_price == 0:
+                self.max_favorable_price = price
+            else:
+                self.max_favorable_price = min(self.max_favorable_price, price)
+
 
 # Configuration BE/trailing (v3.3 validée)
 @dataclass
@@ -90,6 +101,8 @@ class MonitorConfig:
     # Retry pour les amends échoués
     max_amend_retries: int = 3
     min_amend_interval_s: float = 5.0  # anti-spam
+    # Tick-level monitoring : intervalle min entre deux checks par position
+    tick_check_interval_s: float = 10.0  # 10s entre chaque vérif par position
 
 
 class LivePositionMonitor:
@@ -185,6 +198,48 @@ class LivePositionMonitor:
 
             # 2. Trailing (indépendant du BE)
             await self._check_trailing(pos, close)
+
+    async def on_tick(self, tick) -> None:
+        """Appelé à chaque tick — vérifie BE/trailing en temps réel.
+
+        Logique identique à on_bar_closed mais utilise le prix tick au lieu
+        du close H1. Throttled à 1 check / tick_check_interval_s par position.
+
+        Le tick contient : symbol, bid, ask, timestamp
+        """
+        sym = tick.symbol
+        matching = [
+            pos for pos in self._positions.values()
+            if pos.symbol == sym
+        ]
+        if not matching:
+            return
+
+        now = time.time()
+        bid = tick.bid if hasattr(tick, 'bid') and tick.bid else 0
+        ask = tick.ask if hasattr(tick, 'ask') and tick.ask else 0
+
+        for pos in matching:
+            # Throttle : max 1 check toutes les N secondes par position
+            if now - pos.last_tick_check < self._cfg.tick_check_interval_s:
+                continue
+            pos.last_tick_check = now
+
+            # Prix de référence : bid pour LONG (on vend au bid),
+            # ask pour SHORT (on rachète à l'ask)
+            price = bid if pos.side == Side.LONG else ask
+            if price <= 0:
+                continue
+
+            # Mettre à jour le MFE en continu
+            pos.update_mfe_tick(price)
+
+            # 1. Breakeven
+            if not pos.breakeven_set:
+                await self._check_breakeven(pos, price)
+
+            # 2. Trailing
+            await self._check_trailing(pos, price)
 
     async def _check_breakeven(self, pos: TrackedPosition, current_price: float):
         """Si MFE >= 0.3R → déplacer SL à entry + 0.20R."""

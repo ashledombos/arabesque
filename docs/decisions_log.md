@@ -957,3 +957,33 @@ entrent toutes dans place_order avant que le lock ne soit évalué (même event 
 - Fills correctement routés (chaque ordre = unique position_id)
 - Positions pré-existantes trackées pour BE/trailing
 - Feed stale récupéré en <10 min au lieu de jamais
+
+### 2026-03-06 : TSL tick-level monitoring + fix stale XAUUSD
+
+**Contexte:** Tous les trades perdent car le BE/trailing ne vérifie qu'au close H1.
+BNBUSD: monté +1R en intrabar puis crash au SL. BE skippé 7x en H1 pour LNKUSD
+(session précédente). Les pertes s'accumulent: -$1959 le 05-06/03.
+
+**Fix 1 — TSL tick-level (position_monitor.py):**
+- Nouveau on_tick(tick) souscrit à tous les ticks via le price feed
+- Throttled à 10s par position (pas à chaque tick)
+- Met à jour le MFE en continu via update_mfe_tick(price)
+- Vérifie breakeven et trailing paliers sur le bid/ask réel
+- Prix de référence: bid pour LONG (on vend), ask pour SHORT (on rachète)
+- Faisabilité vérifiée par _try_amend_sl comme avant
+
+**Fix 2 — Stale XAUUSD (price_feed.py):**
+- Forex stale nécessite maintenant >= 2 majeurs stale pour déclencher reconnexion
+- 1 seul forex stale (ex: XAUUSD maintenance 21-22h) → log DEBUG, pas de reconnexion
+- Élimine les 100+ reconnections inutiles pendant le break quotidien XAUUSD
+
+**Impact attendu:**
+- BE posé en quelques secondes quand le prix franchit 0.3R (au lieu d'attendre H1 close)
+- Trailing activé dès que le MFE atteint les paliers 1.5R/2.0R/3.0R
+- Plus de reconnection spam pendant les maintenances XAUUSD
+- Divergence backtest/live: le backtest reste sur H1, le live fait MIEUX (bonus acceptable)
+
+**Note divergence backtest:** Le backtest (PositionManager) vérifie toujours sur H1.
+Le monitoring tick est un avantage live-only. Pour backtester avec des M1, il faudra
+adapter ParquetClock pour charger les barres M1 et y brancher le check BE/trailing.
+Les données M1 existent dans barres_au_sol/data/{ccxt,dukascopy}/min1/.
