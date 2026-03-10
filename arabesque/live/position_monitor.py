@@ -358,6 +358,7 @@ class LivePositionMonitor:
             return False
 
         try:
+            last_error = ""
             for attempt in range(1, self._cfg.max_amend_retries + 1):
                 try:
                     result = await broker.amend_position_sltp(
@@ -375,9 +376,10 @@ class LivePositionMonitor:
                         return True
                     else:
                         pos.amend_failures += 1
+                        last_error = str(result.message)
                         # POSITION_NOT_FOUND = position fermée par le broker (SL/TP hit)
                         # → arrêter immédiatement, la réconciliation nettoiera
-                        if "POSITION_NOT_FOUND" in str(result.message):
+                        if "POSITION_NOT_FOUND" in last_error:
                             logger.info(
                                 f"[Monitor] 🗑️ {pos.symbol} {pos.position_id}: "
                                 f"position fermée (POSITION_NOT_FOUND) — arrêt monitoring"
@@ -394,6 +396,7 @@ class LivePositionMonitor:
 
                 except Exception as e:
                     pos.amend_failures += 1
+                    last_error = str(e)
                     logger.error(
                         f"[Monitor] ❌ Amend exception (attempt {attempt}): {e}"
                     )
@@ -402,7 +405,8 @@ class LivePositionMonitor:
 
             logger.error(
                 f"[Monitor] ⚠️ SL amend ABANDONED after {self._cfg.max_amend_retries} "
-                f"attempts: {pos.symbol} {pos.position_id} target_sl={new_sl}"
+                f"attempts: {pos.symbol} {pos.position_id} target_sl={new_sl} "
+                f"last_error=[{last_error}]"
             )
             return False
         finally:
