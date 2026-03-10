@@ -296,6 +296,10 @@ class LivePositionMonitor:
 
         new_sl = round(new_sl, pos.digits)
 
+        # Skip si le SL n'a pas réellement bougé (anti-spam trailing)
+        if abs(new_sl - pos.sl) < 0.5 * 10**(-pos.digits):
+            return
+
         logger.info(
             f"[Monitor] 📈 Trailing tier {best_idx}: {pos.symbol} "
             f"MFE={pos.mfe_r:.2f}R → SL {pos.sl:.{pos.digits}f} → {new_sl:.{pos.digits}f} "
@@ -371,6 +375,16 @@ class LivePositionMonitor:
                         return True
                     else:
                         pos.amend_failures += 1
+                        # POSITION_NOT_FOUND = position fermée par le broker (SL/TP hit)
+                        # → arrêter immédiatement, la réconciliation nettoiera
+                        if "POSITION_NOT_FOUND" in str(result.message):
+                            logger.info(
+                                f"[Monitor] 🗑️ {pos.symbol} {pos.position_id}: "
+                                f"position fermée (POSITION_NOT_FOUND) — arrêt monitoring"
+                            )
+                            # Marquer pour suppression rapide par reconcile
+                            pos.registered_at = 0  # bypass grace period
+                            return False
                         logger.warning(
                             f"[Monitor] ❌ Amend failed (attempt {attempt}/"
                             f"{self._cfg.max_amend_retries}): {result.message}"
