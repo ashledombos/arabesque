@@ -374,7 +374,7 @@ class BarAggregator:
                     f"[BarAggregator] 📈 Signal {instrument} {signal.side.value} "
                     f"close={signal.close:.5f} sl={signal.sl:.5f} "
                     f"tp={signal.tp_indicative:.5f} rr={signal.rr:.2f} "
-                    f"rsi={signal.rsi:.1f} strat={signal.strategy_type}"
+                    f"rsi={signal.rsi:.1f} wr={signal.wr_14:.1f} strat={signal.strategy_type}"
                 )
                 # Envoyer directement au LiveEngine (pas de JSON, pas de webhook)
                 if asyncio.iscoroutinefunction(self.on_signal):
