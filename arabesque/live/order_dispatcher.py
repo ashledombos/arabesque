@@ -266,9 +266,12 @@ class OrderDispatcher:
             f"expire={expiry.strftime('%H:%M:%S')} UTC"
         )
 
-        # Shadow Williams %R filter — log seulement, n'empêche pas le trade
-        # Trend-following: LONG veut WR > -30 (overbought), SHORT veut WR < -70 (oversold)
+        # Shadow filters — log seulement, n'empêche pas le trade
+        # Permet d'évaluer a posteriori si le filtre améliorerait les résultats
         wr = getattr(signal, 'wr_14', 0)
+        rsi_div = getattr(signal, 'rsi_div', 0)
+
+        # Williams %R shadow
         if wr != 0:
             if signal.side == Side.LONG and wr < -30:
                 logger.info(
@@ -279,6 +282,21 @@ class OrderDispatcher:
                 logger.info(
                     f"[Dispatcher] 👻 WR shadow: {sym} SHORT wr_14={wr:.1f} > -70 "
                     f"→ AURAIT été filtré (momentum faible)"
+                )
+
+        # RSI divergence shadow
+        # LONG + bearish div (-1) = prix monte mais RSI descend → momentum s'épuise
+        # SHORT + bullish div (+1) = prix descend mais RSI monte → pression vendeuse s'épuise
+        if rsi_div != 0:
+            if signal.side == Side.LONG and rsi_div == -1:
+                logger.info(
+                    f"[Dispatcher] 👻 DIV shadow: {sym} LONG rsi_div=BEARISH "
+                    f"(prix ↑ RSI ↓ sur 5 barres) → AURAIT été filtré"
+                )
+            elif signal.side == Side.SHORT and rsi_div == 1:
+                logger.info(
+                    f"[Dispatcher] 👻 DIV shadow: {sym} SHORT rsi_div=BULLISH "
+                    f"(prix ↓ RSI ↑ sur 5 barres) → AURAIT été filtré"
                 )
 
         return True

@@ -170,6 +170,21 @@ class TrendSignalGenerator:
         for i in range(self.cfg.adx_rising_bars):
             df["adx_rising"] = df["adx_rising"] & (adx_diff.shift(i) > 0)
 
+        # ── Divergence RSI ────────────────────────────────────────────────
+        # Compare la direction prix vs RSI sur les 5 dernières barres.
+        # Divergence = prix fait un nouveau high/low mais RSI ne confirme pas.
+        #   rsi_div = -1 : bearish divergence (prix ↑ mais RSI ↓) → LONG risqué
+        #   rsi_div = +1 : bullish divergence (prix ↓ mais RSI ↑) → SHORT risqué
+        #   rsi_div =  0 : pas de divergence (directions alignées)
+        div_lookback = 5
+        price_chg = df["Close"] - df["Close"].shift(div_lookback)
+        rsi_chg = df["rsi"] - df["rsi"].shift(div_lookback)
+        df["rsi_div"] = 0
+        # Bearish div: price up but RSI down
+        df.loc[(price_chg > 0) & (rsi_chg < 0), "rsi_div"] = -1
+        # Bullish div: price down but RSI up
+        df.loc[(price_chg < 0) & (rsi_chg > 0), "rsi_div"] = 1
+
         return df
 
     def generate_signals(
@@ -280,6 +295,7 @@ class TrendSignalGenerator:
                 bb_upper=bb_upper,
                 bb_width=row.get("bb_width", 0),
                 wr_14=row.get("wr_14", -50),
+                rsi_div=int(row.get("rsi_div", 0)),
                 ema200_ltf=row.get("ema_slow", 0),
                 htf_ema_fast=row.get("htf_ema_fast_val", 0),
                 htf_ema_slow=row.get("htf_ema_slow_val", 0),
@@ -338,6 +354,7 @@ class TrendSignalGenerator:
                 bb_upper=bb_upper,
                 bb_width=row.get("bb_width", 0),
                 wr_14=row.get("wr_14", -50),
+                rsi_div=int(row.get("rsi_div", 0)),
                 ema200_ltf=row.get("ema_slow", 0),
                 htf_ema_fast=row.get("htf_ema_fast_val", 0),
                 htf_ema_slow=row.get("htf_ema_slow_val", 0),

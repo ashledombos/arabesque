@@ -107,6 +107,7 @@ class Signal:
     bb_upper: float = 0.0
     bb_width: float = 0.0
     wr_14: float = 0.0
+    rsi_div: int = 0             # -1=bearish div, 0=neutral, +1=bullish div
     ema200_ltf: float = 0.0
     htf_ema_fast: float = 0.0
     htf_ema_slow: float = 0.0
@@ -167,6 +168,7 @@ class Signal:
             bb_upper=float(data.get("bb_upper", 0)),
             bb_width=float(data.get("bb_width", 0)),
             wr_14=float(data.get("wr_14", 0)),
+            rsi_div=int(data.get("rsi_div", 0)),
             ema200_ltf=float(data.get("ema200_ltf", 0)),
             htf_ema_fast=float(data.get("htf_ema_fast", 0)),
             htf_ema_slow=float(data.get("htf_ema_slow", 0)),
