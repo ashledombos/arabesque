@@ -74,7 +74,7 @@ USDCZK:
 
 USDDKK:
   ftmo_swing_test: "USDDKK"
-  follow: true
+  follow: false  # TRADING_DISABLED sur ftmo_swing_test
   pip_size: 0.0001
   pip_value_per_lot: 1.45
 
