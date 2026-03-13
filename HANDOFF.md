@@ -1,33 +1,8 @@
-## ⚡ Restructuration Mars 2026 — v9 skeleton
-
-**Date** : 12 mars 2026
-**État** : Fichiers générés, prêt à merger sur main via PR
-
-La restructuration décrite dans `RESTRUCTURING_PROPOSAL.md` est appliquée.
-Voir `docs/START_HERE.md` pour le résumé et `docs/HYGIENE.md` pour les règles.
-
-**Changements majeurs :**
-- `arabesque/core/` — kernel immuable (models, guards, audit)
-- `arabesque/modules/` — briques réutilisables (indicators, position_manager)
-- `arabesque/strategies/extension/` — stratégie trend, **signal.py unique** backtest+live
-- `arabesque/execution/` — moteurs (backtest, dryrun, live, bar_aggregator, etc.)
-- `arabesque/data/` — store + fetch (barres_au_sol intégré)
-- `arabesque/analysis/` — metrics, stats, pipeline
-- Shims de compatibilité : tous les anciens `from arabesque.live.engine import ...`
-  continuent de fonctionner sans modification
-- CLI unifié : `python -m arabesque run/screen/fetch/analyze/check`
-- `config/accounts.yaml` : flag `protected: true` pour les vrais comptes
-- `docs/HYGIENE.md` : règles de contribution formalisées
-
-**Aucune logique de trading modifiée.** Seuls les chemins ont changé.
-
----
-
-# ARABESQUE — Handoff v15
+# ARABESQUE — Handoff v16
 ## Pour reprendre le développement dans un nouveau chat
 
-> **Repo** : https://github.com/ashledombos/arabesque  
-> **Dernière mise à jour** : 2026-03-01, session Opus 4.6 (order flow validated, position management pending)
+> **Repo** : https://github.com/ashledombos/arabesque
+> **Dernière mise à jour** : 2026-03-13, session Sonnet 4.6 (restructuration v9 déployée)
 
 ---
 
@@ -58,223 +33,188 @@ IC99      : +0.084R > 0 ✅
 Score prop: 4/5 (seul échec: jours pour +10% = 58j > 45j)
 ```
 
-### Par source de données
-| Source | Instruments | N | WR | Exp | Total R |
-|---|---|---|---|---|---|
-| Dukascopy (forex+metals) | 49 (37 ✅) | 1122 | 76% | +0.103R | +115.2R |
-| CCXT (crypto) | 27 (23 ✅) | 876 | 75% | +0.166R | +145.0R |
+---
 
-### Consistance temporelle (8 blocs de 250 trades)
-Tous les 8 blocs positifs. Aucune période perdante sur 20 mois.
+## 2. Session 2026-03-13 — Restructuration v9
+
+### Ce qui a changé
+
+**Architecture multi-stratégie déployée sur main.** Aucune logique de trading modifiée.
+
+| Avant | Après |
+|---|---|
+| `arabesque/backtest/signal_gen_trend.py` | `arabesque/strategies/extension/signal.py` |
+| `arabesque/live/engine.py` (logique) | `arabesque/execution/live.py` |
+| `arabesque/guards.py` (logique) | `arabesque/core/guards.py` |
+| `arabesque/models.py` (logique) | `arabesque/core/models.py` |
+| `arabesque/indicators.py` (logique) | `arabesque/modules/indicators.py` |
+| `arabesque/position/manager.py` (logique) | `arabesque/modules/position_manager.py` |
+
+**Shims de compatibilité** : tous les anciens chemins fonctionnent encore :
+```python
+from arabesque.live.engine import LiveEngine     # ✅ shim
+from arabesque.models import Signal              # ✅ shim
+from arabesque.guards import Guards              # ✅ shim
+```
+
+**Nouveautés :**
+- `config/accounts.yaml` — flag `protected: true` pour les vrais comptes
+- `arabesque/strategies/extension/STRATEGY.md` — fiche complète
+- `arabesque/strategies/extension/params.yaml` — presets nommés
+- `docs/HYGIENE.md` — règles de contribution formalisées
+- CLI unifié `python -m arabesque run/screen/fetch/analyze/check`
+- 13 scripts one-off supprimés, 8 docs obsolètes supprimés
+
+### Validé sur le serveur
+
+```
+✅ arabesque.core.models
+✅ arabesque.strategies.extension.signal
+✅ arabesque.live.engine (compat shim)
+✅ python -m arabesque.live.engine --source parquet --dry-run
+```
+
+### Bug résiduel — fix appliqué
+
+**Problème** : `python -m arabesque.live.engine` ne démarrait plus (sortie silencieuse).
+**Cause** : le shim `arabesque/live/engine.py` n'avait pas de bloc `if __name__ == "__main__"`.
+**Fix** : ajout du forward dans le shim :
+```python
+if __name__ == "__main__":
+    from arabesque.execution.live import main
+    main()
+```
+Commit : `fix: shim engine.py forward __main__`
 
 ---
 
-## 2. Parcours complet des replays
+## 3. État courant du moteur live
 
-| # | Version | Période | Univers | N | WR | Exp | Total R |
-|---|---|---|---|---|---|---|---|
-| 1 | v3.0 combined | Oct→Jan | crypto 17 | 998 | 60% | +0.034 | +33.5 |
-| 2 | v3.3 combined | Oct→Jan | diversifié 46 | 319 | 64% | -0.044 | -13.9 |
-| 3 | v3.3 combined | Avr→Jul | crypto 17 | 169 | 65% | -0.083 | -14.1 |
-| 4 | v3.3 trend | Avr→Jul | diversifié 39 | 570 | 71% | +0.037 | +21.2 |
-| 5 | v3.3 trend | Oct→Jan | Dukascopy 19 | 171 | 75% | +0.109 | +18.6 |
-| **6** | **v3.3 trend** | **Jul24→Fév26** | **76 inst** | **1998** | **75.5%** | **+0.130** | **+260.2** |
+**Commande de lancement :**
+```bash
+python -m arabesque.live.engine |& tee live.log
+```
 
----
+**Compte actif** : `ftmo_swing_test` (non-protected dans `config/accounts.yaml`)
 
-## 3. Leçons majeures — IMMUTABLES
+**Shadow filters actifs (log only, pas bloquant) :**
+- Williams %R (`👻 WR shadow`) — accumulation de données
+- RSI divergence — accumulation de données
 
-### L1 : ROI court-terme + SL réel = piège mortel
-Ne plus jamais utiliser de ROI court terme.
-
-### L2 : Le BE est LE levier principal du WR
-WR ≈ % des trades atteignant le trigger MFE (0.3R → ~75-78%).
-
-### L3 : Mean Reversion ne fonctionne PAS (avec nos paramètres)
-MR perd sur TOUTES les catégories sur les périodes testées.
-Trend gagne sur TOUTES les catégories. **TREND-ONLY est définitif.**
-
-### L4 : La conclusion "Dukascopy only" était PRÉMATURÉE
-Sur 20 mois, crypto trend (+145R) SURPERFORME forex (+115R).
-La période Avr-Jul était un drawdown localisé, pas structurel.
-**L'univers complet (forex + métaux + crypto) est optimal.**
-
-### L5 : Risk 0.50%/trade → DD 10.3% (DÉPASSE FTMO 10%)
-Réduction à 0.40%/trade : DD 8.2%, return +104%. Marge de 1.8%.
-
-### L6 : Anti-biais — règles non négociables
-- Signal bougie `i`, exécution open bougie `i+1`
-- Si SL ET TP touchés même bougie → SL pris (pessimiste)
-
-### L7 : BE offset 0.20R (pas 0.15)
-323/339 trailing exits sortaient à +0.15R exact. Offset trop serré.
-
-### L8 : Pire streak = 9 trades perdants consécutifs
-À 0.40%/trade = -3.6%. Pire fenêtre 50 trades = -16.9R = -6.8%.
-Le système survit à ses pires périodes sous les limites FTMO.
+**Instruments validés (basket FTMO) :**
+```
+BTCUSD ETHUSD SOLUSD BNBUSD LNKUSD ICPUSD
+EURUSD USDJPY GBPUSD NZDCAD XAUUSD
+```
 
 ---
 
-## 4. Configuration v3.3
+## 4. Architecture post-restructuration
 
-### Entrées (signal_gen.py)
-- BB 20, std 2.0, typical_price
-- RSI 14, oversold=35, overbought=65
-- SL : swing 10 bars, fallback 1.5 ATR, min 1.5 ATR
+```
+arabesque/
+├── core/              ← Kernel immuable (models, guards, audit)
+├── modules/           ← Briques réutilisables (indicators, position_manager)
+├── strategies/
+│   └── extension/     ← Trend-following H1 ✅ Validé
+│       ├── signal.py  ← Générateur UNIQUE backtest + live
+│       ├── params.yaml
+│       └── STRATEGY.md
+├── execution/         ← Moteurs (backtest, dryrun, live, bar_aggregator…)
+├── broker/            ← Adapters (cTrader, TradeLocker, DryRun)
+├── data/              ← Store parquet + fetch (ex-barres_au_sol)
+└── analysis/          ← Metrics, stats, pipeline de screening
+```
 
-### Sorties (manager.py)
-- **BE** : trigger=0.3R, offset=0.20R
-- **Giveback** : MFE≥0.5R, current<0.15R
-- **Trailing** : 3 paliers (≥1.5R:0.7R, ≥2.0R:1.0R, ≥3.0R:1.5R)
-- **ROI** : backstop (0:3.0R, 240:0.15R)
-
-### Risk (guards.py)
-- **risk_per_trade** : 0.40%
-- **max_daily_dd** : 4.0%
-- **max_total_dd** : 9.0% (safety margin 1%)
-- **max_positions** : 5
+**Règle immuable** : `strategies/extension/signal.py` est modifiable
+uniquement par **Claude Opus 4.6**.
 
 ---
 
 ## 5. Prochaines étapes
 
-### P0 : ✅ LIVE POSITION MANAGER (IMPLÉMENTÉ)
-Le `LivePositionMonitor` (`arabesque/live/position_monitor.py`) gère le breakeven et le trailing en live :
-- **Breakeven** : MFE >= 0.3R → SL déplacé à entry + 0.20R via `amend_position_sltp()`
-- **Trailing** : paliers 1.5R/2.0R/3.0R → SL suit le prix avec distances 0.7R/1.0R/1.5R
-- Retry avec backoff pour les amends échoués (max 3 tentatives)
-- Réconciliation périodique (2 min) pour nettoyer les positions fermées
-- Câblé dans `engine.py` : enregistrement au fill, callback sur chaque H1 bar close
-- **Fix digits** : `ProtoOASymbolByIdReq` appelé après chargement des symboles légers
-  pour obtenir les vrais digits (2 pour BTCUSD, 5 pour EURUSD). Tous les prix
-  (SL/TP/entry) sont arrondis dans le broker avant envoi au protobuf.
+### P0 : Validation live continue
+Le moteur tourne sur `ftmo_swing_test`. Observer la correspondance
+backtest ↔ live (WR, nb trades/semaine, exit reasons).
 
-### P1 : MULTI-COMPTE PROP FIRM
-Voir `config/prop_firm_profiles.yaml`.
-- Distribution d'instruments entre comptes (pas de doublons même firm)
-- Risk adapté par type de compte (FTMO Swing vs GFT vs crypto)
-- Architecture: le signal generator produit, un dispatcher distribue
+### P1 : Décision shadow filters
+Accumuler ~100 trades avec logs Williams %R et RSI div, puis décider
+si activer comme filtre bloquant. Voir `docs/DECISIONS.md`.
 
-### P2 : MOTEUR DE RISQUE LIVE
-- Daily loss limit avec kill switch automatique
-- News filter (fenêtre ±2min)
-- Règle de consistance (best day < 50% du profit)
-- Vérification equity tracking DryRunAdapter (DD guards non fonctionnels en replay)
+### P2 : Multi-compte prop firm
+`config/prop_firm_profiles.yaml` existe. Quand le compte test est
+validé, étendre à GFT (TradeLocker).
 
-### P3 : FORWARD TEST
-- Démo FTMO avec la config trend-only + risk 0.40%
-- Monitoring de la correspondance backtest ↔ live
-- Journal structuré pour audit trail
-
-### P4 : OPTIMISATIONS
-- Données 1-minute pour résolution intrabar
-- Filtrage des instruments durablement perdants (USDZAR, GBPNZD, USDCNH)
-- Walk-forward formel (PBO/Deflated Sharpe)
+### P3 : Tests unitaires
+Placeholder dans `tests/`. À implémenter quand on veut garantir la
+non-régression des guards et du signal generator.
 
 ---
 
-## 6. Scripts
+## 6. Configuration v3.3 (inchangée)
 
-| Script | Usage |
-|---|---|
-| `scripts/analyze_replay_v2.py FILE --grid` | Analyse complète + simulation BE/TP |
-| `scripts/analyze_replay_v2.py FILE --compare FILE2` | Comparaison 2 replays |
-| `scripts/test_connectivity.py -v` | Vérifie connexions + mappings (non destructif) |
-| `scripts/test_order_flow.py --symbol X --broker Y` | Test cycle MARKET → amend SL → close |
-| `scripts/close_positions.py [--close-all]` | Liste/ferme les positions ouvertes |
+### Entrées (signal generator)
+- BB 20, std 2.0, typical_price
+- Squeeze : percentile 20 sur 100 barres, mémoire 10 barres
+- ADX min 20.0, rising 3 barres
+- SL : 1.5 ATR
+
+### Sorties (position manager)
+- **BE** : trigger=0.3R, offset=0.20R
+- **Trailing** : 3 paliers (≥1.5R:0.7R, ≥2.0R:1.0R, ≥3.0R:1.5R)
+- **ROI** : backstop (0:3.0R, 240:0.15R)
+
+### Risk (guards)
+- **risk_per_trade** : 0.40%
+- **max_daily_dd** : 4.0%
+- **max_total_dd** : 9.0% (safety margin 1%)
+- **max_open_risk** : 2.0% simultané
 
 ---
 
-## 7. Top 10 instruments (20 mois)
+## 7. Leçons majeures — IMMUTABLES
 
-| Instrument | Trades | WR | Total R | Source |
-|---|---|---|---|---|
-| SOLUSD | 46 | 89% | +14.8 | CCXT |
-| XAGUSD | 33 | 88% | +12.3 | Dukascopy |
-| DOTUSD | 37 | 81% | +12.1 | CCXT |
-| NEOUSD | 36 | 83% | +11.1 | CCXT |
-| ALGOUSD | 40 | 80% | +11.0 | CCXT |
-| USDMXN | 28 | 86% | +10.6 | Dukascopy |
-| ETHUSD | 38 | 79% | +10.3 | CCXT |
-| XAUEUR | 43 | 81% | +9.2 | Dukascopy |
-| USDCZK | 25 | 84% | +8.8 | Dukascopy |
-| MANAUSD | 32 | 69% | +8.7 | CCXT |
+### L1 : BE est LE levier principal du WR
+WR ≈ % des trades atteignant le trigger MFE (0.3R → ~75-78%).
+
+### L2 : Mean Reversion abandonnée définitivement
+MR perd sur TOUTES les catégories. TREND-ONLY est définitif.
+
+### L3 : Risk 0.40%/trade (pas 0.50%)
+À 0.50% : DD 10.3% → dépasse FTMO 10%. Marge de 1.8% à 0.40%.
+
+### L4 : BE offset 0.20R (pas 0.15)
+323/339 trailing exits sortaient à +0.15R exact. Offset trop serré.
+
+### L5 : L'univers complet (forex + crypto) est optimal
+Crypto trend (+145R) surperforme forex (+115R) sur 20 mois.
+
+### L6 : Anti-biais strict
+Signal bougie `i`, exécution open bougie `i+1`. Si SL ET TP même bougie → SL pris.
 
 ---
 
 ## 8. Restrictions
 
-**⛔ Opus 4.6** : manager.py, signal_gen.py, guards.py, indicators.py, décisions stratégiques.
-**✅ Intermédiaire** : replay, analyze_replay_v2.py, diagnostics, ajout instruments.
+**⛔ Opus 4.6 uniquement** :
+- `arabesque/strategies/*/signal.py`
+- `arabesque/core/*.py`
+- `arabesque/modules/position_manager.py`
+- Toute décision stratégique (paramètres, univers, règles de sortie)
+
+**✅ Sonnet ou intermédiaire** :
+- Infrastructure, scripts, broker adapters, data pipeline
+- Diagnostics, analysis, documentation
 
 ---
 
-## 9. Session 2026-02-27 — Live Engine Stability
+## 9. Bugs live connus et corrigés (session 2026-02-27)
 
-### Bugs corrigés
+Voir HANDOFF v15 pour le détail complet des 16 bugs corrigés dans
+`ctrader.py`, `price_feed.py`, `bar_aggregator.py`, `factory.py`.
 
-1. **`price_feed.py` — Reconnexion en boucle pour symboles illiquides** : ALGUSD, NEOUSD, XAGUSD déclenchaient une reconnexion globale toutes les 2 min. Nouvelle logique :
-   - Symboles majeurs (G10+XAU+BTC+ETH) : seuil stale 5 min
-   - Symboles mineurs : seuil stale 30 min (tolérance)
-   - Détection weekend : forex/métaux stale tolérés ven 22h→dim 22h UTC
-   - Reconnexion globale uniquement si >50% des symboles stale
-   - **FIX 2026-02-28** : le check global >50% ne tenait pas compte du weekend → 52 forex fermés = 63% > 50% → reconnexion en boucle toutes les 2 min (tentative #1→#150). Corrigé : pendant le weekend, le check global ne compte que les crypto (31 symboles). Ajout set `CRYPTO_SYMBOLS` pour classification propre.
-
-2. **`price_feed.py` — ALREADY_SUBSCRIBED** : lors de la reconnexion, le code clearait `_subscribed_symbol_ids` puis tentait de re-souscrire → erreur côté serveur. Fix : si broker déjà connecté et souscriptions actives, ne rafraîchir que les callbacks Python sans requête TCP.
-
-3. **`bar_aggregator.py` — Fermetures de bougies invisibles** : `_on_bar_closed` loggait en DEBUG. Passé en INFO avec résumé groupé toutes les 2 min : "X barres fermées, Y signaux émis".
-
-4. **`settings.yaml` — Stratégie "combined" au lieu de "trend"** : pas de section `strategy`, le code defaultait à combined (inclut mean-reversion perdante). Ajout `strategy.type: trend`.
-
-5. **`settings.yaml` — Risk 0.5% au lieu de 0.40%** : corrigé selon la validation v3.3 (DD 8.2% à 0.40%).
-
-6. **`bar_aggregator.py` — TypeError `live_mode`** : `TrendSignalGenerator.__init__()` n'accepte pas `live_mode=True` (contrairement à `BacktestSignalGenerator`). Retiré — pas nécessaire car le BarAggregator filtre déjà la dernière bougie côté appelant.
-
-7. **⚠️ CRITIQUE: `factory.py` + `engine.py` — instruments_mapping vide** : `create_all_brokers()` cherchait les instruments dans `settings["instruments"]` qui est `{}` (les instruments sont dans un fichier séparé `instruments.yaml`). Résultat : `map_symbol()` retournait toujours `None` → "non disponible" pour TOUS les symboles → 0 ordre placé sur 19 signaux. Fix : le moteur passe maintenant `self.instruments` au factory via un 3e paramètre. Log ajouté : `✅ broker_id connecté (N instruments mappés)`.
-
-8. **`tradelocker.py` — stop_price pour ordres stop** : la lib TradeLocker exige `stop_price` pour les ordres `type_='stop'`, pas `price`. L'erreur `Order of type_ = 'stop' specified with a price, instead of stop_price` apparaissait pour BCHUSD et BNBUSD sur GFT. Fix : `stop_price` pour stop, `price` pour limit.
-
-9. **`ctrader.py` + `base.py` — amend_position_sltp + close_position** : ajout des méthodes `amend_position_sltp()` (ProtoOAAmendPositionSLTPReq) et `close_position()` (ProtoOAClosePositionReq) au broker cTrader, avec wrappers synchrones. Le handler `_process_order_response` est refactorisé pour supporter les 4 types de requêtes (order_place, position_amend, position_close, order_cancel) via un système de priorité.
-
-10. **Scripts de test** :
-    - `scripts/test_order_flow.py` : test cycle complet (MARKET → amend SL → close) avec confirmation utilisateur et volume minimum (0.01 lots)
-    - `scripts/test_connectivity.py` : vérifie connexions, mappings instruments.yaml vs réalité broker, infos compte, historique (non destructif)
-
-11. **`ctrader.py` — timeInForce enum** : `GTC` n'existe pas dans le protobuf cTrader, le nom correct est `GOOD_TILL_CANCEL`. De plus, `timeInForce` ne doit pas être envoyé pour les ordres MARKET.
-
-12. **`ctrader.py` — volume multiplier** : `10_000_000` était incorrect. L'unité cTrader est le centilot (1 lot = 100). Le code lisait correctement les volumes en divisant par 100 mais envoyait avec ×10M → 0.01 lots devenait 1000 lots. Fix : `volume_multiplier = 100`.
-
-13. **`ctrader.py` — close_position volume obligatoire** : `ProtoOAClosePositionReq.volume` est un champ **requis** dans le protobuf. Si pas de volume fourni, on récupère celui de la position via `get_positions()`.
-
-14. **`ctrader.py` — _resolve_symbol_name** : les positions retournées par `ReconcileRes` contiennent un `symbolId` numérique (ex: 324). Le nouveau `_resolve_symbol_name()` résout cet ID en nom lisible (BTCUSD) via le catalogue `_symbols`.
-
-15. **`ctrader.py` — _process_order_response positionId** : le handler retourne maintenant le `positionId` (pas `orderId`) pour les opérations sur positions. Un MARKET fill crée un `orderId` ≠ `positionId` — seul le `positionId` est valide pour amend/close.
-
-16. **`scripts/close_positions.py`** : utilitaire pour lister/fermer les positions orphelines. Charge les symboles avant listing pour afficher les noms lisibles.
-
-### Observations de la session Perplexity (review)
-- Confirmation que le TP est un mur absolu (broker ferme dès qu'il est touché)
-- Le trailing ne peut PAS capturer au-delà du TP
-- Les paliers sont : BE (0.3R→0.20R), trailing (≥1.5R:0.7R, ≥2.0R:1.0R, ≥3.0R:1.5R)
-- News filter identifié comme amélioration future (P2)
-
-### Bugs corrigés dans `broker/ctrader.py`
-1. **`get_history()` — fromTimestamp/toTimestamp manquants** : champs proto obligatoires. Ajout `_TIMEFRAME_SECONDS` + calcul fenêtre temporelle.
-2. **`_decode_trendbar()` — champs proto incorrects** : corrigé vers `tb.low` + deltas.
-3. **`_process_spot_event()` — diviseur hardcodé** : remplacé par diviseur spécifique au symbole. Gestion SpotEvents incrémentaux.
-4. **Thread-safety globale** : `_resolve_future()`/`_reject_future()` helpers pour tous les handlers. `_asyncio_loop` stocké dès `connect()`.
-5. **`_process_spot_event()` — `asyncio.get_event_loop()` dans thread Twisted** : crash `RuntimeError: no current event loop`. Remplacé par `self._asyncio_loop`.
-6. **⚠️ CRITIQUE: `_symbol_id_for_name()` — condition toujours vraie** : `sinfo.broker_symbol == str(sid)` retournait TOUJOURS le premier symbole du dict. **Toutes les souscriptions spots ET tous les get_history utilisaient le même symbolId** (EURUSD). Corrigé avec recherche par nom exact + normalisation (EUR/USD → EURUSD).
-7. **⚠️ CRITIQUE: diviseur de prix dérivé de pip_size** : `_process_symbol_details()` changeait `pip_size` (USDJPY: 0.0001→0.01) → diviseur passait de 100000→1000 → TOUS les prix décodés 100x trop grands → volumes 100x trop petits → TRADING_BAD_VOLUME. Fix: diviseur fixe 10^5 stocké dans `_symbol_divisors`, indépendant de digits/pipPosition.
-8. **Volume non validé avant envoi** : `place_order()` envoyait le volume sans vérifier min/max/step du symbole → rejet côté cTrader. Fix: validation pré-envoi + normalizer dans le dispatcher.
-9. **⚠️ CRITIQUE: unités volume cTrader ×100 au lieu de ×lotSize** : cTrader API utilise des "cents" (1/100 unité base). Notre code multipliait par 100 (hardcodé) → marchait pour BTCUSD (lotSize=100) mais NZDCAD envoyait 0.000023 lots au lieu de 2.30. Fix: `req.volume = lots × _lot_size_cents[symbol_id]`. Aussi affecte reconcile (`volume / lotSize` au lieu de `/ 100`) et minVolume/maxVolume/stepVolume.
-10. **Race condition barres dupliquées** : `on_tick()` async sans lock → 12 ticks NZDCAD ferment 12 fois la même bougie → 12 BE triggers → 12 amends → timeout cascade. Fix: `_last_closed_ts` per-symbol dedup guard + `_amend_in_progress` flag.
-
-### Architecture
-7. **PriceFeedManager réutilise le broker existant** : plus de 2e connexion TCP → plus de `ALREADY_LOGGED_IN`.
-8. **`_send_no_response()`** : fire-and-forget avec errback pour éviter les Deferred 5s timeout.
-9. **Chargement historique séquentiel** : cTrader mono-connexion TCP ne supporte pas les requêtes parallèles. Séquentiel avec 0.15s delay.
-10. **Lazy imports dans `live/__init__.py`** : supprime le RuntimeWarning au lancement.
-
-### Améliorations UX
-11. **Warnings "aucun tick" condensés** : un résumé au lieu de 83 lignes individuelles toutes les 30s.
+Principaux :
+- Race condition bougies dupliquées → `_last_closed_ts` dedup guard
+- Volume units ×lotSize (pas ×100 hardcodé)
+- Symbol ID resolution dans reconcile
+- Price divisor 10^5 fixe (indépendant de pip_size)
