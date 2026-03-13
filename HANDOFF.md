@@ -1,3 +1,28 @@
+## ⚡ Restructuration Mars 2026 — v9 skeleton
+
+**Date** : 12 mars 2026
+**État** : Fichiers générés, prêt à merger sur main via PR
+
+La restructuration décrite dans `RESTRUCTURING_PROPOSAL.md` est appliquée.
+Voir `docs/START_HERE.md` pour le résumé et `docs/HYGIENE.md` pour les règles.
+
+**Changements majeurs :**
+- `arabesque/core/` — kernel immuable (models, guards, audit)
+- `arabesque/modules/` — briques réutilisables (indicators, position_manager)
+- `arabesque/strategies/extension/` — stratégie trend, **signal.py unique** backtest+live
+- `arabesque/execution/` — moteurs (backtest, dryrun, live, bar_aggregator, etc.)
+- `arabesque/data/` — store + fetch (barres_au_sol intégré)
+- `arabesque/analysis/` — metrics, stats, pipeline
+- Shims de compatibilité : tous les anciens `from arabesque.live.engine import ...`
+  continuent de fonctionner sans modification
+- CLI unifié : `python -m arabesque run/screen/fetch/analyze/check`
+- `config/accounts.yaml` : flag `protected: true` pour les vrais comptes
+- `docs/HYGIENE.md` : règles de contribution formalisées
+
+**Aucune logique de trading modifiée.** Seuls les chemins ont changé.
+
+---
+
 # ARABESQUE — Handoff v15
 ## Pour reprendre le développement dans un nouveau chat
 

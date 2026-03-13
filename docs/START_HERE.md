@@ -1,10 +1,11 @@
-# 🚀 START HERE — Arabesque
+# Arabesque — START HERE
 
-> Premier fichier à lire pour toute nouvelle personne (ou IA) qui rejoint le projet.
+> Ce fichier est **la seule porte d'entrée**. Lisez-le en premier.
+> Il vous dit quoi lire ensuite et dans quel ordre.
 
 ---
 
-## 1. Clone & setup
+## 1. Setup rapide
 
 ```bash
 ssh raphael@hodo
@@ -13,84 +14,95 @@ git pull origin main
 source .venv/bin/activate
 ```
 
-Ou depuis zéro :
+Depuis zéro :
 ```bash
 git clone git@github.com:ashledombos/arabesque.git
 cd arabesque
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp config/secrets.yaml.example config/secrets.yaml  # puis remplir les credentials
+cp config/secrets.example.yaml config/secrets.yaml  # puis remplir les credentials
 ```
 
 ---
 
-## 2. Lire dans cet ordre
-
-| Fichier | Contenu | Temps de lecture |
-|---|---|---|
-| **HANDOFF.md** | État actuel + bugs ouverts + plan P0-P8 | 5 min |
-| **docs/decisions_log.md** | Pourquoi chaque décision + erreurs passées | 10 min |
-| **docs/TECH_DEBT.md** | Dette technique en cours + priorités | 2 min |
-| **docs/instrument_selection_philosophy.md** | Logique de sélection anti-overfitting | 5 min |
-| **docs/ARCHITECTURE.md** | Architecture détaillée | optionnel |
-
----
-
-## 3. Prompt à coller en début de chaque nouvelle conversation IA
-
-```
-Lis HANDOFF.md et docs/decisions_log.md dans le repo GitHub ashledombos/arabesque
-(branche main) avant de répondre. Contexte : trading algo prop firms FTMO, Python.
-Bug critique non corrigé : daily_dd_pct divisé par start_balance
-(doit être daily_start_balance) — guards DD ne se déclenchent jamais.
-Workflow : push direct main, doc à jour après chaque session, supprimer code mort.
-Si tu proposes une modification de code : indique impact, risques, comment valider,
-met à jour HANDOFF.md + decisions_log.md + TECH_DEBT.md si nécessaire.
-```
-
----
-
-## 4. Commandes de démarrage rapide
+## 2. Commandes essentielles
 
 ```bash
-# Vérifier l'état des instruments (pipeline complet)
-python scripts/run_pipeline.py -v
+# Backtest trend sur instruments validés
+python -m arabesque run --strategy extension --mode backtest BTCUSD XAUUSD EURUSD
 
-# Stats avancées sur les viables
-python scripts/run_stats.py XAUUSD --period 730d
+# Dry-run replay parquet (3 mois)
+python -m arabesque run --strategy extension --mode dryrun \
+  --from 2025-10-01 --to 2026-01-01
 
-# Backtest d'un instrument
-python scripts/backtest.py BCHUSD --strategy combined
+# Moteur live (compte test)
+python -m arabesque run --strategy extension --mode live --account ftmo_swing_test
 
-# Replay dry-run (offline, parquets, 3 mois)
-python -m arabesque.live.runner \
-  --mode dry_run --source parquet \
-  --start 2025-10-01 --end 2026-01-01
-
-# Live dry-run (ticks cTrader réels, zéro ordre)
+# Moteur live direct (ancien point d'entrée — toujours fonctionnel)
 python -m arabesque.live.engine --dry-run
 
-# Git — aligner local sur remote (jamais --force)
-git fetch origin && git reset --hard origin/main
+# Screening multi-instruments
+python -m arabesque screen --strategy extension --list crypto
+
+# Mise à jour données Parquet
+python -m arabesque fetch --from 2024-01-01 --to 2026-12-31
+
+# Analyser les logs live
+python -m arabesque analyze --days 7
+```
+
+---
+
+## 3. Ordre de lecture — documentation
+
+| # | Document | Contenu | Temps |
+|---|---|---|---|
+| **1** | `docs/START_HERE.md` | Ce fichier | 2 min |
+| **2** | `HANDOFF.md` | État actuel, bugs ouverts, P0→P8 | 5 min |
+| **3** | `docs/DECISIONS.md` | Pourquoi chaque décision, ce qui a été abandonné | 10 min |
+| **4** | `arabesque/strategies/extension/STRATEGY.md` | Fiche de la stratégie active | 5 min |
+| **5** | `docs/HYGIENE.md` | Règles de contribution — LIRE avant de coder | 3 min |
+| **6** | `docs/ARCHITECTURE.md` | Architecture technique détaillée | optionnel |
+
+---
+
+## 4. Prompt de reprise pour une IA
+
+```
+Lis HANDOFF.md et docs/DECISIONS.md dans le repo GitHub ashledombos/arabesque
+(branche main) avant de répondre. Contexte : trading algo prop firms FTMO,
+Python asyncio, stratégie trend-following H1 en live.
+
+Règles immuables :
+- Gains petits, fréquents, consistants. WR ≥ 70%.
+- La stratégie Extension (trend-only) est validée — ne pas modifier la logique
+  de signal sans rejeu complet 20 mois.
+- Tick-level TSL non optionnel (récupère +183R vs +10.4R H1-only).
+- Seul Claude Opus 4.6 peut modifier arabesque/strategies/*/signal.py et
+  arabesque/core/*.py.
+
+Architecture post-restructuration :
+- arabesque/core/          → models, guards, audit (kernel immuable)
+- arabesque/modules/       → indicators, position_manager (réutilisables)
+- arabesque/strategies/    → une stratégie = un dossier autonome
+- arabesque/execution/     → backtest, dryrun, live (moteurs)
+- arabesque/data/          → store + fetch (ex-barres_au_sol)
+- arabesque/analysis/      → metrics, stats, pipeline
+- Les vieux chemins d'import (arabesque.models, arabesque.live.engine, etc.)
+  fonctionnent toujours via des shims de compatibilité.
 ```
 
 ---
 
 ## 5. Règles non négociables
 
-- Anti-lookahead strict : signal bougie `i`, exécution open `i+1`
-- Même code backtest/replay/live (`CombinedSignalGenerator`)
-- Guards toujours actifs (dry-run inclus)
-- Jamais `git push --force` sur `main`
-- Ne jamais connecter le bot sur le compte challenge avant validation guards DD
+1. **Jamais `git push --force` sur main**
+2. **Jamais modifier la stratégie sans rejeu complet** (20 mois, 76 instruments)
+3. **Tout script temporaire dans `tmp/`** (gitignored)
+4. **Fin de session** : mettre à jour `HANDOFF.md` + `docs/DECISIONS.md`
+5. **Comptes `protected: true`** dans `config/accounts.yaml` ne peuvent pas
+   recevoir d'ordres sans `--force-live` explicite
+6. **Seul Opus 4.6** peut modifier `arabesque/strategies/*/signal.py`
+   et `arabesque/core/*.py`
 
----
-
-## 6. Architecture en une phrase
-
-```
-ticks cTrader/TradeLocker → BarAggregator → CombinedSignalGenerator
-→ OrderDispatcher → CTraderAdapter + TradeLockerAdapter → Apprise (alertes)
-```
-
-Voir `docs/ARCHITECTURE.md` pour le détail.
+Voir `docs/HYGIENE.md` pour les règles complètes.

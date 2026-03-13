@@ -1,0 +1,126 @@
+# =============================================================================
+# Arabesque — Stratégie Extension — Jeux de paramètres
+# =============================================================================
+# Chaque preset est un jeu complet de paramètres nommé.
+# Lancer un backtest sweep compare automatiquement tous les presets.
+#
+# Usage :
+#   python -m arabesque run --strategy extension --preset default --mode backtest
+#   python -m arabesque run --strategy extension --preset conservative --mode backtest
+# =============================================================================
+
+presets:
+
+  # --------------------------------------------------------------------------
+  # default — Paramètres validés sur 20 mois, 76 instruments
+  # --------------------------------------------------------------------------
+  # Résultat de référence (Jul 2024 → Fév 2026) :
+  #   N=1998, WR=75.5%, Exp=+0.130R, Total R=+260.2R, Max DD=8.2%
+  #   IC99 > 0 ✅ — compatible FTMO
+  # --------------------------------------------------------------------------
+  default:
+    # Bollinger Bands
+    bb_period: 20
+    bb_std: 2.0
+
+    # EMAs
+    ema_fast: 50
+    ema_slow: 200
+
+    # RSI
+    rsi_period: 14
+
+    # Squeeze
+    squeeze_lookback: 100
+    squeeze_pctile: 20.0
+    squeeze_memory: 10
+
+    # Expansion
+    expansion_bars: 2
+
+    # ADX
+    adx_trend_min: 20.0
+    adx_rising_bars: 3
+
+    # SL / TP
+    sl_method: "atr"
+    sl_atr_mult: 1.5
+    tp_rr_mult: 2.0
+    min_rr: 1.0
+
+    # CMF confirmation
+    cmf_confirm: true
+
+    # Risk
+    risk_pct: 0.40           # % du capital risqué par trade
+                             # Validé pour rester sous DD FTMO 10%
+
+    # Trailing / Breakeven (PositionManager)
+    tsl:
+      be_trigger_r: 0.30     # MFE >= 0.3R → activer breakeven
+      be_offset_r: 0.20      # SL mis à entry + 0.20R
+                             # Offset 0.15 trop serré : 323/339 exits à +0.15R exact
+      trailing_tiers:        # Paliers trailing (MFE threshold → trail distance)
+        - [3.0, 1.5]
+        - [2.0, 1.0]
+        - [1.5, 0.7]
+
+  # --------------------------------------------------------------------------
+  # conservative — Pour exploration / comparaison
+  # --------------------------------------------------------------------------
+  conservative:
+    bb_period: 20
+    bb_std: 2.5              # BB plus large → moins de faux breakouts
+    ema_fast: 50
+    ema_slow: 200
+    rsi_period: 14
+    squeeze_lookback: 100
+    squeeze_pctile: 15.0     # Squeeze plus strict
+    squeeze_memory: 8
+    expansion_bars: 3        # Plus d'expansion exigée
+    adx_trend_min: 25.0      # ADX plus fort exigé
+    adx_rising_bars: 3
+    sl_method: "atr"
+    sl_atr_mult: 1.5
+    tp_rr_mult: 2.0
+    min_rr: 1.5              # R:R minimum plus exigeant
+    cmf_confirm: true
+    risk_pct: 0.30           # Risque réduit
+
+    tsl:
+      be_trigger_r: 0.35
+      be_offset_r: 0.25
+      trailing_tiers:
+        - [3.0, 1.5]
+        - [2.0, 1.0]
+        - [1.5, 0.7]
+
+  # --------------------------------------------------------------------------
+  # wide_squeeze — Squeeze plus permissif (plus de signaux)
+  # --------------------------------------------------------------------------
+  wide_squeeze:
+    bb_period: 20
+    bb_std: 2.0
+    ema_fast: 50
+    ema_slow: 200
+    rsi_period: 14
+    squeeze_lookback: 100
+    squeeze_pctile: 25.0     # Squeeze plus permissif → plus de signaux
+    squeeze_memory: 15
+    expansion_bars: 1
+    adx_trend_min: 18.0
+    adx_rising_bars: 2
+    sl_method: "atr"
+    sl_atr_mult: 1.5
+    tp_rr_mult: 2.0
+    min_rr: 1.0
+    cmf_confirm: true
+    risk_pct: 0.40
+
+    tsl:
+      be_trigger_r: 0.30
+      be_offset_r: 0.20
+      trailing_tiers:
+        - [3.0, 1.5]
+        - [2.0, 1.0]
+        - [1.5, 0.7]

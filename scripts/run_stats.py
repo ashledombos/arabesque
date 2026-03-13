@@ -19,8 +19,8 @@ import os
 # Ajouter le répertoire parent au path si besoin
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from arabesque.backtest.runner import run_backtest, BacktestConfig
-from arabesque.backtest.stats import full_statistical_analysis
+from arabesque.execution.backtest import run_backtest, BacktestConfig
+from arabesque.analysis.stats import full_statistical_analysis
 
 
 def main():

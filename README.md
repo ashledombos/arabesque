@@ -1,10 +1,12 @@
 # Arabesque
 
-Système de trading algorithmique pour prop firms (FTMO, Goat Funded Trader).
-Trois stratégies complémentaires sur Bandes de Bollinger, même `PositionManager` pour le live et le dry-run.
+Système de trading algorithmique pour prop firms (FTMO, GFT).
+Stratégie trend-following H1 sur Bandes de Bollinger — **validée sur 20 mois**.
 
-> **Résultat de référence (dry-run `combined`, oct 2025, 2 semaines)**
-> +19.71% | Max DD 3.8% | WR 56.6% | Expectancy +0.38R | 53 trades
+> **Résultat de référence** — 20 mois (Jul 2024 → Fév 2026), 76 instruments
+> N=1998 | WR=75.5% | Exp=+0.130R | Total R=+260.2R | Max DD=8.2% | IC99>0 ✅
+
+**→ Commencer ici : [docs/START_HERE.md](docs/START_HERE.md)**
 
 ---
 
@@ -15,78 +17,18 @@ git clone git@github.com:ashledombos/arabesque.git && cd arabesque
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Dry-run replay depuis les fichiers Parquet locaux
-python -m arabesque.live.runner --mode dry_run --source parquet \
-  --start 2025-10-01 --end 2025-10-15 --strategy combined
-```
+# Dry-run replay parquet (3 mois)
+python -m arabesque run --strategy extension --mode dryrun \
+  --from 2025-10-01 --to 2026-01-01
 
-Pour passer la main ou comprendre l'architecture en détail : lire [HANDOVER.md](HANDOVER.md).
+# Backtest IS+OOS
+python -m arabesque run --strategy extension --mode backtest BTCUSD XAUUSD
 
----
+# Moteur live (compte test)
+python -m arabesque run --strategy extension --mode live --account ftmo_swing_test
 
-## Source des données Parquet
-
-Les fichiers `data/parquet/*_H1.parquet` sont générés par le projet
-**[barres_au_sol](https://github.com/ashledombos/barres_au_sol)** — data lake local
-(Dukascopy + CCXT/Binance), indépendant d'Arabesque.
-
-> ⚠️ Sans ces fichiers, le mode `--source parquet` ne peut pas fonctionner.
-
-### Mise à jour des données (depuis `barres_au_sol/`)
-
-```bash
-cd ~/dev
-git clone git@github.com:ashledombos/barres_au_sol.git
-cd barres_au_sol
-python3 -m venv .venv && source .venv/bin/activate
-pip install pandas numpy pyarrow requests ccxt tqdm
-
-# Télécharger les 19 instruments utilisés par Arabesque
-# (tous via CCXT/Binance, sauf XAUUSD via Dukascopy)
-python data_orchestrator.py \
-  --start 2024-01-01 --end 2026-12-31 \
-  --derive 1h \
-  --filter "^(AAVUSD|ALGUSD|AVAUSD|BCHUSD|BNBUSD|DASHUSD|GRTUSD|ICPUSD|IMXUSD|LNKUSD|NEOUSD|NERUSD|SOLUSD|UNIUSD|VECUSD|XLMUSD|XRPUSD|XTZUSD)$" \
-  --sleep-ms 200 --sleep-between 2
-
-# XAUUSD séparément (source Dukascopy)
-python data_orchestrator.py \
-  --start 2024-01-01 --end 2026-12-31 \
-  --derive 1h \
-  --filter "^XAUUSD$" \
-  --only dukascopy \
-  --sleep-ms 200
-```
-
-Ensuite, copier les dérivés H1 vers Arabesque :
-
-```bash
-# Les fichiers dérivés sont dans data/ccxt/derived/ et data/dukascopy/derived/
-# Arabesque attend : arabesque/data/parquet/XRPUSD_H1.parquet etc.
-mkdir -p ~/dev/arabesque/data/parquet
-
-# Crypto (ccxt)
-for sym in AAVE/USDT:AAVUSD BNB/USDT:BNBUSD SOL/USDT:SOLUSD XRP/USDT:XRPUSD \
-           BCH/USDT:BCHUSD GRT/USDT:GRTUSD ICP/USDT:ICPUSD IMX/USDT:IMXUSD \
-           LINK/USDT:LNKUSD NEO/USDT:NEOUSD NEAR/USDT:NERUSD ALGO/USDT:ALGUSD \
-           AVAX/USDT:AVAUSD UNI/USDT:UNIUSD VET/USDT:VECUSD XLM/USDT:XLMUSD \
-           XTZ/USDT:XTZUSD DASH/USDT:DASHUSD; do
-  src="${sym%%:*}"; dst="${sym##*:}"
-  key=$(echo "$src" | tr '/' '_')
-  cp data/ccxt/derived/${key}_1h.parquet ~/dev/arabesque/data/parquet/${dst}_H1.parquet
-done
-
-# Or (dukascopy)
-cp data/dukascopy/derived/XAUUSD_1h.parquet ~/dev/arabesque/data/parquet/XAUUSD_H1.parquet
-```
-
-### Cron quotidien (mise à jour automatique)
-
-```bash
-# Ajouter dans crontab -e :
-0 3 * * * cd ~/dev/barres_au_sol && source .venv/bin/activate && \
-  python data_orchestrator.py --start 2024-01-01 --end 2027-12-31 \
-  --derive 1h --sleep-ms 200 --sleep-between 2
+# Ancien point d'entrée (toujours fonctionnel)
+python -m arabesque.live.engine --dry-run
 ```
 
 ---
@@ -94,222 +36,32 @@ cp data/dukascopy/derived/XAUUSD_1h.parquet ~/dev/arabesque/data/parquet/XAUUSD_
 ## Architecture
 
 ```
- arabesque/
- ├── live/
- │   ├── runner.py            ← Point d'entrée CLI (--mode, --source, --strategy)
- │   ├── parquet_clock.py     ← Replay bougie-par-bougie depuis fichiers Parquet
- │   └── bar_poller.py        ← Stream live cTrader (production future)
- │
- ├── backtest/
- │   ├── signal_gen_combined.py  ← Stratégie recommandée (MR + Trend + Breakout)
- │   ├── signal_gen.py           ← Mean-Reversion seule (BB excess + RSI)
- │   ├── signal_gen_trend.py     ← Trend seule (BB squeeze → expansion)
- │   ├── data.py                 ← Chargement OHLC (Parquet ou Yahoo Finance)
- │   ├── metrics.py              ← Calcul expectancy, PF, DD, slippage
- │   └── runner.py               ← Backtest classique bar-by-bar
- │
- ├── webhook/
- │   ├── orchestrator.py      ← Guards + sizing + dispatch broker
- │   └── server.py            ← API Flask (webhooks TradingView)
- │
- ├── position/
- │   └── manager.py           ← Trailing 5 paliers, giveback, deadfish, time-stop
- │
- ├── broker/
- │   ├── adapters.py          ← Interface abstraite + DryRunAdapter
- │   ├── ctrader.py           ← cTrader Open API
- │   └── factory.py
- │
- ├── guards.py                ← Limites prop (DD, max positions, cooldown…)
- ├── models.py                ← Signal, Decision, Position, Counterfactual
- ├── config.py                ← ArabesqueConfig (YAML + env vars)
- └── audit.py                 ← Logger JSONL
-
-scripts/
- ├── backtest.py              ← CLI backtest multi-instruments
- └── analyze.py               ← Parse les exports JSONL
-
-docs/
- └── ARCHITECTURE.md          ← Architecture détaillée et décisions de design
-
-data/
- └── parquet/                 ← Fichiers XRPUSD_H1.parquet… (générés par barres_au_sol)
-
-config/
- └── settings.yaml            ← Configuration broker, risque, limites
+arabesque/
+├── core/              ← Kernel immuable (models, guards, audit)
+├── modules/           ← Briques réutilisables (indicators, position_manager)
+├── strategies/
+│   └── extension/     ← Trend-following H1 — stratégie validée
+│       ├── signal.py  ← Générateur unique backtest + live
+│       ├── params.yaml← Presets nommés
+│       └── STRATEGY.md← Fiche complète
+├── execution/         ← Moteurs (backtest, dryrun, live, bar_aggregator)
+├── broker/            ← Adapters (cTrader, TradeLocker, DryRun)
+├── data/              ← Store parquet + fetch (ex-barres_au_sol)
+└── analysis/          ← Métriques, stats, pipeline de screening
 ```
 
-**Principe fondamental** : le `PositionManager` et le `CombinedSignalGenerator`
-sont **strictement identiques** entre dry-run et live. Zéro divergence.
+Les anciens chemins d'import (`arabesque.models`, `arabesque.live.engine`, etc.)
+fonctionnent toujours via des shims de compatibilité.
 
 ---
 
-## Trois modes d'exécution
+## Documentation
 
-| Mode | Source | Ordres réels | Usage |
-|------|--------|-------------|-------|
-| `--mode dry_run --source parquet` | Fichiers Parquet locaux | Non | **Validation de stratégie** (recommandé) |
-| `--mode dry_run --source ctrader` | Stream cTrader démo | Non | Test de connexion broker |
-| `--mode live --source ctrader` | Stream cTrader live | **Oui** | Production |
-
----
-
-## Commandes
-
-### Dry-run replay (Parquet)
-
-```bash
-# Stratégie combinée sur une période fixe
-python -m arabesque.live.runner --mode dry_run --source parquet \
-  --start 2025-10-01 --end 2025-10-15 --strategy combined
-
-# Stream infini (Ctrl+C pour arrêter et afficher le résumé)
-python -m arabesque.live.runner --mode dry_run --source parquet \
-  --strategy combined
-
-# Période étendue (3 mois)
-python -m arabesque.live.runner --mode dry_run --source parquet \
-  --start 2025-10-01 --end 2026-01-01 --strategy combined
-
-# Vitesse ralentie pour observer (1s entre chaque bougie)
-python -m arabesque.live.runner --mode dry_run --source parquet \
-  --start 2025-10-01 --end 2025-10-15 --strategy combined --speed 1
-```
-
-### Backtest classique (Yahoo Finance)
-
-```bash
-python scripts/backtest.py --preset crypto_all --strategy combined
-python scripts/backtest.py XRPUSD SOLUSD BNBUSD --period 365d --strategy combined
-```
-
-### Analyse des résultats JSONL
-
-```bash
-python scripts/analyze.py --all
-python scripts/analyze.py --days 7
-python scripts/analyze.py --csv trades.csv
-```
-
----
-
-## Stratégies
-
-### `combined` ← recommandé
-
-Combine les trois stratégies avec `max_positions=5` et filtre anti-doublon par instrument.
-
-### `mean_reversion`
-
-- **Signal** : `close < BB_lower` + `RSI < 35` + pas de trend baissier fort
-- **Entrée** : open de la bougie suivante (anti-lookahead)
-- **TP** : retour au BB mid
-- **SL** : swing low des 7 dernières barres (min 0.8×ATR)
-- ⚠️ Trop permissive seule sur crypto : WR 35% en backtests récents
-
-### `trend`
-
-- **Signal** : BB squeeze (width contracté) → expansion → cassure + ADX > 20 + CMF confirme
-- **Entrée** : open bougie suivante
-- **TP** : 2R indicatif (le trailing gère la vraie sortie)
-- **SL** : 1.5×ATR
-
----
-
-## Gestion des positions — Trailing 5 paliers
-
-| MFE atteint | SL déplacé à | Effet |
-|-------------|-------------|-------|
-| +0.5R | 0.3R du high/low | Lock petit gain |
-| +1.0R | 0.5R | Protège 0.5R |
-| +1.5R | 0.8R | Protège 0.7R |
-| +2.0R | 1.2R | Protège 0.8R |
-| +3.0R | 1.5R | Laisse courir |
-
-Le SL ne peut qu'avancer dans le sens favorable (jamais reculer).
-
----
-
-## Variables d'environnement
-
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `ARABESQUE_BALANCE` | `10000` | Capital initial simulé |
-| `ARABESQUE_RISK_PCT` | `1.0` | Risque par trade (% du capital) |
-| `ARABESQUE_MAX_POSITIONS` | `10` | Positions simultanées max |
-| `ARABESQUE_MAX_DAILY_DD` | `5.0` | Drawdown daily max (%) |
-| `ARABESQUE_MAX_TOTAL_DD` | `10.0` | Drawdown total max (%) |
-| `ARABESQUE_MAX_DAILY_TRADES` | `999` (dry) / `5` (live) | Trades/jour max |
-| `CTRADER_HOST` | `demo.ctraderapi.com` | Hôte cTrader |
-| `CTRADER_CLIENT_ID` | — | Credentials cTrader |
-| `CTRADER_ACCESS_TOKEN` | — | Token OAuth cTrader |
-| `CTRADER_ACCOUNT_ID` | — | ID du compte cTrader |
-| `TELEGRAM_TOKEN` | — | Notifications Telegram (optionnel) |
-| `NTFY_TOPIC` | — | Notifications ntfy.sh (optionnel) |
-
----
-
-## Lire le résumé dry-run
-
-```
-Balance start  :  10,000        ← capital initial
-Equity final   :  11,971        ← capital final
-Max DD         :     3.8%       ← pire creux (FTMO limite à 8%)
-Trades         :      53        ← trades fermés
-Win rate       :   56.6%        ← % trades positifs
-Expectancy     :  +0.38R        ← profit moyen par trade ← métrique clé
-Total R        :  +20.2R        ← gain total en R
-```
-
-**Expectancy > +0.15R = bon | > +0.30R = très bon | < 0 = ne pas trader.**
-
-Le fichier `dry_run_YYYYMMDD_HHMMSS.jsonl` exporté contient un enregistrement
-par trade et une ligne `summary`. Utiliser `scripts/analyze.py` pour l'analyser.
-
----
-
-## Installation complète
-
-```bash
-# Dépendances obligatoires
-pip install pandas numpy pyarrow flask pyyaml yfinance requests
-
-# Broker live (optionnel)
-pip install ctrader-open-api
-
-# Notifications (optionnel)
-pip install python-telegram-bot
-```
-
----
-
-## Projets liés
-
-| Projet | Rôle | Lien |
-|--------|------|------|
-| **barres_au_sol** | Data lake local — télécharge et stocke les barres H1 (Dukascopy + CCXT) | [github.com/ashledombos/barres_au_sol](https://github.com/ashledombos/barres_au_sol) |
-| **arabesque** | Système de trading — signaux, positions, guards, brokers | ce dépôt |
-
-Les deux projets sont **intentionnellement séparés** : `barres_au_sol` est agnostique
-des stratégies de trading et peut servir d'autres projets (backtrader, vectorbt...).
-
----
-
-## Changelog
-
-### v2.2 — Live Runner + Parquet replay (fév. 2026)
-
-- **Nouveau** : `arabesque.live.runner` — point d'entrée unifié pour dry-run et live
-- **Nouveau** : `ParquetClock` — replay H1 depuis fichiers Parquet locaux, anti-lookahead strict
-- **Fix** : `only_last_bar=False` + `_seen_signals` dans `ParquetClock` (évite doublons de signaux)
-- **Fix** : Extension automatique de la période `+1 jour` pour capturer les fills de fin de période
-- **Ajout** : Export JSONL automatique après chaque dry-run
-- **Ajout** : Support notifications Telegram + ntfy
-
-### v2.1 — Bugfixes backtest (14 fév. 2026)
-
-- Fix slippage guard (comparaison open vs close inter-barres)
-- Fix volume_zero sur XAUUSD, BTC, indices
-- Fix SL trop serré (minimum 0.8×ATR)
-- Ajout module Trend (BB squeeze → expansion → breakout)
-- Ajout `scripts/analyze.py`
+| Document | Contenu |
+|---|---|
+| [docs/START_HERE.md](docs/START_HERE.md) | **Porte d'entrée — lire en premier** |
+| [HANDOFF.md](HANDOFF.md) | État actuel + plan de développement |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Décisions techniques et historique |
+| [arabesque/strategies/extension/STRATEGY.md](arabesque/strategies/extension/STRATEGY.md) | Fiche de la stratégie active |
+| [docs/HYGIENE.md](docs/HYGIENE.md) | Règles de contribution |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Architecture détaillée |

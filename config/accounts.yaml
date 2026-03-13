@@ -1,0 +1,64 @@
+# =============================================================================
+# Arabesque — Configuration des comptes de trading
+# =============================================================================
+#
+# RÈGLE DE SÉCURITÉ :
+#   protected: true  → le moteur live REFUSE de trader dessus
+#                       sans l'argument --force-live en ligne de commande.
+#                       Utilisez protected: true pour TOUS les vrais comptes
+#                       tant qu'ils ne sont pas en phase de production validée.
+#
+#   protected: false → compte utilisable en live test (dry-run, démo, test).
+#
+# Les credentials (tokens, passwords) restent dans config/secrets.yaml.
+# Ce fichier ne contient que des métadonnées et des flags de sécurité.
+# =============================================================================
+
+accounts:
+
+  # --------------------------------------------------------------------------
+  # FTMO — Compte de test (cTrader)
+  # --------------------------------------------------------------------------
+  ftmo_swing_test:
+    type: ctrader
+    protected: false                # ← test OK, pas de fonds réels
+    label: "FTMO Swing Test — compte de test, OK pour dry-run et live test"
+    is_demo: false                  # cTrader "live" mais compte test FTMO
+    broker_key: ftmo_swing_test     # clé dans config/settings.yaml → brokers
+
+  # --------------------------------------------------------------------------
+  # FTMO — Challenge / Funded (cTrader)
+  # --------------------------------------------------------------------------
+  # ftmo_challenge:
+  #   type: ctrader
+  #   protected: true               # ← JAMAIS en test automatique
+  #   label: "FTMO Challenge 100k — COMPTE RÉEL, ne pas utiliser en test"
+  #   is_demo: false
+  #   broker_key: ftmo_challenge
+  #
+  # ftmo_funded:
+  #   type: ctrader
+  #   protected: true               # ← JAMAIS en test automatique
+  #   label: "FTMO Funded 100k — COMPTE RÉEL"
+  #   is_demo: false
+  #   broker_key: ftmo_funded
+
+  # --------------------------------------------------------------------------
+  # GFT — TradeLocker
+  # --------------------------------------------------------------------------
+  gft_compte2:
+    type: tradelocker
+    protected: false                # ← funded mais utilisé en test live
+    label: "GFT TradeLocker Funded #2 — live test OK"
+    is_demo: false
+    broker_key: gft_compte2
+
+  # --------------------------------------------------------------------------
+  # DÉMO — Pour tests de connectivité uniquement
+  # --------------------------------------------------------------------------
+  # ctrader_demo:
+  #   type: ctrader
+  #   protected: false
+  #   label: "cTrader Demo — test de connexion broker"
+  #   is_demo: true
+  #   broker_key: ctrader_demo

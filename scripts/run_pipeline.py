@@ -36,7 +36,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from arabesque.backtest.pipeline import Pipeline, PipelineConfig
+from arabesque.analysis.pipeline import Pipeline, PipelineConfig
 
 
 def main():
@@ -106,7 +106,7 @@ def _get_list(name: str) -> list[str]:
     """Retourne une liste d'instruments par catégorie."""
     # Essayer de charger depuis instruments.csv
     try:
-        from arabesque.backtest.data import list_all_ftmo_instruments
+        from arabesque.data.store import list_all_ftmo_instruments
         all_inst = list_all_ftmo_instruments()
         if all_inst:
             cat_map = {
