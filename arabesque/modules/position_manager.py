@@ -172,6 +172,11 @@ class PositionManager:
                 "label_factors": getattr(signal, "label_factors", {}),
                 "rr": signal.rr,
                 "htf_adx": signal.htf_adx,
+                # Champs pour évaluation post-hoc des shadow filters
+                "wr_14": getattr(signal, "wr_14", 0),
+                "rsi_div": getattr(signal, "rsi_div", 0),
+                "ema200_ltf": getattr(signal, "ema200_ltf", 0),
+                "htf_adx_raw": getattr(signal, "htf_adx", 0),
             },
         )
         # Recalculer SL/TP depuis le fill réel
