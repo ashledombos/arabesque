@@ -15,8 +15,10 @@ build/
 config/secrets.yaml
 config/accounts_local.yaml
 
-# Données Parquet (volumineuses, générées par arabesque.data.fetch)
+# ignorer Données Parquet (volumineuses, générées par arabesque.data.fetch)
 data/
+# MAIS garder le module Python arabesque/data/
+!arabesque/data/
 
 # Logs
 logs/
