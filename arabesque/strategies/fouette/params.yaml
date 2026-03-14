@@ -1,0 +1,105 @@
+# arabesque/strategies/fouette/params.yaml
+# ==========================================
+# Presets de configuration pour la stratégie Fouetté (ORB).
+#
+# Utilisation :
+#   from arabesque.strategies.fouette.signal import FouetteConfig
+#   cfg = FouetteConfig(**presets["ema_active"])
+#
+# Résultats de référence (transcript, XAUUSD M1, ~200 jours) :
+#   breakout_fast   → PF ~1.14  WR ~53%   (baseline)
+#   fvg_standard    → PF ~1.65  WR ~60%
+#   default         → PF ~1.75  WR ~65%
+#   ema_active      → PF ~2.43  WR ~37%   (moins de trades, plus filtrés)
+
+presets:
+
+  # ── Preset de référence (meilleur équilibre sans EMA) ─────────────────────
+  default:
+    mode: fvg_multiple
+    range_minutes: 30
+    fvg_max_attempts: 3
+    ema_filter_active: false      # Shadow uniquement
+    ema_period: 20
+    sl_source: range
+    sl_buffer_factor: 0.05
+    rr_tp: 1.0
+    min_range_atr_ratio: 0.0
+    session_end_hour_utc: 20
+    session_end_minute_utc: 0
+    auto_dst: true
+
+  # ── EMA filter actif (PF max, WR plus bas) ────────────────────────────────
+  ema_active:
+    mode: fvg_multiple
+    range_minutes: 30
+    fvg_max_attempts: 3
+    ema_filter_active: true
+    ema_period: 20
+    sl_source: fvg               # SL plus serré (sous la FVG)
+    sl_buffer_factor: 0.05
+    rr_tp: 1.0                   # TP1 serré, tick TSL prend le relais
+    min_range_atr_ratio: 0.0
+    session_end_hour_utc: 20
+    session_end_minute_utc: 0
+    auto_dst: true
+
+  # ── FVG simple (1 seule tentative) ────────────────────────────────────────
+  fvg_standard:
+    mode: fvg
+    range_minutes: 30
+    fvg_max_attempts: 1
+    ema_filter_active: false
+    ema_period: 20
+    sl_source: range
+    sl_buffer_factor: 0.05
+    rr_tp: 1.0
+    min_range_atr_ratio: 0.0
+    session_end_hour_utc: 20
+    session_end_minute_utc: 0
+    auto_dst: true
+
+  # ── Mode breakout simple (baseline test) ──────────────────────────────────
+  breakout_fast:
+    mode: breakout
+    range_minutes: 15            # 15 min légèrement mieux que 30 en breakout pur
+    fvg_max_attempts: 1
+    ema_filter_active: false
+    ema_period: 20
+    sl_source: range
+    sl_buffer_factor: 0.10       # Buffer plus large sans FVG pour absorber le bruit
+    rr_tp: 2.0                   # RR plus élevé nécessaire sans filtre FVG
+    min_range_atr_ratio: 0.0
+    session_end_hour_utc: 20
+    session_end_minute_utc: 0
+    auto_dst: true
+
+  # ── Conservative : range court, filtre qualité actif ─────────────────────
+  conservative:
+    mode: fvg_multiple
+    range_minutes: 5             # Range très court, mouvement plus impulsif
+    fvg_max_attempts: 2
+    ema_filter_active: false
+    ema_period: 50               # EMA lente pour le shadow
+    sl_source: fvg
+    sl_buffer_factor: 0.05
+    rr_tp: 2.0
+    min_range_atr_ratio: 0.5     # OR doit valoir au moins 0.5×ATR
+    session_end_hour_utc: 19
+    session_end_minute_utc: 0    # Fenêtre plus courte
+    auto_dst: true
+
+  # ── High RR : chercher les gros mouvements (style transcript TP=8R) ───────
+  high_rr:
+    mode: fvg_multiple
+    range_minutes: 30
+    fvg_max_attempts: 3
+    ema_filter_active: true      # EMA obligatoire pour aller chercher des grands RR
+    ema_period: 20
+    sl_source: fvg
+    sl_buffer_factor: 0.05
+    rr_tp: 2.0                   # TP indicatif — le tick TSL trailing prend le relais
+    min_range_atr_ratio: 0.0
+    session_end_hour_utc: 20
+    session_end_minute_utc: 0
+    auto_dst: true
