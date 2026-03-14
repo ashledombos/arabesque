@@ -101,17 +101,26 @@ def _run_dryrun(args: argparse.Namespace) -> int:
         pass
     return 0
 
-
 def _run_backtest(args: argparse.Namespace) -> int:
     """Lance un backtest IS+OOS."""
     from arabesque.execution.backtest import BacktestRunner, BacktestConfig
     from arabesque.data.store import load_ohlc
 
+    strategy = getattr(args, "strategy", "extension")
+
+    # Charger le bon signal generator
+    if strategy == "fouette":
+        from arabesque.strategies.fouette.signal import FouetteSignalGenerator, FouetteConfig
+        sig_gen = FouetteSignalGenerator(FouetteConfig())
+    else:
+        from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
+        sig_gen = ExtensionSignalGenerator(ExtensionConfig())
+
     cfg = BacktestConfig(
         risk_per_trade_pct=float(getattr(args, "risk", 0.40)),
         verbose=getattr(args, "verbose", False),
     )
-    runner = BacktestRunner(cfg)
+    runner = BacktestRunner(cfg, signal_generator=sig_gen)
 
     instruments = getattr(args, "instruments", None) or []
     period = getattr(args, "period", "730d")
@@ -123,13 +132,13 @@ def _run_backtest(args: argparse.Namespace) -> int:
     for inst in instruments:
         df = load_ohlc(inst, period=period)
         if df is None or len(df) < 100:
-            print(f"⚠️  Données insuffisantes pour {inst}")
+            print(f"⚠  Données insuffisantes pour {inst}")
             continue
+        df = sig_gen.prepare(df)  # ← LE FIX
         result = runner.run(df, inst)
         print(result.report)
 
     return 0
-
 
 def cmd_screen(args: argparse.Namespace) -> int:
     """Lance le pipeline de screening multi-instruments."""
