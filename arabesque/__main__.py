@@ -112,18 +112,24 @@ def _run_backtest(args: argparse.Namespace) -> int:
     # Charger le bon signal generator + timeframe
     if strategy == "fouette":
         from arabesque.strategies.fouette.signal import FouetteSignalGenerator, FouetteConfig
+        from arabesque.core.guards import ExecConfig
         sig_gen = FouetteSignalGenerator(FouetteConfig())
         timeframe = "min1"  # Fouetté = ORB M1
+        # Sur M1, ATR ~$0.80 sur XAUUSD vs ~$15 en H1.
+        # Les seuils H1 (spread/slip < 0.10-0.15×ATR) rejettent 97% des signaux M1.
+        # 0.5×ATR M1 ≈ $0.40 → filtre les moments illiquides sans rejeter le spread normal.
+        exec_cfg = ExecConfig(max_spread_atr=0.5, max_slippage_atr=0.5)
     else:
         from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
         sig_gen = ExtensionSignalGenerator(ExtensionConfig())
         timeframe = "1h"    # Extension = trend H1
+        exec_cfg = None
 
     cfg = BacktestConfig(
         risk_per_trade_pct=float(getattr(args, "risk", 0.40)),
         verbose=getattr(args, "verbose", False),
     )
-    runner = BacktestRunner(cfg, signal_generator=sig_gen)
+    runner = BacktestRunner(cfg, signal_generator=sig_gen, exec_config=exec_cfg)
 
     instruments = getattr(args, "instruments", None) or []
     period = getattr(args, "period", "730d")
