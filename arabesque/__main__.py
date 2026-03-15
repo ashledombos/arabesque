@@ -108,13 +108,15 @@ def _run_backtest(args: argparse.Namespace) -> int:
 
     strategy = getattr(args, "strategy", "extension")
 
-    # Charger le bon signal generator
+    # Charger le bon signal generator + timeframe
     if strategy == "fouette":
         from arabesque.strategies.fouette.signal import FouetteSignalGenerator, FouetteConfig
         sig_gen = FouetteSignalGenerator(FouetteConfig())
+        timeframe = "min1"  # Fouetté = ORB M1
     else:
         from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
         sig_gen = ExtensionSignalGenerator(ExtensionConfig())
+        timeframe = "1h"    # Extension = trend H1
 
     cfg = BacktestConfig(
         risk_per_trade_pct=float(getattr(args, "risk", 0.40)),
@@ -130,11 +132,11 @@ def _run_backtest(args: argparse.Namespace) -> int:
         return 1
 
     for inst in instruments:
-        df = load_ohlc(inst, period=period)
+        df = load_ohlc(inst, period=period, interval=timeframe)
         if df is None or len(df) < 100:
             print(f"⚠  Données insuffisantes pour {inst}")
             continue
-        df = sig_gen.prepare(df)  # ← LE FIX
+        df = sig_gen.prepare(df)
         result = runner.run(df, inst)
         print(result.report)
 

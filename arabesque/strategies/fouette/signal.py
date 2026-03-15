@@ -148,8 +148,15 @@ class FouetteSignalGenerator:
 
         Colonnes ajoutées :
             ema, atr, is_or_bar
+
+        Colonnes OHLCV normalisées en lowercase en interne.
+        Les colonnes capitalisées (Open, High, Low, Close, Volume) sont
+        conservées en parallèle pour la compatibilité avec le runner backtest.
         """
         df = df.copy()
+
+        # Sauvegarder les colonnes capitalisées si elles existent
+        _had_caps = "Close" in df.columns
 
         # Normaliser les noms de colonnes (tolère Open/Close ou open/close)
         df.columns = [c.lower() for c in df.columns]
@@ -169,6 +176,13 @@ class FouetteSignalGenerator:
 
         # Tag des barres dans la fenêtre OR
         df["is_or_bar"] = self._tag_or_bars(df)
+
+        # Restaurer les colonnes capitalisées pour le runner backtest
+        if _had_caps:
+            for lc, uc in [("open", "Open"), ("high", "High"), ("low", "Low"),
+                           ("close", "Close"), ("volume", "Volume")]:
+                if lc in df.columns:
+                    df[uc] = df[lc]
 
         return df
 
@@ -204,9 +218,11 @@ class FouetteSignalGenerator:
         Retourne une liste de (index_global, Signal).
         """
         df = df.copy()
-        df.columns = [c.lower() for c in df.columns]
 
-        if "is_or_bar" not in df.columns:
+        # S'assurer que les colonnes lowercase existent (sans dupliquer)
+        if "close" not in df.columns and "Close" in df.columns:
+            df = self.prepare(df)
+        elif "is_or_bar" not in df.columns:
             df = self.prepare(df)
 
         signals: list[tuple[int, Signal]] = []

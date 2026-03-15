@@ -198,31 +198,43 @@ def _find_parquet(
     """Cherche le fichier Parquet pour un instrument donné.
 
     Cherche dans l'ordre :
-      1. dukascopy/derived/{KEY}_{tf}.parquet
-      2. ccxt/derived/{KEY}_{tf}.parquet
+      Pour min1 : {provider}/min1/{KEY}.parquet
+      Pour les autres : {provider}/derived/{KEY}_{tf}.parquet
 
     Returns: Path du fichier ou None.
     """
     root = Path(data_root or _default_data_root())
     inst = instrument.upper().replace("/", "")
 
+    # min1 est dans un sous-dossier différent (pas de suffixe timeframe)
+    is_min1 = timeframe in ("min1", "1m", "1min")
+
     # Dukascopy (forex, metals)
     if inst in _DUKASCOPY_MAP:
         key = _DUKASCOPY_MAP[inst]
-        path = root / "dukascopy" / "derived" / f"{key}_{timeframe}.parquet"
+        if is_min1:
+            path = root / "dukascopy" / "min1" / f"{key}.parquet"
+        else:
+            path = root / "dukascopy" / "derived" / f"{key}_{timeframe}.parquet"
         if path.exists():
             return path
 
     # CCXT (crypto)
     if inst in _CCXT_MAP:
         key = _CCXT_MAP[inst]
-        path = root / "ccxt" / "derived" / f"{key}_{timeframe}.parquet"
+        if is_min1:
+            path = root / "ccxt" / "min1" / f"{key}.parquet"
+        else:
+            path = root / "ccxt" / "derived" / f"{key}_{timeframe}.parquet"
         if path.exists():
             return path
 
     # Tentative directe (si l'instrument est déjà la clé Parquet)
     for provider in ("dukascopy", "ccxt"):
-        path = root / provider / "derived" / f"{inst}_{timeframe}.parquet"
+        if is_min1:
+            path = root / provider / "min1" / f"{inst}.parquet"
+        else:
+            path = root / provider / "derived" / f"{inst}_{timeframe}.parquet"
         if path.exists():
             return path
 
