@@ -202,6 +202,7 @@ si activer comme filtre bloquant. Voir `docs/DECISIONS.md`.
 
 | Stratégie | Priorité | Statut | Prochain pas |
 |---|---|---|---|
+| **Extension 4H crypto** | Haute | 🔬 Résultats prometteurs | Walk-forward pour confirmer, hybride H1+4H |
 | **Fouetté** (ORB M1) | Haute | 🔬 Backtest négatif sur XAUUSD | Tester autres instruments, `sl_source="fvg"` |
 | **Glissade** (scalp VWAP) | Haute | 📋 Placeholder créé | Implémenter VWAP dans indicators.py |
 | **Pas de Deux** (pairs) | Long terme | 📋 Placeholder créé | Définir interface multi-jambes |

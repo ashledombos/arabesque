@@ -1338,6 +1338,40 @@ Plusieurs prop firms sanctionnent les algos qui exploitent l'absence de slippage
 du simulateur (brackets ultra-serrés, hyperactivité). À garder en tête pour
 Glissade (scalping) : le backtest doit être pessimiste sur les fills.
 
+### Extension multi-TF — Résultats 4H vs H1 (2026-03-15)
+
+**Contexte :** Extension est validé en H1 (+0.130R, 75.5% WR, 1998 trades sur 20 mois).
+Test sur 4H pour évaluer si un TF plus long est viable (positions plus longues,
+potentiel pour comptes non-swing, et diversification de TF).
+
+**Résultats Extension 4H — univers complet (37 instruments, ~2 ans) :**
+
+| Catégorie | Trades | WR | Exp(R) | Verdict |
+|---|---|---|---|---|
+| **crypto** | 504 | 66% | **+0.092** | Meilleur qu'en H1 sur la plupart |
+| forex_cross | 222 | 53% | -0.225 | H1 nettement meilleur |
+| forex_major | 147 | 57% | -0.100 | H1 nettement meilleur |
+| metal | 61 | 59% | -0.105 | H1 nettement meilleur (XAUUSD +0.122 en H1) |
+| **TOTAL** | **934** | **61%** | **-0.027** | Globalement négatif |
+
+**Détail crypto 4H (top performers sur pool quick) :**
+- ETHUSD : +0.402R, 71% WR, PF 2.63 (34 trades)
+- SOLUSD : +0.217R, 79% WR, PF 2.17 (38 trades)
+- BTCUSD : +0.081R, 65% WR, PF 1.23 (43 trades)
+
+**Conclusion :** Extension 4H n'est pas un remplacement universel de H1.
+Mais crypto en 4H montre un edge supérieur à H1. Piste : configuration
+hybride H1 forex/métaux + 4H crypto.
+
+**Attention :** échantillon 4H plus petit (~2 ans de barres 4H vs ~2 ans H1),
+certains instruments < 30 trades. Nécessite walk-forward pour confirmer.
+
+**Infrastructure ajoutée :**
+- `--interval` dans le CLI (`python -m arabesque run --interval 4h`)
+- Dérivation 15m, 30m, 4h depuis M1 existant
+- `tf_map` étendu dans store.py (15m, 30m, 4h)
+- try/except dans la boucle backtest (plus de crash si données manquantes)
+
 ---
 
 ## Session 2026-03-15 — Premier backtest Fouetté (ORB M1) sur XAUUSD
