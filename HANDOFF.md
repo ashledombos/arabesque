@@ -2,7 +2,7 @@
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque
-> **Dernière mise à jour** : 2026-03-13, session Sonnet 4.6 (restructuration v9 déployée)
+> **Dernière mise à jour** : 2026-03-15, session Sonnet 4.6 (CLAUDE.md ajouté, 0 issues ouvertes)
 
 ---
 
@@ -35,7 +35,16 @@ Score prop: 4/5 (seul échec: jours pour +10% = 58j > 45j)
 
 ---
 
-## 2. Session 2026-03-13 — Restructuration v9
+## 2. Session 2026-03-15
+
+### Ce qui a changé
+
+- **`CLAUDE.md` ajouté** : guide pour les futures instances Claude Code (commandes, architecture, règles immuables, imports canoniques, sécurité comptes).
+- **0 issues ouvertes** sur GitHub.
+
+---
+
+## 3. Session 2026-03-13 — Restructuration v9
 
 ### Ce qui a changé
 
