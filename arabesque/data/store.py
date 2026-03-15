@@ -422,7 +422,9 @@ def load_ohlc(
 
     # Mapper les timeframes pour le Parquet
     tf_map = {"1h": "1h", "1H": "1h", "5m": "5m", "5min": "5m", "1m": "min1",
-              "1min": "min1", "1d": "1d", "1D": "1d"}
+              "1min": "min1", "min1": "min1", "15m": "15m", "15min": "15m",
+              "30m": "30m", "30min": "30m", "4h": "4h", "4H": "4h",
+              "1d": "1d", "1D": "1d"}
     tf = tf_map.get(interval, interval)
 
     # ── Tentative 1 : Parquet barres_au_sol ──

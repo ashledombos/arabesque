@@ -125,6 +125,11 @@ def _run_backtest(args: argparse.Namespace) -> int:
         timeframe = "1h"    # Extension = trend H1
         exec_cfg = None
 
+    # Override timeframe si --interval est spécifié
+    interval_override = getattr(args, "interval", None)
+    if interval_override:
+        timeframe = interval_override
+
     # Résolution des instruments : --universe ou liste explicite
     instruments = _resolve_instruments(args)
     period = getattr(args, "period", "730d")
@@ -142,15 +147,19 @@ def _run_backtest(args: argparse.Namespace) -> int:
     # Boucle multi-instruments avec collecte des résultats
     results: dict[str, object] = {}
     for inst in instruments:
-        runner = BacktestRunner(cfg, signal_generator=sig_gen, exec_config=exec_cfg)
-        df = load_ohlc(inst, period=period, interval=timeframe)
-        if df is None or len(df) < 100:
-            print(f"  Données insuffisantes pour {inst}", file=sys.stderr)
+        try:
+            runner = BacktestRunner(cfg, signal_generator=sig_gen, exec_config=exec_cfg)
+            df = load_ohlc(inst, period=period, interval=timeframe)
+            if df is None or len(df) < 100:
+                print(f"  Données insuffisantes pour {inst}", file=sys.stderr)
+                continue
+            df = sig_gen.prepare(df)
+            result = runner.run(df, inst)
+            results[inst] = result
+            print(result.report)
+        except Exception as e:
+            print(f"  Erreur sur {inst}: {e}", file=sys.stderr)
             continue
-        df = sig_gen.prepare(df)
-        result = runner.run(df, inst)
-        results[inst] = result
-        print(result.report)
 
     # Synthèse multi-instruments si > 1 instrument
     if len(results) > 1:
@@ -335,6 +344,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--from", dest="start", default=None, help="Date de début (YYYY-MM-DD)")
     run_p.add_argument("--to", dest="end", default=None, help="Date de fin (YYYY-MM-DD)")
     run_p.add_argument("--period", default="730d", help="Période backtest (ex: 730d)")
+    run_p.add_argument("--interval", default=None,
+                       help="Override timeframe (ex: 4h, 15m). Par défaut : selon la stratégie")
     run_p.add_argument("--risk", type=float, default=0.40, help="Risque par trade (%)")
     run_p.add_argument("--verbose", "-v", action="store_true")
     run_p.add_argument("--universe", default=None,
