@@ -1064,6 +1064,66 @@ profit grâce au BE). Sans le TSL, la perte aurait été -$8,079 au lieu de -$5,
 - **Isolation multi-stratégie en live** — l'orchestrateur doit séparer les
   trades par stratégie sur des comptes différents. Pas de mélange test/prod.
 
+### À faire — Backtest accéléré par élagage de créneaux
+
+**Problème :** le backtest M1 sur longue période est très lent (828k barres
+pour XAUUSD = ~1.6 an). Le live-test Parquet est encore plus lent (plusieurs
+heures). Le téléchargement des données aussi. Tout ça bloque l'itération.
+
+**Principe :** ne traiter que les créneaux temporels pertinents au lieu d'itérer
+sur chaque barre. Plusieurs versions possibles, de la plus simple à la plus
+complète.
+
+**Version 1 — Skip des périodes mortes (règle statique)**
+Le plus simple. Pour Fouetté (ORB NY) : les signaux ne peuvent arriver qu'entre
+14h30 et 20h00 UTC. Si aucune position n'est ouverte hors de cette fenêtre,
+on skip. Gain estimé : ~70% des barres ignorées = **~3x plus rapide**.
+Implémentation : filtre sur l'index du DataFrame avant de le passer au runner,
+ou mode "créneaux" dans le runner qui saute les barres non pertinentes.
+Limite : ne s'applique qu'aux stratégies avec fenêtre de session fixe.
+
+**Version 2 — Passe HTF → zoom M1 sur les trades identifiés**
+Plus puissant, applicable à toute stratégie. En deux passes :
+1. Backtest rapide sur la HTF native (H1 pour Extension, H4, etc.) — quelques
+   secondes. Identifie chaque trade : timestamps d'entrée et de sortie.
+2. Pour chaque trade, charger uniquement la tranche M1 correspondante
+   (entry_time - marge indicateurs → exit_time + marge) et rejouer en
+   tick-level pour résoudre l'ambiguïté intrabar (SL vs TP touché en premier,
+   trailing précis, ordre de visite des niveaux).
+
+Gain estimé : ~50 tranches × ~200 barres M1 = 10k barres au lieu de 828k.
+Rapport **~80x plus rapide** qu'un backtest M1 complet.
+La marge avant chaque créneau est nécessaire pour stabiliser les indicateurs
+(EMA, ATR) avant le signal.
+Nécessite un module planificateur (ex : `arabesque/execution/planner.py`)
+qui orchestre passe 1 → créneaux → passe 2.
+
+**Version 3 — Hybride : passe HTF + skip session + cache des créneaux**
+Combine v1 et v2. Le planificateur produit des créneaux via la HTF, les
+restreint aux fenêtres de session si applicable, et les cache dans un fichier
+pour ne pas refaire la passe 1 à chaque itération de paramètres.
+
+```
+┌────────────────┐
+│ Passe 1 (HTF)  │  rapide, identifie les créneaux pertinents
+│ ou règle fixe   │  (session NY, trades identifiés, etc.)
+└───────┬────────┘
+        │ liste de créneaux [(start, end), ...]
+        ▼
+┌────────────────┐
+│ Passe 2 (M1)   │  charge uniquement les tranches Parquet
+│ BacktestRunner  │  résout l'intrabar avec précision
+└────────────────┘
+```
+
+**Points de code concernés :**
+- `store.py` : charger des tranches Parquet par plage de dates (filtre index)
+- `BacktestRunner` : mode créneaux ou réception de DataFrames pré-tronqués
+- Nouveau module `planner.py` : orchestration passe 1 → créneaux → passe 2
+
+**Statut :** conception. Pas de code écrit. Prioriser v1 si le gain 3x suffit,
+v2 si les backtests HTF→M1 deviennent le workflow principal.
+
 ---
 
 ## Session 2026-03-15 — Premier backtest Fouetté (ORB M1) sur XAUUSD
