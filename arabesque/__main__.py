@@ -9,7 +9,8 @@ Usage :
     python -m arabesque screen --strategy extension --list crypto
     python -m arabesque fetch  --from 2024-01-01 --to 2026-12-31
     python -m arabesque analyze [--days 7] [--all]
-    python -m arabesque check  --account ftmo_swing_test
+    python -m arabesque check     --account ftmo_swing_test
+    python -m arabesque positions --account ftmo_swing_test
 
 Modes :
     backtest  — Replay bar-by-bar sur parquet historique (IS+OOS)
@@ -180,6 +181,54 @@ def cmd_check(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_positions(args: argparse.Namespace) -> int:
+    """Affiche les positions ouvertes et ordres en attente d'un compte."""
+    import asyncio
+    from arabesque.config import load_full_config
+    from arabesque.broker.factory import create_broker
+
+    _setup_logging("WARNING")  # Silencieux sauf erreurs
+
+    settings, secrets, instruments = load_full_config()
+    account_id = args.account
+
+    async def _run():
+        broker = create_broker(account_id, settings, secrets, instruments)
+        try:
+            await broker.connect()
+
+            positions = await broker.get_positions()
+            print(f"Positions ouvertes ({len(positions)}) :")
+            for pos in positions:
+                pnl = f"{pos.profit:+.2f}" if pos.profit is not None else "?"
+                print(f"  {pos.symbol:10} {pos.side.value:5} "
+                      f"vol={pos.volume} entry={pos.entry_price} "
+                      f"sl={pos.stop_loss} tp={pos.take_profit} pnl={pnl}")
+
+            orders = await broker.get_pending_orders()
+            print(f"\nOrdres en attente ({len(orders)}) :")
+            for order in orders:
+                print(f"  {order.symbol:10} {order.side.value:5} "
+                      f"{order.order_type.value} @ {order.entry_price} "
+                      f"vol={order.volume} sl={order.stop_loss} tp={order.take_profit}")
+
+            info = await broker.get_account_info()
+            if info:
+                print(f"\nCompte :")
+                print(f"  Balance : {info.balance:.2f} {info.currency}")
+                print(f"  Equity  : {info.equity:.2f} {info.currency}")
+                print(f"  P&L     : {info.equity - info.balance:+.2f}")
+                print(f"  Margin  : {info.margin_used:.2f} / {info.margin_free:.2f}")
+
+            await broker.disconnect()
+        except Exception as e:
+            print(f"Erreur : {e}", file=sys.stderr)
+            return 1
+        return 0
+
+    return asyncio.run(_run())
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="arabesque",
@@ -231,6 +280,11 @@ def build_parser() -> argparse.ArgumentParser:
     check_p = subparsers.add_parser("check", help="Tester la connectivité broker")
     check_p.add_argument("--account", required=True)
     check_p.set_defaults(func=cmd_check)
+
+    # ── positions ──
+    pos_p = subparsers.add_parser("positions", help="Afficher positions et ordres en attente")
+    pos_p.add_argument("--account", required=True, help="ID du compte (config/accounts.yaml)")
+    pos_p.set_defaults(func=cmd_positions)
 
     return parser
 

@@ -67,9 +67,11 @@ barres_au_sol/           ← données Parquet (gitignored, géré par data/fetch
 
 ## Droits de modification
 
-- `arabesque/core/*.py` et `arabesque/modules/position_manager.py` → **Opus uniquement**
-- `arabesque/strategies/*/signal.py` d'une stratégie validée en live → **Opus uniquement**
-- Tout le reste → n'importe quel modèle
+| Zone | Modèle | Raison |
+|---|---|---|
+| `arabesque/core/*.py`, `arabesque/modules/position_manager.py` | **Opus uniquement** | Noyau immuable — une régression ici casse le live |
+| `arabesque/strategies/*/signal.py` (stratégie validée en live) | **Opus uniquement** | Toute modification change l'edge validé sur 20 mois |
+| Scripts, `arabesque/analysis/`, `arabesque/data/`, `__main__.py` | Sonnet suffit | Pas d'impact sur l'edge de trading |
 
 ## Commandes clés
 
@@ -88,6 +90,9 @@ python -m arabesque.data.fetch --start 2024-01-01 --end 2026-03-14 --derive 1h 5
 
 # Replay parquet (dry-run offline)
 python -m arabesque.live.engine --source parquet --start 2025-10-01 --end 2026-01-01
+
+# Positions et ordres en attente
+python -m arabesque positions --account ftmo_swing_test
 ```
 
 ## Convention signal.py (interface unique backtest+live)
