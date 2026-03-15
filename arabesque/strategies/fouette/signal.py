@@ -89,17 +89,6 @@ class FouetteConfig:
 
 # ─── Helpers internes ────────────────────────────────────────────────────────
 
-def _ny_open_hour_utc(bar_time: pd.Timestamp, auto_dst: bool,
-                       hour_winter: int, hour_summer: int) -> int:
-    """Retourne l'heure UTC d'ouverture NY pour cette date (DST simplifié)."""
-    if not auto_dst:
-        return hour_winter
-    month = bar_time.month
-    # Approximation DST : EDT (UTC-4) de mars à octobre inclus
-    if 3 <= month <= 10:
-        return hour_summer
-    return hour_winter
-
 
 def _detect_fvg(bar_a: pd.Series, bar_b: pd.Series, bar_c: pd.Series,
                 direction: str) -> Optional[tuple[float, float]]:
@@ -187,24 +176,23 @@ class FouetteSignalGenerator:
         return df
 
     def _tag_or_bars(self, df: pd.DataFrame) -> pd.Series:
-        """Marque les barres appartenant à la fenêtre d'opening range."""
+        """Marque les barres appartenant à la fenêtre d'opening range (vectorisé)."""
         idx = pd.DatetimeIndex(df.index)
-        open_m = self.cfg.session_open_minute_utc
+        bar_min = idx.hour * 60 + idx.minute
 
-        result = pd.Series(False, index=df.index)
-        for i, ts in enumerate(idx):
-            ts_pd = pd.Timestamp(ts)
-            open_h = _ny_open_hour_utc(
-                ts_pd, self.cfg.auto_dst,
-                self.cfg.session_open_hour_utc_winter,
-                self.cfg.session_open_hour_utc_summer,
-            )
-            open_min  = open_h * 60 + open_m
-            end_min   = open_min + self.cfg.range_minutes
-            bar_min   = ts_pd.hour * 60 + ts_pd.minute
-            result.iloc[i] = open_min <= bar_min < end_min
+        if self.cfg.auto_dst:
+            # EDT (UTC-4) de mars à octobre inclus
+            is_summer = (idx.month >= 3) & (idx.month <= 10)
+            open_hour = np.where(is_summer,
+                                 self.cfg.session_open_hour_utc_summer,
+                                 self.cfg.session_open_hour_utc_winter)
+        else:
+            open_hour = self.cfg.session_open_hour_utc_winter
 
-        return result
+        open_min = open_hour * 60 + self.cfg.session_open_minute_utc
+        end_min  = open_min + self.cfg.range_minutes
+
+        return pd.Series((bar_min >= open_min) & (bar_min < end_min), index=df.index)
 
     # ── generate_signals ─────────────────────────────────────────────────────
 
@@ -546,4 +534,4 @@ class FouetteSignalGenerator:
             },
             timestamp    = df.index[signal_bar_idx + 1],
         )
-        return (signal_bar_idx + 1, sig)
+        return (signal_bar_idx, sig)
