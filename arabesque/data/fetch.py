@@ -80,8 +80,8 @@ def purge_key(root: str, provider: str, key: str) -> int:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--instruments", default="instruments.csv")
-    ap.add_argument("--root", default="data")
+    ap.add_argument("--instruments", default=os.path.join(os.path.dirname(__file__), "instruments.csv"))
+    ap.add_argument("--root", default=os.path.join(os.path.dirname(__file__), "..", "..", "barres_au_sol"))
 
     ap.add_argument("--start", required=True)
     ap.add_argument("--end", required=True)

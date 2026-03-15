@@ -41,3 +41,8 @@ tmp/
 # OS
 .DS_Store
 Thumbs.db
+
+# Données Parquet locales (volumineuses)
+barres_au_sol/dukascopy/
+barres_au_sol/ccxt/
+!barres_au_sol/README.md

@@ -67,12 +67,12 @@ USOIL.cash,dukascopy,USOIL,,1e5
 HEATOIL.cash,dukascopy,HEATOIL,,1e5
 NATGAS.cash,dukascopy,NATGAS,,1e5
 
-XAGEUR,dukascopy,XAGEUR,,1e5
-XAGUSD,dukascopy,XAGUSD,,1e5
-XAGAUD,dukascopy,XAGAUD,,1e5
-XAUEUR,dukascopy,XAUEUR,,1e5
-XAUUSD,dukascopy,XAUUSD,,1e5
-XAUAUD,dukascopy,XAUAUD,,1e5
+XAGEUR,dukascopy,XAGEUR,,1e3
+XAGUSD,dukascopy,XAGUSD,,1e3
+XAGAUD,dukascopy,XAGAUD,,1e3
+XAUEUR,dukascopy,XAUEUR,,1e3
+XAUUSD,dukascopy,XAUUSD,,1e3
+XAUAUD,dukascopy,XAUAUD,,1e3
 XCUUSD,dukascopy,XCUUSD,,1e5
 XPDUSD,dukascopy,XPDUSD,,1e5
 XPTUSD,dukascopy,XPTUSD,,1e5

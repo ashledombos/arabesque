@@ -39,11 +39,17 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def _default_data_root() -> str:
-    """Chemin par défaut vers les données barres_au_sol."""
+    """Chemin par défaut vers les données Parquet.
+
+    Priorité :
+      1. Variable d'environnement ARABESQUE_DATA_ROOT
+      2. <repo>/data/  (emplacement canonique)
+    """
     env = os.environ.get("ARABESQUE_DATA_ROOT")
     if env:
         return env
-    return str(Path.home() / "dev" / "barres_au_sol" / "data")
+    repo_root = Path(__file__).resolve().parent.parent.parent
+    return str(repo_root / "barres_au_sol")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
