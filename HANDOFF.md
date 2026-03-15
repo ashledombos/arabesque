@@ -2,7 +2,7 @@
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque
-> **Dernière mise à jour** : 2026-03-15, session Sonnet 4.6 (CLAUDE.md ajouté, 0 issues ouvertes)
+> **Dernière mise à jour** : 2026-03-15, session Sonnet 4.6 (Fouetté backtest #1)
 
 ---
 
@@ -39,8 +39,39 @@ Score prop: 4/5 (seul échec: jours pour +10% = 58j > 45j)
 
 ### Ce qui a changé
 
-- **`CLAUDE.md` ajouté** : guide pour les futures instances Claude Code (commandes, architecture, règles immuables, imports canoniques, sécurité comptes).
-- **0 issues ouvertes** sur GitHub.
+- **`CLAUDE.md` ajouté** : guide pour les futures instances Claude Code.
+- **Fouetté — corrections techniques** :
+  - Off-by-one `_build` : retournait `(signal_bar_idx+1)` → corrigé en `(signal_bar_idx)`
+  - `_tag_or_bars` vectorisé (boucle Python O(n) → numpy, critique pour 828k barres M1)
+  - `ExecConfig` M1 dédié dans `__main__.py` : `max_spread/slippage_atr=0.5` au lieu de 0.10-0.15 (calibré H1)
+- **`python -m arabesque positions --account <id>`** : nouvelle sous-commande CLI (remplace `scripts/show_positions.py`)
+- Nettoyage : `patch_timeframe.sh` supprimé, `scripts/show_positions.py` supprimé
+
+### Premier backtest Fouetté — XAUUSD (jan 2024 → mars 2026)
+
+```
+Mode      : fvg_multiple, range=30m, rr_tp=1.0
+Trades    : 308  |  WR : 70.8%  |  Expectancy : -0.024R  ← NÉGATIF
+Total R   : -7.4R  |  PF : 0.89  |  Max DD : 6.3%
+
+Exits :
+  trailing   175 @ +0.20R  ← sort au plancher BE
+  sl          55 @ -1.00R
+  tp          37 @ +0.69R  ← TP trop rare (12%)
+  time_stop   36 @ -0.38R
+```
+
+**Diagnostic** : le TP à 1×range est rarement atteint (74% MFE < 0.5R). Le BE
+convertit en +0.20R mais avg_loss -0.76R creuse l'expectancy.
+
+**Statut** : recherche. Ne pas déployer en live.
+
+### P0 (Fouetté) — Pistes à explorer (décision Opus)
+
+- `rr_tp` à 1.5 ou 2.0× le range
+- Sans position manager (TP fixe uniquement)
+- `range_minutes=15` au lieu de 30
+- Shadow EMA activé (`ema_filter_active=True`) — ~120 signaux sur 480 auraient été filtrés
 
 ---
 
