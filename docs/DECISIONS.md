@@ -1124,6 +1124,74 @@ pour ne pas refaire la passe 1 à chaque itération de paramètres.
 **Statut :** conception. Pas de code écrit. Prioriser v1 si le gain 3x suffit,
 v2 si les backtests HTF→M1 deviennent le workflow principal.
 
+### À faire — Robustesse statistique et biais de sélection
+
+Issus d'une analyse des bonnes pratiques en trading algo prop firm (2026-03-15).
+Arabesque couvre déjà IS/OOS, Wilson CI99 et Monte Carlo basique. Ce qui manque :
+
+**Walk-forward validation (priorité haute)**
+Le split IS/OOS fixe (70/30) teste sur UNE fenêtre OOS. Le walk-forward recalibre
+sur fenêtres glissantes (ex : 12 mois IS → 3 mois OOS, avance de 3 mois, répète).
+Avantage : détecte les stratégies qui ne survivent pas à un changement de régime.
+Le résultat agrégé sur toutes les fenêtres OOS est beaucoup plus robuste qu'un
+seul split. À implémenter dans `pipeline.py` ou comme mode dans `BacktestRunner`.
+
+**PBO — Probability of Backtest Overfitting (priorité moyenne)**
+Quand on teste N variantes sur le même historique (ex : 5 variantes Fouetté),
+la probabilité de sélectionner du bruit augmente avec N. PBO (Bailey & López de
+Prado) estime la probabilité que la "meilleure" variante soit en réalité du
+surfit. Pertinent avant de prendre une décision sur les paramètres d'une
+stratégie. Implémentation : CSCV (Combinatorially Symmetric Cross-Validation)
+sur les résultats de backtest.
+
+**Deflated Sharpe Ratio (priorité basse)**
+Correction du Sharpe pour le nombre de variantes testées. Même logique que PBO
+mais sous forme de ratio corrigé. Utile si on industrialise le screening de
+variantes (ex : grid search sur les paramètres Fouetté).
+
+### À faire — Guards prop firm manquants
+
+**Guard "Best Day" / consistance (priorité haute)**
+FTMO impose que le meilleur jour ne représente pas plus de X% du profit total
+des jours positifs. Arabesque ne vérifie pas cette contrainte. Un trade
+exceptionnellement gagnant peut invalider un challenge même si le total est bon.
+Implémentation : tracker le P&L par jour dans `AccountState`, vérifier en fin
+de run. Peut aussi servir de guard live (alerter si la journée en cours
+s'approche du seuil).
+
+**Guard trailing drawdown (priorité moyenne)**
+Certaines firms (Topstep, Apex) utilisent un DD trailing : le plancher remonte
+avec chaque nouveau pic d'equity (parfois intraday, parfois en fin de journée).
+Structurellement différent du DD absolu actuel dans `guards.py`. Avec un DD
+trailing, un profit latent qui retrace peut être fatal même si le P&L réalisé
+est positif. À ajouter comme variante dans `PropConfig` (type: "absolute" |
+"trailing" | "trailing_eod"), car le choix dépend de la prop firm ciblée.
+
+**Corrélation inter-positions (priorité moyenne)**
+Le guard actuel `open_risk_cash` additionne les risques individuels. Sur 19
+cryptos corrélées à >0.7, le risque réel est très supérieur au risque additionné
+(un mouvement adverse touche toutes les positions simultanément). À améliorer :
+soit un facteur de corrélation par catégorie (ex : crypto × 2.5, forex × 1.5),
+soit une matrice de corrélation glissante. Le facteur par catégorie est plus
+simple et suffisant pour une première version.
+
+**Fenêtre news (priorité basse)**
+Certaines firms (The5ers) interdisent l'exécution ±2 minutes autour des
+annonces à fort impact. Pas encore implémenté dans les guards. Nécessite un
+calendrier économique (source : ForexFactory, Investing.com, ou API dédiée).
+Pour Fouetté (ORB NY) c'est particulièrement pertinent car la session NY
+ouvre souvent sur des annonces US.
+
+### À faire — Analyse avancée
+
+**Monte Carlo sur barrières (priorité haute)**
+Le Monte Carlo actuel dans `pipeline.py` estime la distribution des métriques.
+Ce qui manque : estimer la **probabilité d'atteindre le profit target AVANT de
+toucher le DD max**, qui est LA question pour un challenge prop firm. Se modélise
+comme un problème de temps d'atteinte de barrières (gambler's ruin avec drift).
+Entrée : distribution des trades (R), barrières (profit target, max DD).
+Sortie : P(succès), temps médian, P(ruine).
+
 ---
 
 ## Session 2026-03-15 — Premier backtest Fouetté (ORB M1) sur XAUUSD
