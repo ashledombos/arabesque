@@ -1019,6 +1019,64 @@ profit grâce au BE). Sans le TSL, la perte aurait été -$8,079 au lieu de -$5,
 
 ---
 
+## Session 2026-03-15 — Premier backtest Fouetté (ORB M1) sur XAUUSD
+
+### Corrections techniques apportées
+
+**1. Off-by-one dans `_build` (signal.py)**
+`_build` retournait `(signal_bar_idx + 1, sig)` alors que la convention du runner
+est : index retourné = barre signal, fill = index + 1. Résultat : fill 2 barres
+après le signal au lieu d'1. Corrigé → `(signal_bar_idx, sig)`.
+
+**2. `_tag_or_bars` vectorisé**
+Boucle Python pure O(n) sur ~1M barres M1. Remplacée par opérations numpy/pandas.
+La fonction helper `_ny_open_hour_utc` supprimée (devenue inutile).
+
+**3. Guards recalibrés pour M1 (ExecConfig dédié dans `__main__.py`)**
+Guards H1 (`max_spread_atr=0.15`, `max_slippage_atr=0.10`) rejetaient 97% des
+signaux M1 : ATR M1 XAUUSD ~$0.80 vs ATR H1 ~$15, donc spread normal ($0.30)
+représente 0.38×ATR M1 → au-dessus des deux seuils.
+Décision : ExecConfig `(max_spread_atr=0.5, max_slippage_atr=0.5)` passé au
+runner uniquement pour la stratégie fouetté. Filtre les moments illiquides
+(spread > 50% ATR) sans rejeter les conditions M1 normales.
+
+### Résultat backtest XAUUSD (jan 2024 → mars 2026, 828k barres)
+
+```
+Mode          : fvg_multiple, range=30m, RR=1.0
+Trades        : 308  (172 rejetés : spread_too_wide)
+Win Rate      : 70.8%
+Expectancy    : -0.024R  ← NÉGATIF
+Total R       : -7.4R
+PF            : 0.89
+Max DD        : 6.3%
+
+Exits :
+  exit_trailing  : 175 trades  avg +0.20R  ← sort au plancher BE
+  exit_sl        :  55 trades  avg -1.00R
+  exit_tp        :  37 trades  avg +0.69R  ← TP trop rare
+  exit_time_stop :  36 trades  avg -0.38R  ← stagnation longue (avg 88 barres M1)
+
+MFE : 74% des trades < 0.5R
+```
+
+### Diagnostic
+
+La stratégie ne génère pas assez d'extension après le retest FVG sur XAUUSD.
+Le TP à `rr_tp=1.0` (= 1× le range) est rarement atteint (37/308 = 12%).
+Le BE convertit les trades en +0.20R mais l'avg_loss (-0.76R) creuse l'expectancy.
+
+### Questions ouvertes (à tester, décision Opus)
+
+- `rr_tp` à 1.5 ou 2.0× le range → plus de trades à +0.69R mais WR baisse
+- Sans position manager (TP fixe uniquement) → évite les trailing exits au plancher
+- `range_minutes=15` vs 30 → range plus court = signal plus tôt = plus d'extension possible
+- Shadow EMA (~120 signaux filtrés sur 480) → si activé, WR monte mais volume chute
+
+**Statut : recherche. Ne pas déployer en live.**
+
+---
+
 ## Décision 2026-03-12 — Restructuration v9 : architecture multi-stratégie
 
 **Contexte :** Arabesque v8c est en production live. Le code présente 6 problèmes
