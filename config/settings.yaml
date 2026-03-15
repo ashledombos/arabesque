@@ -88,7 +88,7 @@ brokers:
 
   # ---- GFT Compte 2 (TradeLocker) - décommenter si nécessaire ----
   gft_compte2:
-    enabled: true
+    enabled: false
     type: tradelocker
     name: "GFT Funded #2"
     is_demo: false
