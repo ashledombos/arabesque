@@ -295,9 +295,13 @@ class BacktestRunner:
             )
 
         report = format_report(metrics)
+        strategy_name = getattr(self.sig_gen, 'cfg', None)
+        strategy_name = getattr(strategy_name, 'mode', '') if strategy_name else ''
+        strategy_type = getattr(self.sig_gen, '__class__', type(self.sig_gen)).__name__
         _write_run_jsonl(
             instrument=instrument, sample_type=sample_type,
             config=self.bt_cfg, metrics=metrics, ts_start=ts_start,
+            strategy=strategy_type,
         )
 
         return BacktestResult(
@@ -369,10 +373,13 @@ class BacktestRunner:
 def _write_run_jsonl(
     instrument: str, sample_type: str,
     config: BacktestConfig, metrics: BacktestMetrics, ts_start: datetime,
+    strategy: str = "",
 ) -> None:
     BACKTEST_RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
     entry = {
-        "ts": ts_start.isoformat(), "instrument": instrument, "sample": sample_type,
+        "ts": ts_start.isoformat(), "strategy": strategy,
+        "instrument": instrument, "sample": sample_type,
+        "category": _categorize(instrument),
         "n_trades": metrics.n_trades, "win_rate": round(metrics.win_rate, 4),
         "expectancy_r": round(metrics.expectancy_r, 4),
         "profit_factor": round(metrics.profit_factor, 3),

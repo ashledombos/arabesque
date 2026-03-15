@@ -1019,6 +1019,53 @@ profit grâce au BE). Sans le TSL, la perte aurait été -$8,079 au lieu de -$5,
 
 ---
 
+## Dette technique — Infrastructure de validation (2026-03-15)
+
+> Ce qui a été implémenté vs. ce qui reste à faire pour la méthodologie
+> de validation multi-instruments progressive.
+
+### Implémenté (session 2026-03-15)
+
+- **Champ `strategy` + `category` dans JSONL backtest** — permet de filtrer
+  l'historique des runs par stratégie et par famille d'actifs.
+- **Synthèse multi-instruments dans le CLI** — tableau agrégé par catégorie +
+  total après un `--mode backtest` avec plusieurs instruments.
+- **`config/universes.yaml`** — univers d'instruments prédéfinis (`crypto`,
+  `forex_majors`, `metals`, `quick`, `all`). Usage : `--universe crypto`.
+
+### À faire — priorité haute
+
+- **JSONL dédié aux shadow filters** — actuellement les logs `👻` vont dans
+  stdout et sont perdus. Créer `logs/shadow_filters.jsonl` avec : timestamp,
+  instrument, strategy, filter_name, signal_side, would_have_blocked, et les
+  indicateurs au moment du signal. Sans ça, impossible de prendre une décision
+  d'activation fondée sur des données.
+- **Agrégation shadow filters** — outil CLI (`python -m arabesque shadow-report`)
+  qui lit le JSONL et calcule WR/Exp avec et sans chaque filtre, sur N trades.
+  Seuil de décision : ≥ 100 trades, WR↑ ET Exp↑.
+
+### À faire — priorité moyenne
+
+- **Registre d'étape par stratégie** — savoir où en est chaque stratégie dans
+  le pipeline (backtest IS → OOS → dryrun → shadow → live), depuis quand,
+  combien de trades accumulés à chaque étape. Fichier YAML ou section HANDOFF.
+- **Tracking slippage réel vs. backtest** — en live, comparer le fill réel au
+  fill estimé (bid/ask au moment du signal). Persister dans le JSONL de trades.
+  Permet de calibrer `spread_pct` et `slippage_r` du backtest.
+- **Tracking frais/commissions** — par compte, par instrument. Nécessite
+  l'info post-fill du broker (variable selon compte).
+
+### À faire — priorité basse
+
+- **Pipeline mensuel automatisé** — systemd timer → backtest `--universe all`
+  → synthèse → notification Telegram/ntfy si une stratégie dérive vs. baseline.
+- **Scorecard standardisé JSON/CSV** — format unifié pour comparer les runs
+  entre eux, avec colonne `vs_baseline` (delta expectancy, delta WR, etc.).
+- **Isolation multi-stratégie en live** — l'orchestrateur doit séparer les
+  trades par stratégie sur des comptes différents. Pas de mélange test/prod.
+
+---
+
 ## Session 2026-03-15 — Premier backtest Fouetté (ORB M1) sur XAUUSD
 
 ### Corrections techniques apportées

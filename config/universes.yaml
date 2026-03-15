@@ -1,0 +1,115 @@
+# =============================================================================
+# Arabesque — Univers d'instruments pour backtests
+# =============================================================================
+# Usage : python -m arabesque run --strategy extension --mode backtest --universe crypto
+#
+# Chaque clé est un nom d'univers utilisable via --universe.
+# Règle anti-surparamétrage : toujours tester sur un univers complet,
+# jamais sur un seul instrument. Comparer les résultats par catégorie.
+# =============================================================================
+
+# ── Familles d'actifs ──────────────────────────────────────────────────────
+
+forex_majors:
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - USDCHF
+  - AUDUSD
+  - USDCAD
+  - NZDUSD
+
+forex_crosses:
+  - EURGBP
+  - EURJPY
+  - GBPJPY
+  - EURCHF
+  - EURAUD
+  - EURCAD
+  - GBPAUD
+  - GBPCAD
+  - GBPCHF
+  - AUDCAD
+  - AUDJPY
+  - AUDNZD
+  - CADJPY
+  - CHFJPY
+  - NZDJPY
+
+metals:
+  - XAUUSD
+  - XAGUSD
+
+crypto:
+  - BTCUSD
+  - ETHUSD
+  - SOLUSD
+  - BNBUSD
+  - XRPUSD
+  - DOGEUSD
+  - ADAUSD
+  - DOTUSD
+  - AVAXUSD
+  - LINKUSD
+  - LTCUSD
+  - UNIUSD
+  - NEARUSD
+  - SUIUSD
+  - AAVEUSD
+
+# ── Univers combinés ───────────────────────────────────────────────────────
+
+# Pool rapide pour dégrossir une stratégie (1 par famille, liquides)
+quick:
+  - EURUSD
+  - GBPJPY
+  - XAUUSD
+  - BTCUSD
+  - ETHUSD
+  - SOLUSD
+
+# Pool complet : tout ce qui a des données Parquet
+all:
+  # Forex majors
+  - EURUSD
+  - GBPUSD
+  - USDJPY
+  - USDCHF
+  - AUDUSD
+  - USDCAD
+  - NZDUSD
+  # Forex crosses
+  - EURGBP
+  - EURJPY
+  - GBPJPY
+  - EURCHF
+  - EURAUD
+  - EURCAD
+  - GBPAUD
+  - GBPCAD
+  - GBPCHF
+  - AUDCAD
+  - AUDJPY
+  - AUDNZD
+  - CADJPY
+  - CHFJPY
+  - NZDJPY
+  # Metals
+  - XAUUSD
+  - XAGUSD
+  # Crypto
+  - BTCUSD
+  - ETHUSD
+  - SOLUSD
+  - BNBUSD
+  - XRPUSD
+  - DOGEUSD
+  - ADAUSD
+  - DOTUSD
+  - AVAXUSD
+  - LINKUSD
+  - LTCUSD
+  - UNIUSD
+  - NEARUSD
+  - SUIUSD
+  - AAVEUSD

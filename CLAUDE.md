@@ -79,6 +79,10 @@ barres_au_sol/           ← données Parquet (gitignored, géré par data/fetch
 # Backtest Extension (H1)
 python -m arabesque run --strategy extension --mode backtest XAUUSD BTCUSD
 
+# Backtest avec univers prédéfini (config/universes.yaml)
+python -m arabesque run --strategy extension --mode backtest --universe crypto
+python -m arabesque run --strategy extension --mode backtest --universe quick
+
 # Backtest Fouetté (M1 automatique)
 python -m arabesque run --strategy fouette --mode backtest XAUUSD
 

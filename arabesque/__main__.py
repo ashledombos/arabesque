@@ -105,7 +105,7 @@ def _run_dryrun(args: argparse.Namespace) -> int:
 def _run_backtest(args: argparse.Namespace) -> int:
     """Lance un backtest IS+OOS."""
     from arabesque.execution.backtest import BacktestRunner, BacktestConfig
-    from arabesque.data.store import load_ohlc
+    from arabesque.data.store import load_ohlc, _categorize
 
     strategy = getattr(args, "strategy", "extension")
 
@@ -125,29 +125,109 @@ def _run_backtest(args: argparse.Namespace) -> int:
         timeframe = "1h"    # Extension = trend H1
         exec_cfg = None
 
-    cfg = BacktestConfig(
-        risk_per_trade_pct=float(getattr(args, "risk", 0.40)),
-        verbose=getattr(args, "verbose", False),
-    )
-    runner = BacktestRunner(cfg, signal_generator=sig_gen, exec_config=exec_cfg)
-
-    instruments = getattr(args, "instruments", None) or []
+    # Résolution des instruments : --universe ou liste explicite
+    instruments = _resolve_instruments(args)
     period = getattr(args, "period", "730d")
 
     if not instruments:
         print("Usage : python -m arabesque run --mode backtest BTCUSD XAUUSD", file=sys.stderr)
+        print("    ou : python -m arabesque run --mode backtest --universe crypto", file=sys.stderr)
         return 1
 
+    cfg = BacktestConfig(
+        risk_per_trade_pct=float(getattr(args, "risk", 0.40)),
+        verbose=getattr(args, "verbose", False),
+    )
+
+    # Boucle multi-instruments avec collecte des résultats
+    results: dict[str, object] = {}
     for inst in instruments:
+        runner = BacktestRunner(cfg, signal_generator=sig_gen, exec_config=exec_cfg)
         df = load_ohlc(inst, period=period, interval=timeframe)
         if df is None or len(df) < 100:
-            print(f"⚠  Données insuffisantes pour {inst}")
+            print(f"  Données insuffisantes pour {inst}", file=sys.stderr)
             continue
         df = sig_gen.prepare(df)
         result = runner.run(df, inst)
+        results[inst] = result
         print(result.report)
 
+    # Synthèse multi-instruments si > 1 instrument
+    if len(results) > 1:
+        _print_backtest_synthesis(results, _categorize)
+
     return 0
+
+
+def _resolve_instruments(args: argparse.Namespace) -> list[str]:
+    """Résout la liste d'instruments depuis --universe ou la liste explicite."""
+    from pathlib import Path
+    instruments = getattr(args, "instruments", None) or []
+
+    universe = getattr(args, "universe", None)
+    if universe:
+        universes_path = Path("config/universes.yaml")
+        if universes_path.exists():
+            import yaml
+            with open(universes_path) as f:
+                universes = yaml.safe_load(f) or {}
+            if universe in universes:
+                instruments = universes[universe]
+            else:
+                available = ", ".join(universes.keys())
+                print(f"Univers inconnu : {universe}. Disponibles : {available}", file=sys.stderr)
+                return []
+        else:
+            print("config/universes.yaml introuvable", file=sys.stderr)
+            return []
+
+    return instruments
+
+
+def _print_backtest_synthesis(results: dict, categorize_fn) -> None:
+    """Affiche une synthèse agrégée par catégorie + total."""
+    print(f"\n{'='*70}")
+    print("  SYNTHÈSE MULTI-INSTRUMENTS")
+    print(f"{'='*70}")
+    print(f"  {'Instrument':<12s} {'Cat':<12s} {'Trades':>7s} {'WR':>6s} "
+          f"{'Exp(R)':>8s} {'PF':>6s} {'MaxDD':>7s} {'Disq':>5s}")
+    print(f"  {'-'*63}")
+
+    # Par catégorie
+    by_cat: dict[str, list] = {}
+    for inst, result in results.items():
+        m = result.metrics
+        cat = categorize_fn(inst)
+        by_cat.setdefault(cat, []).append((inst, m))
+        print(f"  {inst:<12s} {cat:<12s} {m.n_trades:>7d} {m.win_rate:>5.0%} "
+              f"{m.expectancy_r:>+7.3f} {m.profit_factor:>5.2f} "
+              f"{m.max_dd_pct:>6.1f}% {m.n_disqualifying_days:>5d}")
+
+    # Sous-totaux par catégorie
+    print(f"  {'-'*63}")
+    total_trades = 0
+    total_r = 0.0
+    total_wins = 0
+    for cat, items in sorted(by_cat.items()):
+        cat_trades = sum(m.n_trades for _, m in items)
+        cat_wins = sum(int(m.win_rate * m.n_trades) for _, m in items)
+        cat_r = sum(m.expectancy_r * m.n_trades for _, m in items)
+        cat_wr = cat_wins / cat_trades if cat_trades > 0 else 0
+        cat_exp = cat_r / cat_trades if cat_trades > 0 else 0
+        total_trades += cat_trades
+        total_r += cat_r
+        total_wins += cat_wins
+        print(f"  {'[' + cat + ']':<24s} {cat_trades:>7d} {cat_wr:>5.0%} "
+              f"{cat_exp:>+7.3f} {'':>6s} {'':>7s} {'':>5s}")
+
+    # Total global
+    if total_trades > 0:
+        global_wr = total_wins / total_trades
+        global_exp = total_r / total_trades
+        print(f"  {'-'*63}")
+        print(f"  {'TOTAL':<24s} {total_trades:>7d} {global_wr:>5.0%} "
+              f"{global_exp:>+7.3f}")
+    print(f"{'='*70}")
 
 def cmd_screen(args: argparse.Namespace) -> int:
     """Lance le pipeline de screening multi-instruments."""
@@ -257,6 +337,8 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--period", default="730d", help="Période backtest (ex: 730d)")
     run_p.add_argument("--risk", type=float, default=0.40, help="Risque par trade (%)")
     run_p.add_argument("--verbose", "-v", action="store_true")
+    run_p.add_argument("--universe", default=None,
+                       help="Univers d'instruments (config/universes.yaml)")
     run_p.add_argument("instruments", nargs="*", help="Instruments (mode backtest)")
     run_p.set_defaults(func=cmd_run)
 
