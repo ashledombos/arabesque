@@ -2,130 +2,158 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Contexte
+# Arabesque — Système de trading algorithmique pour prop firms
 
-Arabesque est un système de trading algorithmique Python pour prop firms (FTMO / Goat Funded Trader). Stratégie principale : **trend-following BB H1** sur crypto alt-coins et métaux précieux. Contraintes strictes : drawdown journalier 3%, drawdown total 10%.
+## Boussole stratégique — IMMUABLE
 
-**Lire avant toute action :**
-1. `HANDOFF.md` — état opérationnel actuel + prochaines étapes P0→P8
-2. `docs/DECISIONS.md` — pourquoi chaque décision, bugs connus, ce qui a été abandonné
+```
+GAINS PETITS, FRÉQUENTS, CONSISTANTS.
+PEU DE PERTES. PETITES QUAND ELLES ARRIVENT.
+WIN RATE ÉLEVÉ : CIBLE ≥ 70%, IDÉAL ≥ 85%.
+COURBE D'ÉQUITÉ RÉGULIÈRE ET PRÉVISIBLE.
+```
 
-## Commands
+**Pourquoi ce profil ?** Les prop firms (FTMO et similaires) imposent un daily
+drawdown max (~5%) et un drawdown total max (~10%). Elles évaluent la
+*consistance* de la courbe d'équité, pas la performance brute. Un WR élevé
+avec des gains petits et réguliers passe un challenge. Une courbe en dents de
+scie avec quelques trades à +10R ne passe pas, même si le P&L total est bon.
+
+Si un changement de code contredit cette boussole, c'est le changement qui a tort.
+
+## Paramètres de la stratégie Extension (validés sur 20 mois, 1998 trades)
+
+Ces valeurs ont été calibrées par simulation exhaustive et validées en production.
+Ne pas les modifier sans rejeu complet (20 mois, 76 instruments) + IC99 > 0.
+
+- **BE trigger 0.3R / offset 0.20R** — ~75% des trades atteignent 0.3R MFE,
+  ce qui convertit des losers en petits gains et porte le WR de ~45% à ~75%.
+  L'offset 0.20R (et pas 0.15) car à 0.15, 95% des trailing exits sortaient
+  au plancher exact (+0.15R) — trop serré pour le bruit OHLC.
+- **Risk 0.40%/trade** — À 0.50%, le max DD atteint 10.3%, ce qui breach le
+  seuil FTMO de 10%. À 0.40%, max DD = 8.2% avec 1.8% de marge.
+- **Tick-level TSL non optionnel** — Backtest H1-only : +10.4R. Avec tick TSL :
+  +183R. Le TSL capte le breakeven et les trailing tiers en temps réel au lieu
+  d'attendre la clôture H1.
+- **Trend-only** — Mean-reversion testée sur 4 replays, 2 périodes, 3 univers :
+  perd sur toutes les catégories. Abandonnée définitivement.
+
+## Brokers et prop firms
+
+FTMO est le premier broker ciblé, mais Arabesque supporte plusieurs brokers :
+- **cTrader** (FTMO) — connecteur principal, en production live
+- **TradeLocker** (GFT et autres) — connecteur secondaire, en développement
+- `config/accounts.yaml` — un fichier par compte, flag `protected: true` pour les comptes réels
+- `arabesque/broker/factory.py` — instancie le bon connecteur selon le type déclaré
+
+Les contraintes prop firm (daily DD, total DD, max positions) sont dans
+`arabesque/core/guards.py` et s'adaptent au profil de chaque compte.
+
+## Architecture (v9)
+
+```
+arabesque/core/          ← IMMUABLE (models, guards, audit) — Opus uniquement
+arabesque/modules/       ← indicators, position_manager
+arabesque/strategies/
+  └── extension/         ← signal.py UNIQUE backtest+live (Opus uniquement pour modifier)
+  └── fouette/           ← ORB M1, en développement (pas encore validé)
+arabesque/execution/     ← live.py, backtest.py, dryrun.py, bar_aggregator.py
+arabesque/broker/        ← cTrader, TradeLocker
+arabesque/data/          ← store.py (parquet-first loader), fetch.py, backends.py
+arabesque/analysis/      ← metrics.py, stats.py, pipeline.py
+config/                  ← settings.yaml, instruments.yaml, accounts.yaml
+barres_au_sol/           ← données Parquet (gitignored, géré par data/fetch.py)
+```
+
+## Droits de modification
+
+- `arabesque/core/*.py` et `arabesque/modules/position_manager.py` → **Opus uniquement**
+- `arabesque/strategies/*/signal.py` d'une stratégie validée en live → **Opus uniquement**
+- Tout le reste → n'importe quel modèle
+
+## Commandes clés
 
 ```bash
-# Installation
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e .
+# Backtest Extension (H1)
+python -m arabesque run --strategy extension --mode backtest XAUUSD BTCUSD
 
-# Backtest IS+OOS
-python -m arabesque run --strategy extension --mode backtest BTCUSD XAUUSD EURUSD
+# Backtest Fouetté (M1 automatique)
+python -m arabesque run --strategy fouette --mode backtest XAUUSD
 
-# Dry-run (replay Parquet, quasi-real-time)
-python -m arabesque run --strategy extension --mode dryrun --from 2025-10-01 --to 2026-01-01
+# Live
+python -m arabesque.live.engine
 
-# Live (cTrader)
-python -m arabesque run --strategy extension --mode live --account ftmo_swing_test
+# Fetch données
+python -m arabesque.data.fetch --start 2024-01-01 --end 2026-03-14 --derive 1h 5m
 
-# Screening multi-instruments
-python -m arabesque screen --strategy extension --list crypto
-
-# Mise à jour données
-python -m arabesque fetch --from 2024-01-01 --to 2026-12-31
-
-# Analyse logs
-python -m arabesque analyze --days 7
-
-# Test connectivité broker
-python -m arabesque check --account ftmo_swing_test
+# Replay parquet (dry-run offline)
+python -m arabesque.live.engine --source parquet --start 2025-10-01 --end 2026-01-01
 ```
 
-**Validation avant déploiement d'un changement :**
-```bash
-python -m arabesque run --strategy extension --mode dryrun  # 3 mois minimum
-# Comparer métriques avec baseline dans HANDOFF.md
-```
-
-## Architecture
-
-Architecture multi-stratégie (restructuration mars 2026) :
-
-```
-arabesque/
-├── core/           # Noyau immuable : models.py, guards.py, audit.py
-├── modules/        # Composants réutilisables : indicators.py, position_manager.py
-├── strategies/     # Une stratégie = un dossier (ex: extension/, fouette/)
-│   └── <nom>/
-│       ├── signal.py      # Générateur unique — backtest + dryrun + live
-│       ├── params.yaml    # Presets de paramètres
-│       └── STRATEGY.md   # Fiche : résultats, décisions, limites
-├── execution/      # Moteurs : backtest.py, dryrun.py, live.py
-├── broker/         # Adaptateurs : ctrader.py, tradelocker.py, base.py
-├── data/           # Pipeline : store.py (Parquet + Yahoo), fetch.py
-├── analysis/       # Métriques : metrics.py, pipeline.py
-├── live/           # Shims de compatibilité → arabesque.execution.live
-└── config.py       # Chargement YAML + env vars
-```
-
-**Flux de données (règle anti-lookahead) :**
-Signal généré sur bougie `i` → exécuté au open de `i+1` via `_pending_signals`. Cette règle est inviolable — la violer invalide tous les résultats de backtest.
-
-**Code identique** backtest / dryrun / live : un seul `signal.py` par stratégie, zéro divergence.
-
-## Règles inviolables
-
-**Anti-biais :**
-- Signal sur bougie `i`, exécution au open de `i+1` via `_pending_signals`
-- Guards toujours actifs — même en dry-run. Les désactiver invalide les résultats
-- Un seul trade simultané par instrument (`duplicate_instrument` guard)
-- Règle pire-cas intrabar : si SL et TP touchés sur la même bougie → SL gagne
-- Tout en R/ATR (invariant d'instrument) : sizing, trailing, métriques
-
-**Zones stables (ne pas toucher sans rejeu IS/OOS complet) :**
-- `arabesque/core/models.py`, `arabesque/core/guards.py`
-- `arabesque/strategies/extension/signal.py` — **seul Claude Opus 4.6 peut modifier**
-- `arabesque/modules/position_manager.py` — le TSL/BE est l'edge principal (75.5% WR)
-
-**Zones stables (modifier avec précaution) :**
-- `arabesque/execution/live.py`, `arabesque/execution/dryrun.py`
-- `arabesque/broker/*.py`
-
-## Git
-
-- Push direct sur `main` autorisé (pas de PR)
-- **Jamais `git push --force` sur `main`** (a déjà écrasé un commit)
-- Format commits : `type(scope): description courte` — ex : `fix(guards): daily_dd_pct divisé par daily_start_balance`
-
-## Discipline documentation
-
-Après chaque session, mettre à jour obligatoirement :
-1. `HANDOFF.md` — état, bugs ouverts, prochaines étapes
-2. `docs/DECISIONS.md` — toute décision technique, hypothèse testée + résultat chiffré
-
-## Imports canoniques (post-restructuration)
+## Convention signal.py (interface unique backtest+live)
 
 ```python
-# ✅ Nouveaux chemins
-from arabesque.core.models import Signal, Position
-from arabesque.core.guards import Guards, PropConfig
-from arabesque.modules.indicators import compute_rsi
-from arabesque.modules.position_manager import PositionManager
-from arabesque.strategies.extension.signal import ExtensionSignalGenerator
-from arabesque.data.store import load_ohlc
-from arabesque.execution.live import LiveEngine
-
-# ⚠️ Anciens chemins (shims, dépréciés)
-# from arabesque.models import Signal
-# from arabesque.live.engine import LiveEngine
+class <Nom>SignalGenerator:
+    def prepare(self, df: pd.DataFrame) -> pd.DataFrame:
+        # df.copy() en premier. Indicateurs via arabesque.modules.indicators.
+        # Colonnes OHLCV CAPITALISÉES en sortie (Open, High, Low, Close, Volume).
+    def generate_signals(self, df, instrument) -> list[tuple[int, Signal]]:
+        # Signal bougie i → fill open bougie i+1 (anti-lookahead strict)
 ```
 
-## Comptes — sécurité critique
+## Nommage des stratégies
 
-Les comptes avec fonds réels **doivent** être `protected: true` dans `config/accounts.yaml`. Le moteur live vérifie ce flag et refuse sans `--force-live`. Ne jamais connecter le bot sur le challenge sans validation complète des guards DD.
+Noms de disciplines artistiques gracieuses (danse classique, GR, GAF...).
+Terme français, relation imagée avec la logique de trading.
+- Extension = trend-following H1 (BB squeeze → breakout)
+- Fouetté = Opening Range Breakout M1 (NY open)
 
-## Stratégies — nommage
+## Données
 
-Noms tirés des disciplines artistiques acrobatiques (danse classique, GR, GAF…), **en français**, avec relation imagée entre le mouvement et la logique de la stratégie. Ex : *Extension* (trend-following = allongement hors des bandes après compression), *Fouetté* (ORB M1).
+- Parquets dans `barres_au_sol/` à la racine du repo
+- Dukascopy : forex + métaux (price_scale 1e5 forex, 1e3 métaux)
+- CCXT/Binance : crypto
+- Structure : `{provider}/min1/{KEY}.parquet` et `{provider}/derived/{KEY}_{tf}.parquet`
+- `store.py` charge automatiquement le bon timeframe
 
-## Scripts
+## Workflow de validation (obligatoire avant live)
 
-`scripts/` : outils CLI permanents uniquement (≤ 6 fichiers). Tout code temporaire / one-off → `tmp/` (gitignored).
+```
+Backtest IS (60%) → Exp > 0, WR > 50%
+    ↓
+Backtest OOS (40%) → cohérent avec IS
+    ↓
+Wilson CI99 > 0 → significatif
+    ↓
+Dry-run parquet → 3 mois minimum
+    ↓
+Shadow filter live → 2-4 semaines
+    ↓
+Live réel
+```
+
+## Shadow filter (garde fantôme)
+
+Log `👻 NOM shadow` dans order_dispatcher.py — signal passe quand même.
+Accumuler ≥ 100 trades avant décision. Activer si WR↑ ET Exp↑.
+
+## Règles de code
+
+- Scripts temporaires dans `tmp/` (gitignored), pas dans `scripts/`
+- Indicateurs dans `arabesque/modules/indicators.py`, jamais réimplémentés
+- Un seul signal.py par stratégie (backtest = live, zéro divergence)
+- Shims de compatibilité si un module est déplacé
+
+## Fin de session
+
+Toujours mettre à jour :
+1. `HANDOFF.md` — état courant, bugs ouverts
+2. `docs/DECISIONS.md` — toute nouvelle décision technique
+3. `git push`
+
+## Documents de référence
+
+- `HANDOFF.md` — état opérationnel (LIRE EN PREMIER)
+- `docs/DECISIONS.md` — historique des décisions et pourquoi
+- `docs/HYGIENE.md` — règles de code
+- `docs/ARCHITECTURE.md` — architecture technique
