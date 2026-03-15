@@ -66,12 +66,26 @@ convertit en +0.20R mais avg_loss -0.76R creuse l'expectancy.
 
 **Statut** : recherche. Ne pas déployer en live.
 
-### P0 (Fouetté) — Pistes à explorer (décision Opus)
+### Exploration complète — 5 variantes testées (session 2026-03-15)
 
-- `rr_tp` à 1.5 ou 2.0× le range
-- Sans position manager (TP fixe uniquement)
-- `range_minutes=15` au lieu de 30
-- Shadow EMA activé (`ema_filter_active=True`) — ~120 signaux sur 480 auraient été filtrés
+| Config | Trades | WR | Expectancy | PF |
+|---|---|---|---|---|
+| Baseline rr_tp=1.0 | 308 | 70.8% | -0.024R | 0.89 |
+| rr_tp=2.0 | 308 | 70.8% | -0.053R | 0.76 |
+| **TP fixe, sans PM** | **299** | **54.8%** | **+0.011R** | **1.02** |
+| range=15min | 338 | 69.5% | -0.056R | 0.80 |
+| EMA actif | 285 | 69.8% | -0.030R | 0.87 |
+| TP fixe + EMA actif | 279 | 55.2% | +0.002R | 1.00 |
+
+Seul le TP fixe sans PM passe en positif, mais l'expectancy (+0.011R) est trop
+fragile (négatif à 1.5× slippage). Stratégie insuffisante sur XAUUSD en l'état.
+
+### P0 (Fouetté) — Pistes restantes (décision Opus)
+
+- Autres instruments : US500, NAS100, BTCUSD — momentum NY open potentiellement plus fort
+- `sl_source="fvg"` : SL au bord FVG (plus serré) → meilleur R/R intrinsèque
+- Mode `breakout` pur (sans FVG)
+- Combo TP fixe + `sl_source="fvg"`
 
 ---
 

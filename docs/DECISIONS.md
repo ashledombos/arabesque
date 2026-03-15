@@ -1066,14 +1066,48 @@ La stratégie ne génère pas assez d'extension après le retest FVG sur XAUUSD.
 Le TP à `rr_tp=1.0` (= 1× le range) est rarement atteint (37/308 = 12%).
 Le BE convertit les trades en +0.20R mais l'avg_loss (-0.76R) creuse l'expectancy.
 
-### Questions ouvertes (à tester, décision Opus)
+### Exploration systématique — 5 variantes testées
 
-- `rr_tp` à 1.5 ou 2.0× le range → plus de trades à +0.69R mais WR baisse
-- Sans position manager (TP fixe uniquement) → évite les trailing exits au plancher
-- `range_minutes=15` vs 30 → range plus court = signal plus tôt = plus d'extension possible
-- Shadow EMA (~120 signaux filtrés sur 480) → si activé, WR monte mais volume chute
+| Config | Trades | WR | Expectancy | PF | Max DD |
+|---|---|---|---|---|---|
+| Baseline (rr_tp=1.0, PM normal) | 308 | 70.8% | -0.024R | 0.89 | 6.3% |
+| rr_tp=2.0, PM normal | 308 | 70.8% | -0.053R | 0.76 | 8.2% |
+| **TP fixe, sans PM** | **299** | **54.8%** | **+0.011R** | **1.02** | **6.9%** |
+| range=15min, PM normal | 338 | 69.5% | -0.056R | 0.80 | 8.8% |
+| EMA actif, PM normal | 285 | 69.8% | -0.030R | 0.87 | 6.3% |
+| TP fixe + EMA actif | 279 | 55.2% | +0.002R | 1.00 | 6.8% |
 
-**Statut : recherche. Ne pas déployer en live.**
+**Seul résultat positif : TP fixe sans position manager (+0.011R, PF 1.02).**
+
+Structure de cette config :
+- 164 exit_tp @ +0.84R vs 135 exit_sl @ -1.00R
+- MFE : 50% des trades entre 0.5R et 1.0R — distribution supporte le TP à 1×range
+- Sensibilité slippage élevée : à 1.5× slippage → -0.034R (négatif)
+
+### Conclusions
+
+**Pourquoi augmenter rr_tp aggrave :** 74% MFE < 0.5R. Le prix ne va pas chercher
+2×range. La distribution MFE ne supporte pas un TP distant.
+
+**Pourquoi range=15min échoue :** même distribution MFE, le PM ramène tout à +0.20R.
+Génère 56 jours disqualifiants (DD > 8%) — incompatible prop firm.
+
+**Pourquoi EMA actif n'aide pas :** filtre autant de bons que de mauvais setups sur
+XAUUSD M1 avec période=20. Supprime 20 trades sans améliorer l'expectancy.
+
+**Diagnostic racine :** la stratégie fvg_multiple sur XAUUSD ne génère pas assez
+d'extension post-retest pour absorber les coûts de transaction réels. L'expectancy
+brute (+0.011R) est trop proche de zéro pour être robuste en live.
+
+### Pistes restantes (décision Opus requise)
+
+- Autres instruments : indices (US500, NAS100), crypto (BTCUSD) — l'ORB NY open
+  peut mieux fonctionner sur des instruments avec momentum plus fort
+- `sl_source="fvg"` : SL au bord de la FVG (plus serré) → meilleur R/R intrinsèque
+- Mode `breakout` pur (sans FVG) : plus de trades, moins de filtrage
+- Combinaison TP fixe + `sl_source="fvg"` : R/R amélioré sans dépendre du PM
+
+**Statut : recherche. Ne pas déployer en live. Soumettre à Opus pour la suite.**
 
 ---
 
