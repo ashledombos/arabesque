@@ -57,6 +57,8 @@ arabesque/modules/       ← indicators, position_manager
 arabesque/strategies/
   └── extension/         ← signal.py UNIQUE backtest+live (Opus uniquement pour modifier)
   └── fouette/           ← ORB M1, en développement (pas encore validé)
+  └── glissade/          ← Scalping VWAP pullback M1+M5 (placeholder)
+  └── pas_de_deux/       ← Pairs trading cointégration (placeholder, long terme)
 arabesque/execution/     ← live.py, backtest.py, dryrun.py, bar_aggregator.py
 arabesque/broker/        ← cTrader, TradeLocker
 arabesque/data/          ← store.py (parquet-first loader), fetch.py, backends.py
@@ -116,6 +118,8 @@ Noms de disciplines artistiques gracieuses (danse classique, GR, GAF...).
 Terme français, relation imagée avec la logique de trading.
 - Extension = trend-following H1 (BB squeeze → breakout)
 - Fouetté = Opening Range Breakout M1 (NY open)
+- Glissade = scalping pullback VWAP + EMA M1 (pas glissé, court et fluide)
+- Pas de Deux = pairs trading cointégration (danse à deux partenaires en miroir)
 
 ## Données
 

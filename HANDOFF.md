@@ -1,8 +1,8 @@
-# ARABESQUE — Handoff v16
+# ARABESQUE — Handoff v19
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque
-> **Dernière mise à jour** : 2026-03-15, session Sonnet 4.6 (Fouetté backtest #1)
+> **Dernière mise à jour** : 2026-03-15, session Opus 4.6 (stratégies Glissade + Pas de Deux)
 
 ---
 
@@ -170,10 +170,13 @@ arabesque/
 ├── core/              ← Kernel immuable (models, guards, audit)
 ├── modules/           ← Briques réutilisables (indicators, position_manager)
 ├── strategies/
-│   └── extension/     ← Trend-following H1 ✅ Validé
-│       ├── signal.py  ← Générateur UNIQUE backtest + live
-│       ├── params.yaml
-│       └── STRATEGY.md
+│   ├── extension/     ← Trend-following H1 ✅ Validé
+│   │   ├── signal.py  ← Générateur UNIQUE backtest + live
+│   │   ├── params.yaml
+│   │   └── STRATEGY.md
+│   ├── fouette/       ← ORB M1 🔬 En développement
+│   ├── glissade/      ← Scalping VWAP 📋 Placeholder
+│   └── pas_de_deux/   ← Pairs trading 📋 Placeholder
 ├── execution/         ← Moteurs (backtest, dryrun, live, bar_aggregator…)
 ├── broker/            ← Adapters (cTrader, TradeLocker, DryRun)
 ├── data/              ← Store parquet + fetch (ex-barres_au_sol)
@@ -195,11 +198,21 @@ backtest ↔ live (WR, nb trades/semaine, exit reasons).
 Accumuler ~100 trades avec logs Williams %R et RSI div, puis décider
 si activer comme filtre bloquant. Voir `docs/DECISIONS.md`.
 
-### P2 : Multi-compte prop firm
+### P2 : Nouvelles stratégies
+
+| Stratégie | Priorité | Statut | Prochain pas |
+|---|---|---|---|
+| **Fouetté** (ORB M1) | Haute | 🔬 Backtest négatif sur XAUUSD | Tester autres instruments, `sl_source="fvg"` |
+| **Glissade** (scalp VWAP) | Haute | 📋 Placeholder créé | Implémenter VWAP dans indicators.py |
+| **Pas de Deux** (pairs) | Long terme | 📋 Placeholder créé | Définir interface multi-jambes |
+
+Voir `docs/DECISIONS.md` § "Nouvelles stratégies — pipeline d'implémentation".
+
+### P3 : Multi-compte prop firm
 `config/prop_firm_profiles.yaml` existe. Quand le compte test est
 validé, étendre à GFT (TradeLocker).
 
-### P3 : Tests unitaires
+### P4 : Tests unitaires
 Placeholder dans `tests/`. À implémenter quand on veut garantir la
 non-régression des guards et du signal generator.
 

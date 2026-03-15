@@ -20,6 +20,7 @@
 6. [Pipeline de sélection des instruments](#6-pipeline-de-sélection-des-instruments)
 7. [Infrastructure et données](#7-infrastructure-et-données)
 8. [Questions ouvertes](#8-questions-ouvertes)
+9. [Nouvelles stratégies — pipeline d'implémentation](#nouvelles-stratégies--pipeline-dimplémentation-2026-03-15)
 
 ---
 
@@ -1191,6 +1192,102 @@ toucher le DD max**, qui est LA question pour un challenge prop firm. Se modéli
 comme un problème de temps d'atteinte de barrières (gambler's ruin avec drift).
 Entrée : distribution des trades (R), barrières (profit target, max DD).
 Sortie : P(succès), temps médian, P(ruine).
+
+## Nouvelles stratégies — pipeline d'implémentation (2026-03-15)
+
+> Stratégies identifiées par analyse croisée de la littérature prop firm,
+> filtrées par la boussole stratégique (WR ≥ 70% cible, courbe régulière).
+> Convention de nommage : disciplines artistiques (danse classique, GR, GAF).
+
+### Catalogue des stratégies
+
+| Nom de code | Logique | TF | WR brut estimé | Statut | Priorité |
+|---|---|---|---|---|---|
+| **Extension** | Trend-following BB squeeze → breakout | H1 | ~45% → 75% (BE) | ✅ Live validé | — |
+| **Fouetté** | Opening Range Breakout NY | M1 | 53-65% | 🔬 Backtest | Haute |
+| **Glissade** | Scalping pullback VWAP + EMA | M1+M5 | 55-70% → 70-80%? (BE) | 📋 Placeholder | Haute |
+| **Pas de Deux** | Pairs trading cointégration + z-score | M15 | 50-65% | 📋 Placeholder | Long terme |
+
+### Stratégies évaluées et rejetées
+
+| Stratégie | WR estimé | Raison du rejet |
+|---|---|---|
+| Breakout Donchian (momentum) | 30-45% | WR incompatible boussole (≥70% cible). Séries de pertes trop longues. |
+| Mean reversion pure (sans VWAP ni régime) | ~40% | Testée 4 replays, 2 périodes, 3 univers : perd partout. Abandonnée définitivement. |
+
+### Glissade — Scalping intraday pullback VWAP + EMA
+
+**Concept :** le prix recule brièvement vers le VWAP/EMA20 dans une tendance
+intraday établie, puis repart. Entrée sur bougie de retournement M1.
+
+**Pourquoi ça peut marcher avec la boussole :**
+- Le pullback VWAP est un setup institutionnel bien documenté (ancrage prix moyen)
+- Stops courts (0.9-1.5× ATR M1) → petites pertes
+- Fréquence élevée (jusqu'à 6 trades/jour) → consistance
+- Le BE trigger 0.3R convertit les trades neutres en petits gains (comme Extension)
+- Hypothèse : WR brut 55-70% → avec BE trigger, 70-80% est plausible
+
+**Risques identifiés :**
+- Sensibilité au slippage et aux coûts (scalping M1)
+- VWAP pas encore dans indicators.py → à implémenter
+- Filtre de régime ADX critique (sans lui, chop = pertes)
+
+**Prérequis :**
+1. Implémenter VWAP session dans `arabesque/modules/indicators.py`
+2. Valider le chargement M1+M5 synchronisé dans `store.py`
+3. Premier backtest sur pool `quick` (6 instruments)
+4. Walk-forward si résultats positifs
+
+**Fichiers :** `arabesque/strategies/glissade/signal.py` (placeholder)
+
+### Pas de Deux — Pairs trading cointégration + z-score
+
+**Concept :** deux instruments cointégrés s'écartent de leur relation d'équilibre
+(z-score ≥ 2.0). On prend un spread hedgé (long un / short l'autre) et on attend
+le retour à la moyenne.
+
+**Pourquoi c'est intéressant :**
+- Courbe d'équité structurellement plus régulière (exposition hedgée)
+- Décorrélé des autres stratégies → diversification du portefeuille
+- Pas de dépendance à un régime tendance/range
+- P&L proportionnel à la stabilité statistique, pas à la direction du marché
+
+**Risques identifiés :**
+- Rupture de cointégration = stop brutal (risque "à saut")
+- Leg risk (fill d'une jambe échoue → exposition directionnelle non voulue)
+- Complexité élevée (stats + infra double-instrument)
+- BacktestRunner est mono-instrument → refonte nécessaire
+
+**Prérequis (lourds) :**
+1. Extension du modèle `Signal` pour les paires (ou nouveau type `PairSignal`)
+2. `BacktestRunner` multi-instrument (ou nouveau runner dédié)
+3. Calcul Engle-Granger + ADF dans indicators.py (dépendance statsmodels)
+4. Exécution synchronisée de 2 ordres dans le broker
+5. Identifier des paires tradables sur cTrader/FTMO (indices CFD entre eux?)
+
+**Fichiers :** `arabesque/strategies/pas_de_deux/signal.py` (placeholder)
+
+### Éléments transverses à noter (issus de l'analyse LLM)
+
+**Risk engine indépendant du signal (déjà partiellement dans guards.py) :**
+L'analyse confirme que le moteur de risque est plus important que le signal.
+Un signal moyen + risk engine strict passe plus souvent qu'un bon signal sur-levier.
+Arabesque a déjà `guards.py` + `PropConfig` + `ExecConfig`, mais certains manques :
+- Plafond quotidien personnel (pas juste le daily DD FTMO, mais un seuil interne
+  plus conservateur, ex: 40% du DLL programme)
+- Kill switch : arrêt automatique après N pertes consécutives (paramétrable par stratégie)
+- Max trades/jour par stratégie (pas juste par session comme Fouetté)
+
+**Tests de stress standardisés (à intégrer dans le pipeline) :**
+- Slippage ×2 sur 10% des trades (news/ouverture)
+- Spread ×1.5 permanent
+- Test look-ahead : décaler indicateurs de 1 barre, vérifier que l'edge survit
+- Clusters de pertes (pas seulement permutation uniforme dans Monte Carlo)
+
+**Compliance SIM :**
+Plusieurs prop firms sanctionnent les algos qui exploitent l'absence de slippage
+du simulateur (brackets ultra-serrés, hyperactivité). À garder en tête pour
+Glissade (scalping) : le backtest doit être pessimiste sur les fills.
 
 ---
 
