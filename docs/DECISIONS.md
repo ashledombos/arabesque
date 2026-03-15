@@ -1182,6 +1182,33 @@ annonces à fort impact. Pas encore implémenté dans les guards. Nécessite un
 calendrier économique (source : ForexFactory, Investing.com, ou API dédiée).
 Pour Fouetté (ORB NY) c'est particulièrement pertinent car la session NY
 ouvre souvent sur des annonces US.
+Note FTMO : les restrictions news ne s'appliquent PAS pendant l'évaluation
+(Challenge + Vérification), mais s'appliquent en FTMO Account funded standard.
+Un SL/TP déclenché dans la fenêtre restreinte peut être considéré comme violation.
+
+**Reset daily loss à minuit CE(S)T (priorité haute)**
+La perte journalière FTMO se recalcule à minuit CE(S)T (pas à l'ouverture de
+session), et inclut le P&L latent (positions ouvertes), commissions et swaps.
+Conséquence : une position overnight profitable qui retrace après minuit peut
+créer une violation sur le nouveau jour. Le guard actuel `max_daily_dd` dans
+`guards.py` ne tient pas compte de ce reset horaire. À implémenter :
+- Reset du compteur P&L journalier à 00:00 CE(S)T
+- Inclusion du P&L latent dans le calcul (pas seulement réalisé)
+- Alerte si positions overnight avec P&L latent > 50% de la marge journalière
+
+**Plafond de perte intraday personnel (priorité haute)**
+Fixer un plafond interne plus conservateur que la limite programme :
+1.5-2.5% vs 5% FTMO. Marge de sécurité pour le slippage, les coûts et les
+erreurs. À paramétrer dans `PropConfig` comme ratio de la limite officielle
+(ex: `personal_daily_cap_ratio: 0.40` → 2% sur 5%).
+
+**Limite de pertes consécutives par stratégie (priorité moyenne)**
+Kill switch automatique après N pertes consécutives, paramétrable par stratégie :
+- Scalping (Glissade) : 3 pertes → arrêt journée
+- Mean reversion : 2 pertes → arrêt journée (probable trend day)
+- Breakout (Fouetté) : 4 pertes (WR plus faible, séries attendues)
+- Pairs (Pas de Deux) : 2 pertes → cooldown 1 session
+Ces valeurs sont des defaults de départ à calibrer par backtest.
 
 ### À faire — Analyse avancée
 
@@ -1192,6 +1219,28 @@ toucher le DD max**, qui est LA question pour un challenge prop firm. Se modéli
 comme un problème de temps d'atteinte de barrières (gambler's ruin avec drift).
 Entrée : distribution des trades (R), barrières (profit target, max DD).
 Sortie : P(succès), temps médian, P(ruine).
+Extension : simuler les règles FTMO complètes (equity-based, reset minuit CE(S)T)
+dans le Monte Carlo, pas seulement les barrières simplifiées.
+
+**Reporting backtest segmenté par régime (priorité moyenne)**
+Actuellement, les métriques backtest sont agrégées sur toute la période.
+Ajouter un reporting par régime de marché (range vs trend, via ADX ou volatilité)
+pour vérifier que chaque stratégie profite du bon régime :
+- Mean reversion → doit profiter majoritairement en range (ADX < 20)
+- Breakout/trend → doit profiter majoritairement en trend (ADX > 25)
+Si une stratégie profite du « mauvais » régime, le filtre est mal calibré.
+Implémentation : tag chaque trade avec le régime dominant au moment de l'entrée,
+puis reporting séparé dans `_print_backtest_synthesis`.
+
+**Sizing par type de stratégie — référence (priorité basse)**
+Plages de risque par trade calibrées pour un 100k 2-steps (FTMO recommande
+0.25-1% par trade, 10 pertes consécutives à 0.5% = 5% = limite journalière) :
+- Scalping (Glissade) : 0.10-0.20% (fréquence haute → sizing bas)
+- Mean reversion : 0.25-0.50%
+- Breakout/ORB (Fouetté) : 0.20-0.35%
+- Pairs (Pas de Deux) : 0.20-0.35%
+- Trend-following (Extension) : 0.40% (validé sur 20 mois)
+À intégrer comme defaults dans les configs de chaque stratégie.
 
 ## Nouvelles stratégies — pipeline d'implémentation (2026-03-15)
 
