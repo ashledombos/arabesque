@@ -719,11 +719,11 @@ class LiveEngine:
 # CLI
 # =============================================================================
 
-# Instruments FTMO viables par défaut (résultat pipeline 2026-02-20)
+# Basket live validé walk-forward (2026-03-15) : XAUUSD H1 + crypto 4H + JPY crosses H1
 _DEFAULT_INSTRUMENTS = [
-    "AAVUSD","ALGUSD","BCHUSD","DASHUSD","GRTUSD","ICPUSD","IMXUSD",
-    "LNKUSD","NEOUSD","NERUSD","SOLUSD","UNIUSD","VECUSD","XAUUSD",
-    "XLMUSD","XRPUSD","XTZUSD",
+    "BTCUSD","ETHUSD","SOLUSD","BNBUSD","LNKUSD","DOGEUSD","ADAUSD",
+    "AVAXUSD","LTCUSD","XAUUSD",
+    "AUDJPY","CHFJPY","GBPJPY",
 ]
 
 
@@ -740,7 +740,7 @@ def main():
 Modes d'utilisation :
   Dry-run parquet (offline, P2) :
     python -m arabesque.live.engine \
-      --source parquet --start 2025-10-01 --end 2026-01-01
+      --source parquet --strategy trend --start 2025-10-01 --end 2026-01-01
 
   Dry-run cTrader (vrais ticks, P3) :
     python -m arabesque.live.engine --dry-run
@@ -827,15 +827,11 @@ def _run_parquet_replay(args) -> None:
 
     orchestrator = Orchestrator(config=cfg, brokers=brokers)
 
-    if args.strategy == "mean_reversion":
-        from arabesque.strategies.extension.signal import ExtensionSignalGenerator as BacktestSignalGenerator, ExtensionConfig as SignalGenConfig
-        sig_gen = BacktestSignalGenerator(SignalGenConfig(), live_mode=False)
-    elif args.strategy == "trend":
-        from arabesque.strategies.extension.signal import TrendSignalGenerator, TrendSignalConfig
+    from arabesque.strategies.extension.signal import TrendSignalGenerator, TrendSignalConfig
+    if args.strategy in ("trend", "combined", "mean_reversion"):
         sig_gen = TrendSignalGenerator(TrendSignalConfig())
     else:
-        # abandoned: CombinedSignalGenerator
-        sig_gen = CombinedSignalGenerator()
+        raise ValueError(f"Stratégie inconnue : {args.strategy}")
 
     clock = ParquetClock(
         instruments=instruments,

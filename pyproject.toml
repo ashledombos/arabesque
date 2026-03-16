@@ -1,6 +1,6 @@
 [build-system]
 requires = ["setuptools>=68"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "arabesque"
@@ -19,6 +19,29 @@ dependencies = [
     "requests>=2.31",
     "python-telegram-bot>=20.0",
     "ctrader-open-api",
+]
+
+[project.optional-dependencies]
+# Installé via install.sh avec --no-deps + deps manuelles (conflit requests)
+tradelocker = [
+    "PyJWT>=2.8.0",
+    "joblib>=1.4.2",
+    "python-dotenv>=1.0.0",
+]
+# Sources de données alternatives
+data = [
+    "ccxt",
+    "yfinance",
+]
+# Notifications multi-canaux
+notify = [
+    "apprise",
+]
+# Tout sauf tradelocker (géré séparément)
+all = [
+    "ccxt",
+    "yfinance",
+    "apprise",
 ]
 
 [project.scripts]

@@ -431,7 +431,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--period", default="730d", help="Période backtest (ex: 730d)")
     run_p.add_argument("--interval", default=None,
                        help="Override timeframe (ex: 4h, 15m). Par défaut : selon la stratégie")
-    run_p.add_argument("--risk", type=float, default=0.40, help="Risque par trade (%)")
+    run_p.add_argument("--risk", type=float, default=0.40, help="Risque par trade (%%)")
     run_p.add_argument("--verbose", "-v", action="store_true")
     run_p.add_argument("--no-sub-bar", action="store_true",
                        help="Désactive le sub-bar replay M1 (plus rapide, moins précis)")
