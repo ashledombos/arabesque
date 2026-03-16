@@ -1497,6 +1497,42 @@ brute (+0.011R) est trop proche de zéro pour être robuste en live.
 
 ---
 
+## Décision 2026-03-16 — Sub-bar replay M1 dans le backtest
+
+**Contexte :** le backtest H1 utilisait le H/L agrégé d'une barre pour résoudre
+SL/TP/BE. Quand SL et TP étaient tous deux touchés dans la même barre → SL pris
+(conservateur). Mais surtout, le BE trigger ne pouvait pas se déclencher
+intra-barre : si le prix montait à 0.35R puis redescendait au SL dans la même
+barre H1, le backtest prenait -1R alors que le live (tick-level TSL) aurait
+déclenché le BE et sorti à +0.20R.
+
+**Solution :** sub-bar replay — pour chaque barre H1/H4 avec positions ouvertes,
+on itère les barres M1 sous-jacentes en ordre chronologique. Le position manager
+reçoit chaque M1 individuellement, ce qui résout l'ambiguïté temporelle.
+
+**Impact mesuré sur XAUUSD Extension H1 (2 ans) :**
+
+| Métrique | Sans sub-bar | Avec sub-bar M1 |
+|---|---|---|
+| WR | 69.4% | 74.1% (+4.7pts) |
+| Exp | +0.122R | +0.056R |
+| Total R | +13.2R | +6.0R |
+| SL exits | 32 | 26 (-6) |
+| Max DD | 1.7% | 1.3% |
+
+Le mode conservateur surestimait à la fois les gains (TP touché mais BE aurait
+sorti avant) et les pertes (SL touché mais BE aurait protégé). Le sub-bar replay
+donne une image plus proche du live.
+
+**Détail technique :** le compteur `bars_open` (utilisé par ROI, time_stop,
+deadfish) est incrémenté une fois par barre parente, pas par M1 sub-bar.
+Sauvegarde/restauration autour du sub-bar replay.
+
+**Activation :** automatique quand des données M1 sont disponibles dans
+`barres_au_sol/`. Flag `--no-sub-bar` pour désactiver (backtests rapides).
+
+---
+
 ## Décision 2026-03-12 — Restructuration v9 : architecture multi-stratégie
 
 **Contexte :** Arabesque v8c est en production live. Le code présente 6 problèmes

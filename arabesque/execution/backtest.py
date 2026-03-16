@@ -126,8 +126,17 @@ class BacktestRunner:
         df: pd.DataFrame,
         instrument: str = "",
         sample_type: str = "",
+        sub_bar_df: pd.DataFrame | None = None,
     ) -> BacktestResult:
-        """Exécute le backtest sur un DataFrame OHLC préparé."""
+        """Exécute le backtest sur un DataFrame OHLC préparé.
+
+        Args:
+            sub_bar_df: Données M1 pour le sub-bar replay. Si fourni, les
+                positions ouvertes sont mises à jour barre M1 par barre M1
+                (au lieu de H/L agrégé), ce qui résout l'ambiguïté intra-barre
+                pour le BE trigger, le trailing, et l'ordre SL/TP.
+                Doit avoir des colonnes Open/High/Low/Close et un DatetimeIndex.
+        """
         self.manager = PositionManager(self.manager.cfg)
         self.account = AccountState(
             balance=self.bt_cfg.start_balance,
@@ -137,6 +146,12 @@ class BacktestRunner:
         )
 
         signals_by_bar = self._precompute_signals(df, instrument)
+
+        # Pré-indexer les sub-bars par timestamp de barre parente
+        # pour un lookup O(1) au lieu de filtrer à chaque barre
+        sub_bar_index: dict[pd.Timestamp, pd.DataFrame] | None = None
+        if sub_bar_df is not None and len(sub_bar_df) > 0:
+            sub_bar_index = self._build_sub_bar_index(df, sub_bar_df)
 
         all_decisions: list[Decision] = []
         n_signals = 0
@@ -166,19 +181,46 @@ class BacktestRunner:
                 "ema200": row.get("ema_slow", 0),
             }
 
-            for pos in list(self.manager.open_positions):
-                decisions = self.manager.update_position(pos, high, low, close, indicators)
-                all_decisions.extend(decisions)
-                if not pos.is_open and pos.result_r is not None:
-                    pos.ts_exit = bar_date.to_pydatetime() if hasattr(bar_date, 'to_pydatetime') else bar_date
-                    pnl = pos.result_r * pos.risk_cash
-                    self.account.equity += pnl
-                    self.account.balance += pnl
-                    self.account.daily_pnl += pnl
-                    self.account.open_positions -= 1
-                    self.account.open_risk_cash = max(0.0, self.account.open_risk_cash - pos.risk_cash)
-                    if pos.instrument in self.account.open_instruments:
-                        self.account.open_instruments.remove(pos.instrument)
+            # ── Position update : sub-bar replay ou H/L agrégé ──
+            if self.manager.open_positions and sub_bar_index is not None:
+                sub_bars = sub_bar_index.get(bar_date)
+                if sub_bars is not None and len(sub_bars) > 0:
+                    # Sauvegarder bars_open pour chaque position ouverte :
+                    # le sub-bar replay ne doit incrémenter bars_open que de 1
+                    # par barre parente (pas 60 pour 60 M1 dans 1 H1).
+                    saved_bars = {id(pos): pos.bars_open for pos in self.manager.open_positions}
+
+                    # Itérer les M1 en ordre chronologique
+                    for _, sb in sub_bars.iterrows():
+                        for pos in list(self.manager.open_positions):
+                            decisions = self.manager.update_position(
+                                pos, sb["High"], sb["Low"], sb["Close"], indicators
+                            )
+                            all_decisions.extend(decisions)
+                            if not pos.is_open and pos.result_r is not None:
+                                # Restaurer bars_open correct (1 barre parente)
+                                pos.bars_open = saved_bars.get(id(pos), pos.bars_open - 1) + 1
+                                sb_ts = sb.name if hasattr(sb, 'name') else bar_date
+                                pos.ts_exit = sb_ts.to_pydatetime() if hasattr(sb_ts, 'to_pydatetime') else sb_ts
+                                pnl = pos.result_r * pos.risk_cash
+                                self.account.equity += pnl
+                                self.account.balance += pnl
+                                self.account.daily_pnl += pnl
+                                self.account.open_positions -= 1
+                                self.account.open_risk_cash = max(0.0, self.account.open_risk_cash - pos.risk_cash)
+                                if pos.instrument in self.account.open_instruments:
+                                    self.account.open_instruments.remove(pos.instrument)
+
+                    # Restaurer bars_open pour les positions encore ouvertes
+                    for pos in self.manager.open_positions:
+                        if id(pos) in saved_bars:
+                            pos.bars_open = saved_bars[id(pos)] + 1
+                else:
+                    # Pas de sub-bars pour cette barre → fallback H/L agrégé
+                    self._update_positions_hlc(high, low, close, bar_date, indicators, all_decisions)
+            else:
+                # Pas de sub-bar replay → mode classique H/L agrégé
+                self._update_positions_hlc(high, low, close, bar_date, indicators, all_decisions)
 
             self.manager.update_counterfactuals(instrument, high, low, close)
 
@@ -366,6 +408,56 @@ class BacktestRunner:
         agri = {"COCOA", "COFFEE", "CORN", "COTTON", "SOYBEAN", "WHEAT", "SUGAR"}
         if inst in agri: return 100
         return 1
+
+    def _update_positions_hlc(
+        self,
+        high: float, low: float, close: float,
+        bar_date, indicators: dict,
+        all_decisions: list,
+    ) -> None:
+        """Met à jour les positions ouvertes avec le H/L/C agrégé d'une barre."""
+        for pos in list(self.manager.open_positions):
+            decisions = self.manager.update_position(pos, high, low, close, indicators)
+            all_decisions.extend(decisions)
+            if not pos.is_open and pos.result_r is not None:
+                pos.ts_exit = bar_date.to_pydatetime() if hasattr(bar_date, 'to_pydatetime') else bar_date
+                pnl = pos.result_r * pos.risk_cash
+                self.account.equity += pnl
+                self.account.balance += pnl
+                self.account.daily_pnl += pnl
+                self.account.open_positions -= 1
+                self.account.open_risk_cash = max(0.0, self.account.open_risk_cash - pos.risk_cash)
+                if pos.instrument in self.account.open_instruments:
+                    self.account.open_instruments.remove(pos.instrument)
+
+    @staticmethod
+    def _build_sub_bar_index(
+        parent_df: pd.DataFrame,
+        sub_df: pd.DataFrame,
+    ) -> dict:
+        """Pré-indexe les sub-bars (M1) par timestamp de barre parente.
+
+        Pour chaque barre parente (H1/H4), trouve les sub-bars M1 dont le
+        timestamp tombe dans l'intervalle [parent_ts, next_parent_ts).
+
+        Retourne un dict : parent_timestamp → DataFrame de sub-bars triées.
+        """
+        index = {}
+        parent_times = parent_df.index
+        sub_times = sub_df.index
+
+        # Utiliser searchsorted pour un lookup O(n log n) total
+        for j in range(len(parent_times)):
+            start_ts = parent_times[j]
+            end_ts = parent_times[j + 1] if j + 1 < len(parent_times) else start_ts + pd.Timedelta(hours=24)
+
+            i_start = sub_times.searchsorted(start_ts, side="left")
+            i_end = sub_times.searchsorted(end_ts, side="left")
+
+            if i_start < i_end:
+                index[start_ts] = sub_df.iloc[i_start:i_end]
+
+        return index
 
 
 # ── JSONL run summary ──────────────────────────────────────────────────
@@ -579,6 +671,22 @@ def run_walk_forward(
         raise ValueError(f"Données insuffisantes pour {instrument}: {len(df) if df is not None else 0} bars "
                          f"(besoin de {is_bars + oos_bars} minimum)")
 
+    # Charger les sub-bars M1 pour le sub-bar replay (si TF > M1)
+    sub_bar_df = None
+    if interval not in ("min1", "1m", "M1"):
+        try:
+            sub_bar_df = load_ohlc(instrument, period=period, start=start, end=end,
+                                   interval="min1", data_root=data_root)
+            if sub_bar_df is not None and len(sub_bar_df) > 0:
+                if "close" in sub_bar_df.columns and "Close" not in sub_bar_df.columns:
+                    sub_bar_df.columns = [c.capitalize() for c in sub_bar_df.columns]
+                if verbose:
+                    print(f"  Sub-bar replay: {len(sub_bar_df)} barres M1 chargées")
+            else:
+                sub_bar_df = None
+        except Exception:
+            sub_bar_df = None
+
     # Préparer le signal generator
     if signal_generator is None:
         if strategy == "trend":
@@ -612,11 +720,11 @@ def run_walk_forward(
 
         # Run IS
         runner_is = BacktestRunner(cfg, signal_generator=signal_generator)
-        result_is = runner_is.run(df_is, instrument, "in_sample")
+        result_is = runner_is.run(df_is, instrument, "in_sample", sub_bar_df=sub_bar_df)
 
         # Run OOS
         runner_oos = BacktestRunner(cfg, signal_generator=signal_generator)
-        result_oos = runner_oos.run(df_oos, instrument, "out_of_sample")
+        result_oos = runner_oos.run(df_oos, instrument, "out_of_sample", sub_bar_df=sub_bar_df)
 
         wf_windows.append(WalkForwardWindow(
             window_idx=idx,

@@ -43,6 +43,9 @@ Score prop: 4/5 (seul échec: jours pour +10% = 58j > 45j)
 - **Glissade signal generator implémenté** : VWAP pullback + EMA context, premier backtest négatif
 - **`positions` CLI corrigé** : fix create_broker() argument mismatch
 - **Live multi-TF confirmé opérationnel** : BTCUSD H4 + BNBUSD H4 signaux corrects, BE trigger OK
+- **Sub-bar replay M1** implémenté dans le backtest : résout l'ambiguïté intra-barre H1/H4
+  pour le BE trigger, trailing, et l'ordre SL/TP. Activé automatiquement quand les données M1
+  sont disponibles. Flag `--no-sub-bar` pour désactiver.
 
 ### Glissade — Premier backtest (2026-03-16)
 

@@ -144,6 +144,13 @@ def _run_backtest(args: argparse.Namespace) -> int:
         verbose=getattr(args, "verbose", False),
     )
 
+    # Sub-bar replay : charger M1 pour résoudre l'ambiguïté intra-barre
+    # quand le timeframe est > M1 (H1, H4, etc.)
+    use_sub_bar = timeframe not in ("min1", "1m", "M1")
+    no_sub_bar = getattr(args, "no_sub_bar", False)
+    if no_sub_bar:
+        use_sub_bar = False
+
     # Boucle multi-instruments avec collecte des résultats
     results: dict[str, object] = {}
     for inst in instruments:
@@ -154,7 +161,23 @@ def _run_backtest(args: argparse.Namespace) -> int:
                 print(f"  Données insuffisantes pour {inst}", file=sys.stderr)
                 continue
             df = sig_gen.prepare(df)
-            result = runner.run(df, inst)
+
+            # Charger les sub-bars M1 si disponibles
+            sub_bar_df = None
+            if use_sub_bar:
+                try:
+                    sub_bar_df = load_ohlc(inst, period=period, interval="min1")
+                    if sub_bar_df is not None and len(sub_bar_df) > 0:
+                        # Normaliser les colonnes (certains loaders utilisent lowercase)
+                        if "close" in sub_bar_df.columns and "Close" not in sub_bar_df.columns:
+                            sub_bar_df.columns = [c.capitalize() for c in sub_bar_df.columns]
+                        print(f"  [{inst}] Sub-bar replay: {len(sub_bar_df)} barres M1")
+                    else:
+                        sub_bar_df = None
+                except Exception:
+                    sub_bar_df = None  # Pas de M1 disponible → fallback H/L
+
+            result = runner.run(df, inst, sub_bar_df=sub_bar_df)
             results[inst] = result
             print(result.report)
         except Exception as e:
@@ -410,6 +433,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Override timeframe (ex: 4h, 15m). Par défaut : selon la stratégie")
     run_p.add_argument("--risk", type=float, default=0.40, help="Risque par trade (%)")
     run_p.add_argument("--verbose", "-v", action="store_true")
+    run_p.add_argument("--no-sub-bar", action="store_true",
+                       help="Désactive le sub-bar replay M1 (plus rapide, moins précis)")
     run_p.add_argument("--universe", default=None,
                        help="Univers d'instruments (config/universes.yaml)")
     run_p.add_argument("instruments", nargs="*", help="Instruments (mode backtest)")
