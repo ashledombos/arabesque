@@ -93,6 +93,14 @@ _DUKASCOPY_MAP: dict[str, str] = {
     "NZDCHF": "NZDCHF", "NZDJPY": "NZDJPY", "EURNZD": "EURNZD",
     # Metals
     "XAUUSD": "XAUUSD", "XAGUSD": "XAGUSD",
+    "XAUEUR": "XAUEUR", "XAGEUR": "XAGEUR",
+    # Indices (noms internes Dukascopy)
+    "US500": "USA500IDXUSD", "US30": "USA30IDXUSD", "US100": "USATECHIDXUSD",
+    "NAS100": "USATECHIDXUSD",
+    "GER40": "DEUIDXEUR", "UK100": "GBRIDXGBP", "JP225": "JPNIDXJPY",
+    "JPN225": "JPNIDXJPY",
+    # Energy (noms internes Dukascopy)
+    "UKOIL": "BRENTCMDUSD", "USOIL": "LIGHTCMDUSD",
 }
 
 # Mapping FTMO instrument → clé Parquet dans ccxt/derived/
@@ -158,9 +166,10 @@ _CATEGORIES: dict[str, str] = {
     "EURUSD": "forex_major", "GBPUSD": "forex_major", "USDJPY": "forex_major",
     "USDCHF": "forex_major", "AUDUSD": "forex_major", "USDCAD": "forex_major",
     "NZDUSD": "forex_major",
-    "XAUUSD": "metal", "XAGUSD": "metal",
-    "NAS100": "index", "US30": "index", "US500": "index",
-    "GER40": "index", "UK100": "index", "JPN225": "index",
+    "XAUUSD": "metal", "XAGUSD": "metal", "XAUEUR": "metal", "XAGEUR": "metal",
+    "NAS100": "index", "US30": "index", "US500": "index", "US100": "index",
+    "GER40": "index", "UK100": "index", "JPN225": "index", "JP225": "index",
+    "UKOIL": "energy", "USOIL": "energy", "NATGAS": "energy",
 }
 
 

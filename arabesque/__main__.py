@@ -409,6 +409,46 @@ def cmd_positions(args: argparse.Namespace) -> int:
     return asyncio.run(_run())
 
 
+def cmd_ablation(args: argparse.Namespace) -> int:
+    """Lance une étude d'ablation multi-instruments."""
+    _setup_logging(args.log_level)
+    from arabesque.analysis.ablation import run_ablation, VARIANTS
+
+    instruments = _resolve_instruments(args)
+    if not instruments:
+        print("Usage : python -m arabesque ablation --universe crypto",
+              file=sys.stderr)
+        print("     ou python -m arabesque ablation BTCUSD XAUUSD", file=sys.stderr)
+        return 1
+
+    timeframe = getattr(args, "interval", None) or "1h"
+    variants = getattr(args, "variants", None)
+    if variants:
+        variants = [v.strip() for v in variants.split(",")]
+
+    summary = run_ablation(
+        instruments=instruments,
+        interval=timeframe,
+        period=getattr(args, "period", "730d"),
+        variants=variants,
+        risk_pct=float(getattr(args, "risk", 0.40)),
+        use_sub_bar=not getattr(args, "no_sub_bar", False),
+        start=getattr(args, "start", None),
+        end=getattr(args, "end", None),
+    )
+
+    print(summary.format_report())
+
+    # Export CSV si demandé
+    csv_path = getattr(args, "csv", None)
+    if csv_path:
+        df = summary.to_dataframe()
+        df.to_csv(csv_path, index=False)
+        print(f"\nExport CSV : {csv_path}")
+
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="arabesque",
@@ -486,6 +526,24 @@ def build_parser() -> argparse.ArgumentParser:
     check_p = subparsers.add_parser("check", help="Tester la connectivité broker")
     check_p.add_argument("--account", required=True)
     check_p.set_defaults(func=cmd_check)
+
+    # ── ablation ──
+    abl_p = subparsers.add_parser("ablation", help="Étude d'ablation (impact de chaque composant)")
+    abl_p.add_argument("--interval", default=None,
+                       help="Timeframe (ex: 4h, 1h). Par défaut : 1h")
+    abl_p.add_argument("--period", default="730d", help="Période données (ex: 730d)")
+    abl_p.add_argument("--from", dest="start", default=None, help="Date début YYYY-MM-DD")
+    abl_p.add_argument("--to", dest="end", default=None, help="Date fin YYYY-MM-DD")
+    abl_p.add_argument("--risk", type=float, default=0.40, help="Risque par trade (%%)")
+    abl_p.add_argument("--variants", default=None,
+                       help="Variantes à tester (séparées par virgule). Défaut : toutes")
+    abl_p.add_argument("--no-sub-bar", action="store_true",
+                       help="Désactive le sub-bar replay M1")
+    abl_p.add_argument("--csv", default=None, help="Export CSV des résultats")
+    abl_p.add_argument("--universe", default=None, help="Univers d'instruments")
+    abl_p.add_argument("--verbose", "-v", action="store_true")
+    abl_p.add_argument("instruments", nargs="*", help="Instruments")
+    abl_p.set_defaults(func=cmd_ablation)
 
     # ── positions ──
     pos_p = subparsers.add_parser("positions", help="Afficher positions et ordres en attente")

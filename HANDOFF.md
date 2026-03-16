@@ -1,8 +1,8 @@
-# ARABESQUE — Handoff v21
+# ARABESQUE — Handoff v22
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque
-> **Dernière mise à jour** : 2026-03-16, session Opus 4.6 (Fouetté FVG testé, Glissade implémenté)
+> **Dernière mise à jour** : 2026-03-16, session Opus 4.6 (ablation framework, indices/energy mappings, migration machine)
 
 ---
 
@@ -35,9 +35,42 @@ Score prop: 4/5 (seul échec: jours pour +10% = 58j > 45j)
 
 ---
 
-## 2. Session 2026-03-16
+## 2. Session 2026-03-16 (suite — migration machine)
 
 ### Ce qui a changé
+
+- **Ablation framework créé** (`arabesque/analysis/ablation.py`) :
+  - 8 variantes : baseline, no_be, no_trailing, no_roi, no_giveback, no_deadfish, no_time_stop, be_only
+  - CLI : `python -m arabesque ablation --universe crypto --interval 4h`
+  - Rapport par catégorie avec delta Exp vs baseline
+- **store.py — mappings Dukascopy indices/energy ajoutés** :
+  - US500→USA500IDXUSD, US30→USA30IDXUSD, US100/NAS100→USATECHIDXUSD
+  - GER40→DEUIDXEUR, UK100→GBRIDXGBP, JP225/JPN225→JPNIDXJPY
+  - UKOIL→BRENTCMDUSD, USOIL→LIGHTCMDUSD
+  - Catégories `energy` et `index` ajoutées
+  - XAUEUR, XAGEUR ajoutés
+- **live.py — _DEFAULT_INSTRUMENTS corrigé** : basket walk-forward validé (13 instruments)
+- **live.py — fix crash CombinedSignalGenerator** : route toutes les stratégies vers TrendSignalGenerator
+- **pyproject.toml** : fix build-backend + optional-dependencies
+
+### Résultats ablation (session précédente, 42 instruments, 1623 trades, sub-bar M1)
+
+| Composant désactivé | Impact sur crypto_major H4 |
+|---|---|
+| **Sans ROI** | Exp passe de +0.044R à **+0.181R** — ROI détruit l'edge crypto |
+| **Sans BE** | WR chute de ~74% à ~34% — BE est LE levier principal |
+| **Sans trailing** | Impact faible (trailing rare sur crypto H4) |
+
+**Conclusion** : désactiver le ROI sur crypto H4 est la prochaine optimisation critique.
+
+### Données indices/energy — à fetcher
+
+Mappings Dukascopy ajoutés dans store.py mais **pas encore de données sur disque**.
+Relancer le fetch avec les bons noms internes Dukascopy.
+
+## Session 2026-03-16 (début)
+
+### Ce qui a changé (début de session)
 
 - **Fouetté `sl_source="fvg"` testé et abandonné** : WR chute 12-21pts, DD explose à 13-17%
 - **Glissade signal generator implémenté** : VWAP pullback + EMA context, premier backtest négatif
@@ -252,11 +285,17 @@ uniquement par **Claude Opus 4.6**.
 
 ## 5. Prochaines étapes
 
-### P0 : Adapter le basket live aux résultats walk-forward
-Le walk-forward a montré que forex majeurs H1 ne tient pas. Le basket live
-devrait être restreint à : **XAUUSD H1 + crypto 4H + JPY crosses H1**.
-Nécessite de configurer le live engine pour supporter du multi-TF (H1+4H)
-sur le même compte.
+### P0 : Désactiver ROI sur crypto H4
+L'ablation a prouvé que le ROI backstop détruit l'edge crypto (+0.044R → +0.181R sans).
+Implémenter une config ROI par famille dans ManagerConfig ou via ExecConfig.
+
+### P0 : Fetch données indices/energy
+Les mappings Dukascopy sont prêts dans store.py. Lancer le fetch pour :
+US500, US30, US100, GER40, UK100, JP225, UKOIL, USOIL.
+Puis ablation sur ces nouvelles familles.
+
+### P0 (fait) : Basket live adapté au walk-forward
+`_DEFAULT_INSTRUMENTS` mis à jour : XAUUSD H1 + crypto 4H + JPY crosses H1.
 
 ### P1 : Validation live continue
 Le moteur tourne sur `ftmo_swing_test`. Observer la correspondance
