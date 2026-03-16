@@ -85,6 +85,11 @@ python -m arabesque run --strategy extension --mode backtest XAUUSD BTCUSD
 python -m arabesque run --strategy extension --mode backtest --universe crypto
 python -m arabesque run --strategy extension --mode backtest --universe quick
 
+# Walk-forward validation (fenêtres glissantes IS→OOS)
+python -m arabesque walkforward --strategy extension --universe crypto
+python -m arabesque walkforward --strategy extension --interval 4h --universe crypto
+python -m arabesque walkforward --strategy extension XAUUSD GBPJPY AUDJPY
+
 # Backtest Fouetté (M1 automatique)
 python -m arabesque run --strategy fouette --mode backtest XAUUSD
 

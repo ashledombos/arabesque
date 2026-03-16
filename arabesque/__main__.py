@@ -238,6 +238,62 @@ def _print_backtest_synthesis(results: dict, categorize_fn) -> None:
               f"{global_exp:>+7.3f}")
     print(f"{'='*70}")
 
+def cmd_walkforward(args: argparse.Namespace) -> int:
+    """Lance un walk-forward validation sur un ou plusieurs instruments."""
+    _setup_logging(args.log_level)
+    from arabesque.execution.backtest import (
+        run_walk_forward, run_walk_forward_multi, BacktestConfig,
+    )
+
+    strategy = getattr(args, "strategy", "extension")
+
+    if strategy == "fouette":
+        from arabesque.strategies.fouette.signal import FouetteSignalGenerator, FouetteConfig
+        sig_gen = FouetteSignalGenerator(FouetteConfig())
+        default_tf = "min1"
+    else:
+        from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
+        sig_gen = ExtensionSignalGenerator(ExtensionConfig())
+        default_tf = "1h"
+
+    timeframe = getattr(args, "interval", None) or default_tf
+    instruments = _resolve_instruments(args)
+    if not instruments:
+        print("Usage : python -m arabesque walkforward --strategy extension BTCUSD XAUUSD",
+              file=sys.stderr)
+        return 1
+
+    cfg = BacktestConfig(
+        risk_per_trade_pct=float(getattr(args, "risk", 0.40)),
+        verbose=False,
+    )
+
+    is_bars = int(getattr(args, "is_bars", 4380))
+    oos_bars = int(getattr(args, "oos_bars", 1460))
+    step_bars_raw = getattr(args, "step_bars", None)
+    step_bars = int(step_bars_raw) if step_bars_raw else None
+
+    kwargs = dict(
+        is_bars=is_bars,
+        oos_bars=oos_bars,
+        step_bars=step_bars,
+        period=getattr(args, "period", "730d"),
+        start=getattr(args, "start", None),
+        end=getattr(args, "end", None),
+        bt_config=cfg,
+        signal_generator=sig_gen,
+        strategy=strategy,
+        interval=timeframe,
+    )
+
+    if len(instruments) == 1:
+        run_walk_forward(instruments[0], **kwargs)
+    else:
+        run_walk_forward_multi(instruments, **kwargs)
+
+    return 0
+
+
 def cmd_screen(args: argparse.Namespace) -> int:
     """Lance le pipeline de screening multi-instruments."""
     _setup_logging(args.log_level)
@@ -288,7 +344,13 @@ def cmd_positions(args: argparse.Namespace) -> int:
     account_id = args.account
 
     async def _run():
-        broker = create_broker(account_id, settings, secrets, instruments)
+        # Build merged config for this broker (settings + secrets)
+        broker_cfg = settings.get("brokers", {}).get(account_id, {}).copy()
+        broker_secrets = secrets.get(account_id, {})
+        broker_cfg.update(broker_secrets)
+        if instruments:
+            broker_cfg["instruments"] = instruments
+        broker = create_broker(account_id, broker_cfg)
         try:
             await broker.connect()
 
@@ -352,6 +414,26 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Univers d'instruments (config/universes.yaml)")
     run_p.add_argument("instruments", nargs="*", help="Instruments (mode backtest)")
     run_p.set_defaults(func=cmd_run)
+
+    # ── walkforward ──
+    wf_p = subparsers.add_parser("walkforward", help="Walk-forward validation (fenêtres glissantes)")
+    wf_p.add_argument("--strategy", default="extension", help="Stratégie (ex: extension)")
+    wf_p.add_argument("--interval", default=None,
+                       help="Override timeframe (ex: 4h). Par défaut : selon la stratégie")
+    wf_p.add_argument("--is-bars", type=int, default=4380,
+                       help="Barres in-sample par fenêtre (défaut 4380 ≈ 6 mois H1)")
+    wf_p.add_argument("--oos-bars", type=int, default=1460,
+                       help="Barres out-of-sample par fenêtre (défaut 1460 ≈ 2 mois H1)")
+    wf_p.add_argument("--step-bars", type=int, default=None,
+                       help="Pas d'avancement (défaut = oos-bars)")
+    wf_p.add_argument("--period", default="730d", help="Période données (ex: 730d)")
+    wf_p.add_argument("--from", dest="start", default=None, help="Date début YYYY-MM-DD")
+    wf_p.add_argument("--to", dest="end", default=None, help="Date fin YYYY-MM-DD")
+    wf_p.add_argument("--risk", type=float, default=0.40, help="Risque par trade (%%)")
+    wf_p.add_argument("--universe", default=None, help="Univers d'instruments")
+    wf_p.add_argument("--verbose", "-v", action="store_true")
+    wf_p.add_argument("instruments", nargs="*", help="Instruments")
+    wf_p.set_defaults(func=cmd_walkforward)
 
     # ── screen ──
     screen_p = subparsers.add_parser("screen", help="Screening multi-instruments")

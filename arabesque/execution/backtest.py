@@ -45,7 +45,7 @@ from arabesque.strategies.extension.signal import ExtensionSignalGenerator as Ba
 from arabesque.analysis.metrics import (
     BacktestMetrics, compute_metrics, slippage_sensitivity, format_report,
 )
-from arabesque.data.store import load_ohlc, split_in_out_sample, yahoo_symbol, _categorize
+from arabesque.data.store import load_ohlc, split_in_out_sample, split_walk_forward, yahoo_symbol, _categorize
 from arabesque.core.signal_filter import SignalFilter
 
 # Fichier JSONL de synthèse des runs backtest
@@ -499,6 +499,310 @@ def _print_synthesis(results: dict[str, tuple[BacktestResult, BacktestResult]]):
               f"{m.expectancy_r:>+7.3f} {m.profit_factor:>5.2f} "
               f"{m.max_dd_pct:>6.1f}% {m.n_disqualifying_days:>5d}")
     print(f"{'='*60}")
+
+
+# ── Walk-forward validation ──────────────────────────────
+
+@dataclass
+class WalkForwardWindow:
+    """Résultat d'une fenêtre walk-forward."""
+    window_idx: int
+    is_start: str
+    is_end: str
+    oos_start: str
+    oos_end: str
+    is_metrics: BacktestMetrics
+    oos_metrics: BacktestMetrics
+
+
+@dataclass
+class WalkForwardResult:
+    """Résultat agrégé d'un walk-forward complet."""
+    instrument: str
+    n_windows: int
+    windows: list[WalkForwardWindow]
+    # Agrégats OOS
+    total_oos_trades: int = 0
+    aggregate_wr: float = 0.0
+    aggregate_exp_r: float = 0.0
+    aggregate_pf: float = 0.0
+    aggregate_total_r: float = 0.0
+    max_dd_pct: float = 0.0
+    # Stabilité
+    wr_std: float = 0.0
+    exp_std: float = 0.0
+    is_oos_wr_degradation: float = 0.0  # avg(IS_WR - OOS_WR)
+    is_oos_exp_degradation: float = 0.0  # avg(IS_exp - OOS_exp)
+    report: str = ""
+
+
+def run_walk_forward(
+    instrument: str,
+    is_bars: int = 4380,
+    oos_bars: int = 1460,
+    step_bars: int | None = None,
+    period: str = "730d",
+    start: str | None = None,
+    end: str | None = None,
+    bt_config: BacktestConfig | None = None,
+    signal_generator: object | None = None,
+    strategy: str = "trend",
+    interval: str = "1h",
+    data_root: str | None = None,
+    verbose: bool = True,
+) -> WalkForwardResult:
+    """Walk-forward validation : fenêtres glissantes IS→OOS.
+
+    Args:
+        instrument: Nom de l'instrument (ex: XAUUSD).
+        is_bars: Taille fenêtre in-sample en barres.
+        oos_bars: Taille fenêtre out-of-sample en barres.
+        step_bars: Pas d'avancement (défaut = oos_bars).
+        strategy: Stratégie à utiliser.
+        interval: Timeframe (ex: 1h, 4h).
+
+    Returns:
+        WalkForwardResult avec métriques agrégées sur toutes les fenêtres OOS.
+    """
+    cfg = bt_config or BacktestConfig(verbose=False)
+
+    if verbose:
+        print(f"\n{'='*70}")
+        print(f"  WALK-FORWARD — {instrument} ({interval})")
+        print(f"  IS: {is_bars} bars  |  OOS: {oos_bars} bars  |  Step: {step_bars or oos_bars} bars")
+        print(f"{'='*70}")
+
+    # Charger les données
+    df = load_ohlc(instrument, period=period, start=start, end=end,
+                   interval=interval, data_root=data_root)
+    if df is None or len(df) < is_bars + oos_bars:
+        raise ValueError(f"Données insuffisantes pour {instrument}: {len(df) if df is not None else 0} bars "
+                         f"(besoin de {is_bars + oos_bars} minimum)")
+
+    # Préparer le signal generator
+    if signal_generator is None:
+        if strategy == "trend":
+            from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
+            signal_generator = ExtensionSignalGenerator(ExtensionConfig())
+        else:
+            signal_generator = BacktestSignalGenerator()
+
+    # Préparer les indicateurs UNE FOIS sur tout le dataset
+    df_prepared = signal_generator.prepare(df)
+
+    # Découper en fenêtres
+    windows = split_walk_forward(df_prepared, is_bars, oos_bars, step_bars)
+    if not windows:
+        raise ValueError(f"Pas assez de données pour créer des fenêtres walk-forward "
+                         f"({len(df_prepared)} bars, besoin {is_bars}+{oos_bars})")
+
+    if verbose:
+        print(f"  {len(windows)} fenêtres créées sur {len(df_prepared)} barres")
+        print(f"  Période: {df_prepared.index[0].date()} → {df_prepared.index[-1].date()}")
+
+    # Exécuter chaque fenêtre
+    wf_windows: list[WalkForwardWindow] = []
+    all_oos_positions: list = []
+
+    for idx, (df_is, df_oos) in enumerate(windows):
+        if verbose:
+            print(f"\n  ── Fenêtre {idx+1}/{len(windows)} ──")
+            print(f"     IS:  {df_is.index[0].date()} → {df_is.index[-1].date()} ({len(df_is)} bars)")
+            print(f"     OOS: {df_oos.index[0].date()} → {df_oos.index[-1].date()} ({len(df_oos)} bars)")
+
+        # Run IS
+        runner_is = BacktestRunner(cfg, signal_generator=signal_generator)
+        result_is = runner_is.run(df_is, instrument, "in_sample")
+
+        # Run OOS
+        runner_oos = BacktestRunner(cfg, signal_generator=signal_generator)
+        result_oos = runner_oos.run(df_oos, instrument, "out_of_sample")
+
+        wf_windows.append(WalkForwardWindow(
+            window_idx=idx,
+            is_start=str(df_is.index[0].date()),
+            is_end=str(df_is.index[-1].date()),
+            oos_start=str(df_oos.index[0].date()),
+            oos_end=str(df_oos.index[-1].date()),
+            is_metrics=result_is.metrics,
+            oos_metrics=result_oos.metrics,
+        ))
+        all_oos_positions.extend(result_oos.closed_positions)
+
+        if verbose:
+            m_is = result_is.metrics
+            m_oos = result_oos.metrics
+            print(f"     IS:  {m_is.n_trades} trades  WR {m_is.win_rate:.0%}  Exp {m_is.expectancy_r:+.3f}R")
+            print(f"     OOS: {m_oos.n_trades} trades  WR {m_oos.win_rate:.0%}  Exp {m_oos.expectancy_r:+.3f}R")
+
+    # Agrégation
+    result = _aggregate_walk_forward(instrument, wf_windows, all_oos_positions, cfg)
+
+    if verbose:
+        print(result.report)
+
+    return result
+
+
+def _aggregate_walk_forward(
+    instrument: str,
+    windows: list[WalkForwardWindow],
+    all_oos_positions: list,
+    cfg: BacktestConfig,
+) -> WalkForwardResult:
+    """Agrège les résultats walk-forward."""
+    oos_metrics_list = [w.oos_metrics for w in windows]
+    is_metrics_list = [w.is_metrics for w in windows]
+
+    # Trades OOS totaux
+    total_trades = sum(m.n_trades for m in oos_metrics_list)
+    total_wins = sum(m.n_wins for m in oos_metrics_list)
+    total_r = sum(m.total_r for m in oos_metrics_list)
+
+    # WR et Exp agrégés (pondérés par nb trades)
+    agg_wr = total_wins / total_trades if total_trades > 0 else 0.0
+    agg_exp = total_r / total_trades if total_trades > 0 else 0.0
+
+    # PF agrégé
+    total_gross_profit = sum(
+        m.avg_win_r * m.n_wins for m in oos_metrics_list if m.n_wins > 0
+    )
+    total_gross_loss = abs(sum(
+        m.avg_loss_r * m.n_losses for m in oos_metrics_list if m.n_losses > 0
+    ))
+    agg_pf = total_gross_profit / total_gross_loss if total_gross_loss > 0 else float('inf')
+
+    # Max DD
+    max_dd = max((m.max_dd_pct for m in oos_metrics_list), default=0.0)
+
+    # Stabilité par fenêtre
+    oos_wrs = [m.win_rate for m in oos_metrics_list if m.n_trades >= 5]
+    oos_exps = [m.expectancy_r for m in oos_metrics_list if m.n_trades >= 5]
+    wr_std = float(np.std(oos_wrs)) if len(oos_wrs) > 1 else 0.0
+    exp_std = float(np.std(oos_exps)) if len(oos_exps) > 1 else 0.0
+
+    # Dégradation IS → OOS
+    degradations_wr = []
+    degradations_exp = []
+    for w in windows:
+        if w.is_metrics.n_trades >= 5 and w.oos_metrics.n_trades >= 5:
+            degradations_wr.append(w.is_metrics.win_rate - w.oos_metrics.win_rate)
+            degradations_exp.append(w.is_metrics.expectancy_r - w.oos_metrics.expectancy_r)
+
+    avg_wr_deg = float(np.mean(degradations_wr)) if degradations_wr else 0.0
+    avg_exp_deg = float(np.mean(degradations_exp)) if degradations_exp else 0.0
+
+    # Rapport
+    report = _format_wf_report(
+        instrument, windows, total_trades, agg_wr, agg_exp, agg_pf,
+        total_r, max_dd, wr_std, exp_std, avg_wr_deg, avg_exp_deg,
+    )
+
+    return WalkForwardResult(
+        instrument=instrument,
+        n_windows=len(windows),
+        windows=windows,
+        total_oos_trades=total_trades,
+        aggregate_wr=agg_wr,
+        aggregate_exp_r=agg_exp,
+        aggregate_pf=agg_pf,
+        aggregate_total_r=total_r,
+        max_dd_pct=max_dd,
+        wr_std=wr_std,
+        exp_std=exp_std,
+        is_oos_wr_degradation=avg_wr_deg,
+        is_oos_exp_degradation=avg_exp_deg,
+        report=report,
+    )
+
+
+def _format_wf_report(
+    instrument, windows, total_trades, agg_wr, agg_exp, agg_pf,
+    total_r, max_dd, wr_std, exp_std, wr_deg, exp_deg,
+) -> str:
+    lines = [
+        f"\n{'='*70}",
+        f"  WALK-FORWARD RESULTS — {instrument}",
+        f"{'='*70}",
+        f"  {len(windows)} fenêtres  |  {total_trades} trades OOS total",
+        "",
+        f"  {'Window':<8s} {'IS Period':<25s} {'OOS Period':<25s} "
+        f"{'Tr':>4s} {'WR':>5s} {'Exp(R)':>7s} {'PF':>5s}",
+        f"  {'-'*80}",
+    ]
+    for w in windows:
+        m = w.oos_metrics
+        lines.append(
+            f"  {w.window_idx+1:<8d} {w.is_start}→{w.is_end}  "
+            f"{w.oos_start}→{w.oos_end}  "
+            f"{m.n_trades:>4d} {m.win_rate:>4.0%} {m.expectancy_r:>+6.3f} "
+            f"{m.profit_factor:>5.2f}"
+        )
+
+    lines += [
+        f"  {'-'*80}",
+        f"  AGRÉGÉ OOS:  {total_trades} trades  WR {agg_wr:.1%}  "
+        f"Exp {agg_exp:+.3f}R  PF {agg_pf:.2f}  Total {total_r:+.1f}R  MaxDD {max_dd:.1f}%",
+        "",
+        f"  Stabilité:    WR σ={wr_std:.1%}   Exp σ={exp_std:.3f}R",
+        f"  Dégradation:  IS→OOS WR {wr_deg:+.1%}   Exp {exp_deg:+.3f}R",
+        "",
+    ]
+
+    # Verdict
+    passed = agg_exp > 0 and agg_wr >= 0.50
+    stable = wr_std < 0.15 and exp_std < 0.10
+    if passed and stable:
+        lines.append("  VERDICT: PASS — Expectancy positive et stable sur fenêtres glissantes")
+    elif passed:
+        lines.append("  VERDICT: MARGINAL — Expectancy positive mais instable entre fenêtres")
+    else:
+        lines.append("  VERDICT: FAIL — Expectancy négative ou WR < 50% en OOS agrégé")
+
+    lines.append(f"{'='*70}")
+    return "\n".join(lines)
+
+
+def run_walk_forward_multi(
+    instruments: list[str],
+    **kwargs,
+) -> dict[str, WalkForwardResult]:
+    """Walk-forward sur plusieurs instruments."""
+    results = {}
+    for inst in instruments:
+        try:
+            results[inst] = run_walk_forward(inst, **kwargs)
+        except Exception as e:
+            print(f"\n  ERROR on {inst}: {e}")
+
+    if results:
+        _print_wf_synthesis(results)
+    return results
+
+
+def _print_wf_synthesis(results: dict[str, WalkForwardResult]):
+    print(f"\n{'='*70}")
+    print("  WALK-FORWARD SYNTHESIS")
+    print(f"{'='*70}")
+    print(f"  {'Instrument':<12s} {'Win':>4s} {'Trades':>7s} {'WR':>6s} "
+          f"{'Exp(R)':>8s} {'PF':>6s} {'TotalR':>8s} {'MaxDD':>7s} {'Stable':>7s}")
+    print(f"  {'-'*70}")
+
+    total_trades = 0
+    total_r = 0.0
+    for inst, wf in sorted(results.items()):
+        stable = "Yes" if wf.wr_std < 0.15 and wf.exp_std < 0.10 else "No"
+        print(f"  {inst:<12s} {wf.n_windows:>4d} {wf.total_oos_trades:>7d} "
+              f"{wf.aggregate_wr:>5.0%} {wf.aggregate_exp_r:>+7.3f} "
+              f"{wf.aggregate_pf:>5.2f} {wf.aggregate_total_r:>+7.1f} "
+              f"{wf.max_dd_pct:>6.1f}% {stable:>7s}")
+        total_trades += wf.total_oos_trades
+        total_r += wf.aggregate_total_r
+
+    print(f"  {'-'*70}")
+    print(f"  {'TOTAL':<12s} {'':>4s} {total_trades:>7d} {'':>6s} "
+          f"{'':>8s} {'':>6s} {total_r:>+7.1f}")
+    print(f"{'='*70}")
 
 
 # ── CLI ──────────────────────────────────────────────────

@@ -1130,12 +1130,27 @@ v2 si les backtests HTF→M1 deviennent le workflow principal.
 Issus d'une analyse des bonnes pratiques en trading algo prop firm (2026-03-15).
 Arabesque couvre déjà IS/OOS, Wilson CI99 et Monte Carlo basique. Ce qui manque :
 
-**Walk-forward validation (priorité haute)**
-Le split IS/OOS fixe (70/30) teste sur UNE fenêtre OOS. Le walk-forward recalibre
-sur fenêtres glissantes (ex : 12 mois IS → 3 mois OOS, avance de 3 mois, répète).
-Avantage : détecte les stratégies qui ne survivent pas à un changement de régime.
-Le résultat agrégé sur toutes les fenêtres OOS est beaucoup plus robuste qu'un
-seul split. À implémenter dans `pipeline.py` ou comme mode dans `BacktestRunner`.
+**Walk-forward validation — IMPLÉMENTÉ (2026-03-15)**
+CLI : `python -m arabesque walkforward --strategy extension --universe crypto`
+Code : `split_walk_forward()` dans `store.py`, `run_walk_forward()` dans `backtest.py`.
+Fenêtres glissantes IS→OOS, agrégation pondérée, mesure de stabilité (σ WR, σ Exp).
+
+**Résultats walk-forward Extension (2026-03-15) :**
+
+| Univers | Trades OOS | WR | Exp(R) | Total R | Verdict |
+|---|---|---|---|---|---|
+| Forex majors H1 (7) | 171 | 55% | -0.08 | -17.0 | FAIL |
+| Forex crosses H1 (15) | 226 | 57% | -0.07 | -20.1 | FAIL (sauf AUDJPY +7.6, CHFJPY +3.2) |
+| XAUUSD H1 | 67 | 73% | +0.176 | +11.8 | MARGINAL |
+| **Crypto 4H (14)** | **158** | **65%** | **+0.18** | **+29.1** | **PASS** |
+
+**Instruments crypto 4H positifs :** SOLUSD +7.1, ETHUSD +5.2, LINKUSD +4.2,
+DOGEUSD +3.5, AAVEUSD +3.5, AVAXUSD +2.6, ADAUSD +2.4, LTCUSD +2.3, BNBUSD +2.0,
+UNIUSD +0.8. Négatifs : BTCUSD -1.7, XRPUSD -1.6, NEARUSD -1.2, DOTUSD ~0.
+
+**Conclusion stratégique :** le split IS/OOS fixe surestimait l'edge forex H1.
+En walk-forward, seuls XAUUSD H1 et la crypto 4H tiennent. Le basket live devrait
+refléter cette réalité : **XAUUSD H1 + crypto 4H + sélection JPY crosses H1**.
 
 **PBO — Probability of Backtest Overfitting (priorité moyenne)**
 Quand on teste N variantes sur le même historique (ex : 5 variantes Fouetté),
@@ -1241,6 +1256,18 @@ Plages de risque par trade calibrées pour un 100k 2-steps (FTMO recommande
 - Pairs (Pas de Deux) : 0.20-0.35%
 - Trend-following (Extension) : 0.40% (validé sur 20 mois)
 À intégrer comme defaults dans les configs de chaque stratégie.
+
+**Couverture instruments : indices, énergie, agri (priorité basse)**
+`universes.yaml` ne contient que forex, métaux et crypto car les sources de données
+M1 actuelles (Dukascopy pour forex/metals, CCXT/Binance pour crypto) ne couvrent
+pas les autres classes. Indices (US500, NAS100, GER40), énergie (USOIL, NATGAS) et
+matières premières agricoles (WHEAT, COCOA) existent sur FTMO/cTrader mais on
+ne peut pas les backtester faute de données. Options :
+1. Exporter l'historique depuis cTrader (API ou export CSV)
+2. Source M1 payante (Polygon.io, FirstRate Data)
+3. Accepter du H1 Yahoo Finance pour dégrossir (qualité inférieure)
+Pas prioritaire car la stratégie Extension fonctionne principalement sur XAUUSD et
+crypto 4H (walk-forward validé).
 
 ## Nouvelles stratégies — pipeline d'implémentation (2026-03-15)
 
@@ -1458,9 +1485,13 @@ brute (+0.011R) est trop proche de zéro pour être robuste en live.
 
 - Autres instruments : indices (US500, NAS100), crypto (BTCUSD) — l'ORB NY open
   peut mieux fonctionner sur des instruments avec momentum plus fort
-- `sl_source="fvg"` : SL au bord de la FVG (plus serré) → meilleur R/R intrinsèque
+- ~~`sl_source="fvg"` : SL au bord de la FVG (plus serré) → meilleur R/R intrinsèque~~
+  **TESTÉ 2026-03-16** sur 4 instruments (XAUUSD, BTCUSD, SOLUSD, ETHUSD) :
+  WR chute de 12-21pts, max DD explose à 13-17% (breach FTMO 10%).
+  Le SL FVG est trop serré pour le bruit M1 — le WR destruction annule le gain R/R.
+  **ABANDONNÉ.**
 - Mode `breakout` pur (sans FVG) : plus de trades, moins de filtrage
-- Combinaison TP fixe + `sl_source="fvg"` : R/R amélioré sans dépendre du PM
+- ~~Combinaison TP fixe + `sl_source="fvg"`~~ : abandonné avec sl_source="fvg"
 
 **Statut : recherche. Ne pas déployer en live. Soumettre à Opus pour la suite.**
 

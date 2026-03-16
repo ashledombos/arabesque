@@ -1,8 +1,8 @@
-# ARABESQUE — Handoff v19
+# ARABESQUE — Handoff v21
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque
-> **Dernière mise à jour** : 2026-03-15, session Opus 4.6 (stratégies Glissade + Pas de Deux)
+> **Dernière mise à jour** : 2026-03-16, session Opus 4.6 (Fouetté FVG testé, Glissade implémenté)
 
 ---
 
@@ -12,7 +12,7 @@
 OBJECTIF : gains petits, fréquents, consistants.
            Win Rate élevé (cible ≥ 70%, idéal ≥ 85%).
            Expectancy positive par le volume.
-STRATÉGIE : TREND-ONLY sur tout l'univers (forex + métaux + crypto).
+STRATÉGIE : TREND-ONLY, basket optimisé (XAUUSD H1 + crypto H4 + JPY crosses H1).
 RISK : 0.40% par trade (calibré sur DD max 20 mois).
 ```
 
@@ -35,17 +35,42 @@ Score prop: 4/5 (seul échec: jours pour +10% = 58j > 45j)
 
 ---
 
-## 2. Session 2026-03-15
+## 2. Session 2026-03-16
 
 ### Ce qui a changé
 
-- **`CLAUDE.md` ajouté** : guide pour les futures instances Claude Code.
-- **Fouetté — corrections techniques** :
-  - Off-by-one `_build` : retournait `(signal_bar_idx+1)` → corrigé en `(signal_bar_idx)`
-  - `_tag_or_bars` vectorisé (boucle Python O(n) → numpy, critique pour 828k barres M1)
-  - `ExecConfig` M1 dédié dans `__main__.py` : `max_spread/slippage_atr=0.5` au lieu de 0.10-0.15 (calibré H1)
-- **`python -m arabesque positions --account <id>`** : nouvelle sous-commande CLI (remplace `scripts/show_positions.py`)
-- Nettoyage : `patch_timeframe.sh` supprimé, `scripts/show_positions.py` supprimé
+- **Fouetté `sl_source="fvg"` testé et abandonné** : WR chute 12-21pts, DD explose à 13-17%
+- **Glissade signal generator implémenté** : VWAP pullback + EMA context, premier backtest négatif
+- **`positions` CLI corrigé** : fix create_broker() argument mismatch
+- **Live multi-TF confirmé opérationnel** : BTCUSD H4 + BNBUSD H4 signaux corrects, BE trigger OK
+
+### Glissade — Premier backtest (2026-03-16)
+
+| Instrument | Trades | WR | Exp | Total R | Max DD |
+|---|---|---|---|---|---|
+| XAUUSD | 154 | 44.8% | -0.271R | -41.7R | 16.8% |
+| BTCUSD | 1080 | 53.1% | -0.032R | -34.6R | 24.4% |
+| BTCUSD (wide ADX) | 868 | 53.6% | -0.024R | -20.7R | 11.5% |
+
+35% des trades ont un MFE < 0.25R (ne dépassent jamais le BE trigger).
+Le pullback detection est trop permissif — filtre trop de bruit.
+Stratégie en recherche.
+
+---
+
+## Session 2026-03-15
+
+### Ce qui a changé
+
+- **Walk-forward validation implémenté** :
+  - `split_walk_forward()` dans `store.py` : fenêtres glissantes IS/OOS
+  - `run_walk_forward()` + `run_walk_forward_multi()` dans `backtest.py`
+  - CLI : `python -m arabesque walkforward --strategy extension --universe crypto`
+  - Agrégation OOS, mesure stabilité (σ WR, σ Exp), dégradation IS→OOS, verdict auto
+- **Walk-forward exécuté sur tout l'univers** — voir résultats ci-dessous
+- **Placeholders Glissade + Pas de Deux** créés
+- **`python -m arabesque positions --account <id>`** : nouvelle sous-commande CLI
+- **Fouetté — corrections techniques** (off-by-one, vectorisation, ExecConfig M1)
 
 ### Premier backtest Fouetté — XAUUSD (jan 2024 → mars 2026)
 
@@ -80,12 +105,46 @@ convertit en +0.20R mais avg_loss -0.76R creuse l'expectancy.
 Seul le TP fixe sans PM passe en positif, mais l'expectancy (+0.011R) est trop
 fragile (négatif à 1.5× slippage). Stratégie insuffisante sur XAUUSD en l'état.
 
-### P0 (Fouetté) — Pistes restantes (décision Opus)
+### Walk-forward Extension — Résultats (2026-03-15)
 
-- Autres instruments : US500, NAS100, BTCUSD — momentum NY open potentiellement plus fort
-- `sl_source="fvg"` : SL au bord FVG (plus serré) → meilleur R/R intrinsèque
+Le split IS/OOS fixe (70/30) surestimait l'edge. Walk-forward (6m IS → 2m OOS,
+fenêtres glissantes) donne une image plus réaliste :
+
+| Univers | Trades OOS | WR | Exp(R) | Total R | Verdict |
+|---|---|---|---|---|---|
+| Forex majors H1 (7) | 171 | 55% | -0.08 | -17.0 | FAIL |
+| Forex crosses H1 (15) | 226 | 57% | -0.07 | -20.1 | FAIL |
+| XAUUSD H1 | 67 | 73% | +0.176 | +11.8 | MARGINAL |
+| **Crypto 4H (14)** | **158** | **65%** | **+0.18** | **+29.1** | **PASS** |
+
+**Instruments crypto 4H positifs :** SOLUSD +7.1, ETHUSD +5.2, LINKUSD +4.2,
+DOGEUSD +3.5, AAVEUSD +3.5, AVAXUSD +2.6, ADAUSD +2.4, LTCUSD +2.3, BNBUSD +2.0.
+**Forex positifs :** AUDJPY +7.6, CHFJPY +3.2, GBPJPY +0.4 (JPY crosses seulement).
+
+**Recommandation basket live :** XAUUSD H1 + crypto 4H + JPY crosses H1.
+Le forex majeurs (EURUSD, GBPUSD...) ne contribue pas positivement en walk-forward.
+
+### Fouetté sl_source="fvg" — ABANDONNÉ (2026-03-16)
+
+Testé sur 4 instruments (XAUUSD, BTCUSD, SOLUSD, ETHUSD) :
+
+| Instrument | sl_source | WR | Exp | Total R | Max DD |
+|---|---|---|---|---|---|
+| XAUUSD | range | 70.8% | -0.024R | -7.4R | 6.3% |
+| XAUUSD | fvg | 49.7% | -0.284R | -42.2R | 16.9% |
+| BTCUSD | range | 72.7% | +0.014R | +7.4R | 4.9% |
+| BTCUSD | fvg | 58.5% | +0.024R | +12.9R | 15.4% |
+| SOLUSD | range | 75.5% | +0.009R | +6.5R | 5.1% |
+| SOLUSD | fvg | 59.3% | -0.028R | -19.7R | 13.4% |
+| ETHUSD | range | 70.6% | -0.032R | -20.8R | 10.4% |
+| ETHUSD | fvg | 55.2% | -0.107R | -37.3R | 16.1% |
+
+FVG SL trop serré pour le bruit M1 — WR destruction annule le gain R/R.
+
+### P0 (Fouetté) — Pistes restantes
+
+- Autres instruments : US500, NAS100
 - Mode `breakout` pur (sans FVG)
-- Combo TP fixe + `sl_source="fvg"`
 
 ---
 
@@ -190,30 +249,34 @@ uniquement par **Claude Opus 4.6**.
 
 ## 5. Prochaines étapes
 
-### P0 : Validation live continue
+### P0 : Adapter le basket live aux résultats walk-forward
+Le walk-forward a montré que forex majeurs H1 ne tient pas. Le basket live
+devrait être restreint à : **XAUUSD H1 + crypto 4H + JPY crosses H1**.
+Nécessite de configurer le live engine pour supporter du multi-TF (H1+4H)
+sur le même compte.
+
+### P1 : Validation live continue
 Le moteur tourne sur `ftmo_swing_test`. Observer la correspondance
 backtest ↔ live (WR, nb trades/semaine, exit reasons).
 
-### P1 : Décision shadow filters
+### P2 : Décision shadow filters
 Accumuler ~100 trades avec logs Williams %R et RSI div, puis décider
 si activer comme filtre bloquant. Voir `docs/DECISIONS.md`.
 
-### P2 : Nouvelles stratégies
+### P3 : Nouvelles stratégies
 
 | Stratégie | Priorité | Statut | Prochain pas |
 |---|---|---|---|
-| **Extension 4H crypto** | Haute | 🔬 Résultats prometteurs | Walk-forward pour confirmer, hybride H1+4H |
-| **Fouetté** (ORB M1) | Haute | 🔬 Backtest négatif sur XAUUSD | Tester autres instruments, `sl_source="fvg"` |
-| **Glissade** (scalp VWAP) | Haute | 📋 Placeholder créé | Implémenter VWAP dans indicators.py |
+| **Extension 4H crypto** | **Critique** | ✅ Walk-forward PASS +29.1R | Configurer multi-TF live (H1+4H) |
+| **Fouetté** (ORB M1) | Haute | 🔬 Backtest négatif sur XAUUSD | Tester BTCUSD, US500, NAS100 |
+| **Glissade** (scalp VWAP) | Haute | 🔬 Signal implémenté, backtest négatif | Affiner pullback detection (35% MFE<0.25R) |
 | **Pas de Deux** (pairs) | Long terme | 📋 Placeholder créé | Définir interface multi-jambes |
 
-Voir `docs/DECISIONS.md` § "Nouvelles stratégies — pipeline d'implémentation".
-
-### P3 : Multi-compte prop firm
+### P4 : Multi-compte prop firm
 `config/prop_firm_profiles.yaml` existe. Quand le compte test est
 validé, étendre à GFT (TradeLocker).
 
-### P4 : Tests unitaires
+### P5 : Tests unitaires
 Placeholder dans `tests/`. À implémenter quand on veut garantir la
 non-régression des guards et du signal generator.
 

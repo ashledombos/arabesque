@@ -26,11 +26,13 @@ Flux :
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import random
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from typing import Dict, List, Optional, Callable
 
 from arabesque.core.models import Signal, Side
@@ -40,6 +42,9 @@ from arabesque.broker.base import (
 )
 
 logger = logging.getLogger("arabesque.live.order_dispatcher")
+
+# JSONL pour shadow filters — persiste chaque trade accepté avec ses indicateurs
+SHADOW_LOG_PATH = Path("logs/shadow_filters.jsonl")
 
 
 # =============================================================================
@@ -270,36 +275,87 @@ class OrderDispatcher:
         # Permet d'évaluer a posteriori si le filtre améliorerait les résultats
         wr = getattr(signal, 'wr_14', 0)
         rsi_div = getattr(signal, 'rsi_div', 0)
+        rsi = getattr(signal, 'rsi', 50)
+        cmf = getattr(signal, 'cmf', 0)
+        bb_width = getattr(signal, 'bb_width', 0)
+
+        shadow_flags: dict[str, bool] = {}
 
         # Williams %R shadow
+        wr_would_filter = False
         if wr != 0:
             if signal.side == Side.LONG and wr < -30:
+                wr_would_filter = True
                 logger.info(
                     f"[Dispatcher] 👻 WR shadow: {sym} LONG wr_14={wr:.1f} < -30 "
                     f"→ AURAIT été filtré (momentum faible)"
                 )
             elif signal.side == Side.SHORT and wr > -70:
+                wr_would_filter = True
                 logger.info(
                     f"[Dispatcher] 👻 WR shadow: {sym} SHORT wr_14={wr:.1f} > -70 "
                     f"→ AURAIT été filtré (momentum faible)"
                 )
+        shadow_flags["wr_momentum"] = wr_would_filter
 
         # RSI divergence shadow
-        # LONG + bearish div (-1) = prix monte mais RSI descend → momentum s'épuise
-        # SHORT + bullish div (+1) = prix descend mais RSI monte → pression vendeuse s'épuise
+        div_would_filter = False
         if rsi_div != 0:
             if signal.side == Side.LONG and rsi_div == -1:
+                div_would_filter = True
                 logger.info(
                     f"[Dispatcher] 👻 DIV shadow: {sym} LONG rsi_div=BEARISH "
                     f"(prix ↑ RSI ↓ sur 5 barres) → AURAIT été filtré"
                 )
             elif signal.side == Side.SHORT and rsi_div == 1:
+                div_would_filter = True
                 logger.info(
                     f"[Dispatcher] 👻 DIV shadow: {sym} SHORT rsi_div=BULLISH "
                     f"(prix ↓ RSI ↑ sur 5 barres) → AURAIT été filtré"
                 )
+        shadow_flags["rsi_divergence"] = div_would_filter
+
+        # RSI extreme contre-sens shadow
+        rsi_extreme = False
+        if (signal.side == Side.LONG and rsi > 75) or (signal.side == Side.SHORT and rsi < 25):
+            rsi_extreme = True
+        shadow_flags["rsi_extreme"] = rsi_extreme
+
+        # CMF contre-sens shadow
+        cmf_against = False
+        if (signal.side == Side.LONG and cmf < -0.10) or (signal.side == Side.SHORT and cmf > 0.10):
+            cmf_against = True
+        shadow_flags["cmf_contre_sens"] = cmf_against
+
+        # Persist to JSONL — every accepted trade, with all shadow filter states
+        self._log_shadow_entry(signal, shadow_flags, {
+            "wr_14": round(wr, 2), "rsi": round(rsi, 1),
+            "rsi_div": rsi_div, "cmf": round(cmf, 3),
+            "bb_width": round(bb_width, 5), "rr": round(signal.rr, 2),
+        })
 
         return True
+
+    def _log_shadow_entry(self, signal: Signal, flags: dict, indicators: dict) -> None:
+        """Persiste un enregistrement shadow filter en JSONL."""
+        try:
+            SHADOW_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            entry = {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "instrument": signal.instrument,
+                "side": signal.side.value,
+                "strategy": getattr(signal, "strategy_type", ""),
+                "entry_price": signal.close,
+                "sl": signal.sl,
+                "timeframe": getattr(signal, "timeframe", "1h"),
+                "indicators": indicators,
+                "shadow_filters": flags,
+                "any_would_filter": any(flags.values()),
+            }
+            with open(SHADOW_LOG_PATH, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except Exception as e:
+            logger.debug(f"[Dispatcher] shadow log error: {e}")
 
     async def on_tick(self, tick: PriceTick) -> None:
         """

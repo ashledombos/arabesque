@@ -50,7 +50,8 @@ class LiveEngine:
         self.dry_run = dry_run
 
         self._price_feed = None
-        self._bar_aggregator = None
+        self._bar_aggregator = None  # Primary aggregator (legacy compat)
+        self._bar_aggregators: dict = {}  # TF → BarAggregator (multi-TF)
         self._dispatcher = None
         self._position_monitor = None
         self._brokers = {}
@@ -120,9 +121,13 @@ class LiveEngine:
             )
 
         self._running = True
+        tf_summary = ", ".join(
+            f"{agg._timeframe_label()}({len(agg.cfg.instruments)})"
+            for agg in self._bar_aggregators.values()
+        )
         logger.info(
-            "[Engine] ✅ Moteur prêt — "
-            "ticks → barres H1 → signaux → ordres multi-comptes"
+            f"[Engine] ✅ Moteur prêt — "
+            f"ticks → barres [{tf_summary}] → signaux → ordres multi-comptes"
         )
 
     async def stop(self) -> None:
@@ -368,16 +373,22 @@ class LiveEngine:
                 )
             ]
 
-        agg_cfg = BarAggregatorConfig(
-            instruments=symbols,
-            signal_strategy=self.settings.get("strategy", {}).get("type", "combined"),
-        )
+        # Grouper les instruments par timeframe
+        # Chaque instrument peut déclarer timeframe: "H4" dans instruments.yaml
+        # Par défaut : "H1" (3600s)
+        _TF_SECONDS = {"M1": 60, "M5": 300, "M15": 900, "M30": 1800,
+                        "H1": 3600, "H4": 14400, "D1": 86400}
+        by_tf: dict[int, list[str]] = {}
+        for sym in symbols:
+            inst_data = self.instruments.get(sym, {})
+            tf_str = inst_data.get("timeframe", "H1").upper() if isinstance(inst_data, dict) else "H1"
+            tf_s = _TF_SECONDS.get(tf_str, 3600)
+            by_tf.setdefault(tf_s, []).append(sym)
 
         # Le broker source fournit get_history()
         source_broker = self._brokers.get(source_broker_id)
 
         # Pré-charger les symboles pour éviter les appels concurrents
-        # pendant le chargement de l'historique
         if source_broker and hasattr(source_broker, 'get_symbols'):
             try:
                 symbols_list = await source_broker.get_symbols()
@@ -388,24 +399,36 @@ class LiveEngine:
             except Exception as e:
                 logger.warning(f"[Engine] Pré-chargement symboles: {e}")
 
-        self._bar_aggregator = BarAggregator(
-            config=agg_cfg,
-            on_signal=self.receive_signal,
-            broker=source_broker,
-        )
+        strategy_type = self.settings.get("strategy", {}).get("type", "combined")
 
-        await self._bar_aggregator.initialize()
+        # Créer un BarAggregator par timeframe
+        self._bar_aggregators = {}
+        for tf_s, tf_symbols in sorted(by_tf.items()):
+            agg_cfg = BarAggregatorConfig(
+                instruments=tf_symbols,
+                timeframe_s=tf_s,
+                signal_strategy=strategy_type,
+            )
+            agg = BarAggregator(
+                config=agg_cfg,
+                on_signal=self.receive_signal,
+                broker=source_broker,
+            )
+            await agg.initialize()
 
-        # Enregistrer le callback du position monitor sur chaque fermeture de bougie
-        if self._position_monitor:
-            self._bar_aggregator.add_bar_closed_callback(
-                self._position_monitor.on_bar_closed
+            if self._position_monitor:
+                agg.add_bar_closed_callback(self._position_monitor.on_bar_closed)
+
+            self._bar_aggregators[tf_s] = agg
+            tf_label = agg._timeframe_label()
+            logger.info(
+                f"[Engine] 📊 BarAggregator {tf_label} prêt — "
+                f"{len(tf_symbols)} instrument(s): {', '.join(tf_symbols)}"
             )
 
-        logger.info(
-            f"[Engine] 📊 BarAggregator prêt — {len(symbols)} instrument(s): "
-            f"{', '.join(symbols)}"
-        )
+        # Compatibilité : self._bar_aggregator pointe sur le premier
+        if self._bar_aggregators:
+            self._bar_aggregator = next(iter(self._bar_aggregators.values()))
 
     # ------------------------------------------------------------------
     # Price feed
@@ -421,7 +444,12 @@ class LiveEngine:
             logger.warning("[Engine] Price feed désactivé (broker source non trouvé)")
             return
 
-        symbols = self._bar_aggregator.cfg.instruments if self._bar_aggregator else []
+        # Collecter tous les symboles de tous les aggregators
+        symbols = []
+        for agg in self._bar_aggregators.values():
+            symbols.extend(agg.cfg.instruments)
+        symbols = list(dict.fromkeys(symbols))  # Déduplique en préservant l'ordre
+
         if not symbols:
             logger.warning("[Engine] Aucun symbole à surveiller")
             return
@@ -447,8 +475,11 @@ class LiveEngine:
             existing_broker=source_broker,
         )
 
-        for sym in symbols:
-            await self._price_feed.subscribe(sym, self._bar_aggregator.on_tick)
+        # Subscribe ticks to the correct aggregator(s) for each symbol
+        # Each aggregator only processes symbols in its own instrument list
+        for agg in self._bar_aggregators.values():
+            for sym in agg.cfg.instruments:
+                await self._price_feed.subscribe(sym, agg.on_tick)
 
         for sym in symbols:
             await self._price_feed.subscribe(sym, self._dispatcher.on_tick)

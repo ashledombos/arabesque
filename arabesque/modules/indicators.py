@@ -20,6 +20,8 @@ Fonctions disponibles :
     compute_williams_r(df, period)      → Series
     compute_ema(series, span)           → Series
     compute_htf_regime(df, ema_fast, ema_slow, adx_period, adx_strong) → df enrichi
+    compute_vwap(df, session_reset)     → Series
+    compute_vwap_bands(df, session_reset, std_mult) → dict {vwap, upper, lower, dist}
 """
 
 from __future__ import annotations
@@ -256,3 +258,104 @@ def compute_htf_regime(
     df["htf_adx"] = htf_ri["htf_adx"].fillna(0.0)
 
     return df
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VWAP — Volume-Weighted Average Price (session-based)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def compute_vwap(
+    df: pd.DataFrame,
+    session_reset: str = "daily",
+) -> pd.Series:
+    """VWAP avec reset par session.
+
+    Le VWAP est recalculé à chaque début de session :
+    - "daily" : reset à 00:00 UTC (crypto 24x7)
+    - "london" : reset à 08:00 UTC
+    - "new_york" : reset à 13:00 UTC
+
+    Formule : VWAP = Σ(TP × Volume) / Σ(Volume)
+    où TP = (High + Low + Close) / 3
+
+    Args:
+        df: DataFrame avec colonnes High, Low, Close, Volume et DatetimeIndex UTC.
+        session_reset: "daily", "london", ou "new_york".
+
+    Returns:
+        Series du VWAP, même index que df.
+    """
+    tp = (df["High"] + df["Low"] + df["Close"]) / 3.0
+    vol = df.get("Volume", pd.Series(1.0, index=df.index))
+    tpv = tp * vol
+
+    # Identifier les débuts de session
+    reset_hours = {"daily": 0, "london": 8, "new_york": 13}
+    reset_hour = reset_hours.get(session_reset, 0)
+
+    hours = df.index.hour
+    dates = df.index.date
+
+    if reset_hour == 0:
+        # Daily reset : chaque nouveau jour
+        session_id = pd.Series(dates, index=df.index)
+    else:
+        # Session reset : change quand on passe l'heure de reset
+        shifted = pd.Series(
+            [d if h >= reset_hour else (pd.Timestamp(d) - pd.Timedelta(days=1)).date()
+             for d, h in zip(dates, hours)],
+            index=df.index,
+        )
+        session_id = shifted
+
+    # Calcul VWAP par session via cumsum groupé
+    cum_tpv = tpv.groupby(session_id).cumsum()
+    cum_vol = vol.groupby(session_id).cumsum().replace(0, np.nan)
+
+    return cum_tpv / cum_vol
+
+
+def compute_vwap_bands(
+    df: pd.DataFrame,
+    session_reset: str = "daily",
+    std_mult: float = 1.0,
+) -> dict[str, pd.Series]:
+    """VWAP avec bandes de déviation standard.
+
+    Retourne : { "vwap", "vwap_upper", "vwap_lower", "vwap_dist" }
+    vwap_dist = (Close - VWAP) / VWAP  (distance normalisée, utile pour z-score)
+    """
+    tp = (df["High"] + df["Low"] + df["Close"]) / 3.0
+    vol = df.get("Volume", pd.Series(1.0, index=df.index))
+
+    reset_hours = {"daily": 0, "london": 8, "new_york": 13}
+    reset_hour = reset_hours.get(session_reset, 0)
+    hours = df.index.hour
+    dates = df.index.date
+
+    if reset_hour == 0:
+        session_id = pd.Series(dates, index=df.index)
+    else:
+        session_id = pd.Series(
+            [d if h >= reset_hour else (pd.Timestamp(d) - pd.Timedelta(days=1)).date()
+             for d, h in zip(dates, hours)],
+            index=df.index,
+        )
+
+    tpv = tp * vol
+    cum_tpv = tpv.groupby(session_id).cumsum()
+    cum_vol = vol.groupby(session_id).cumsum().replace(0, np.nan)
+    vwap = cum_tpv / cum_vol
+
+    # Déviation standard rolling dans la session
+    tp_sq_v = (tp ** 2) * vol
+    cum_tp_sq_v = tp_sq_v.groupby(session_id).cumsum()
+    variance = (cum_tp_sq_v / cum_vol) - vwap ** 2
+    std = np.sqrt(variance.clip(lower=0))
+
+    return {
+        "vwap": vwap,
+        "vwap_upper": vwap + std_mult * std,
+        "vwap_lower": vwap - std_mult * std,
+        "vwap_dist": (df["Close"] - vwap) / vwap.replace(0, np.nan),
+    }

@@ -495,6 +495,47 @@ def split_in_out_sample(
     return df.iloc[:split_idx].copy(), df.iloc[split_idx:].copy()
 
 
+def split_walk_forward(
+    df: pd.DataFrame,
+    is_bars: int,
+    oos_bars: int,
+    step_bars: int | None = None,
+    min_oos_bars: int = 100,
+) -> list[tuple[pd.DataFrame, pd.DataFrame]]:
+    """Découpe un DataFrame en fenêtres glissantes IS/OOS pour walk-forward.
+
+    Args:
+        df: DataFrame OHLC avec DatetimeIndex.
+        is_bars: Nombre de barres pour l'in-sample (ex: 4380 = ~6 mois H1).
+        oos_bars: Nombre de barres pour l'out-of-sample (ex: 1460 = ~2 mois H1).
+        step_bars: Pas d'avancement entre fenêtres. Défaut = oos_bars (non-overlapping OOS).
+        min_oos_bars: Taille minimale OOS pour la dernière fenêtre.
+
+    Returns:
+        Liste de (df_is, df_oos) — fenêtres glissantes disjointes en OOS.
+
+    Example (H1, 20 mois de données):
+        split_walk_forward(df, is_bars=4380, oos_bars=1460)
+        → 5-6 fenêtres: [6m IS → 2m OOS], avancée de 2m à chaque fois.
+    """
+    if step_bars is None:
+        step_bars = oos_bars
+
+    n = len(df)
+    windows = []
+    start = 0
+
+    while start + is_bars + min_oos_bars <= n:
+        is_end = start + is_bars
+        oos_end = min(is_end + oos_bars, n)
+        df_is = df.iloc[start:is_end].copy()
+        df_oos = df.iloc[is_end:oos_end].copy()
+        windows.append((df_is, df_oos))
+        start += step_bars
+
+    return windows
+
+
 def generate_synthetic_ohlc(
     n_bars: int = 5000,
     start_price: float = 1.08,

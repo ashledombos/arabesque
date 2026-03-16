@@ -143,8 +143,9 @@ class BarAggregator:
             return
 
         n_instruments = len(self.cfg.instruments)
+        tf_label = self._timeframe_label()
         logger.info(
-            f"[BarAggregator] Préchargement de {self.cfg.history_bars} barres H1 "
+            f"[BarAggregator] Préchargement de {self.cfg.history_bars} barres {tf_label} "
             f"pour {n_instruments} instrument(s)..."
         )
 
@@ -178,12 +179,19 @@ class BarAggregator:
             + (f", {failed} échoué(s)" if failed else "")
         )
 
+    def _timeframe_label(self) -> str:
+        """Label lisible pour le timeframe configuré."""
+        mapping = {60: "M1", 300: "M5", 900: "M15", 1800: "M30",
+                   3600: "H1", 14400: "H4", 86400: "D1"}
+        return mapping.get(self.cfg.timeframe_s, f"{self.cfg.timeframe_s}s")
+
     async def _load_history(self, instrument: str) -> None:
-        """Charge l'historique H1 depuis le broker et l'ajoute au cache."""
+        """Charge l'historique depuis le broker au timeframe configuré."""
+        tf_label = self._timeframe_label()
         try:
             bars = await self.broker.get_history(
                 symbol=instrument,
-                timeframe="H1",
+                timeframe=tf_label,
                 count=self.cfg.history_bars,
             )
             if bars:
@@ -288,8 +296,9 @@ class BarAggregator:
         Ajoute la bougie au cache, génère les signaux.
         """
         ts_dt = datetime.fromtimestamp(bar["ts"], tz=timezone.utc)
+        tf_label = self._timeframe_label()
         logger.debug(
-            f"[BarAggregator] 🕯️ {instrument} Bar H1 fermée @ {ts_dt.strftime('%H:%M')} UTC "
+            f"[BarAggregator] 🕯️ {instrument} Bar {tf_label} fermée @ {ts_dt.strftime('%H:%M')} UTC "
             f"O={bar['open']:.5f} H={bar['high']:.5f} "
             f"L={bar['low']:.5f} C={bar['close']:.5f} "
             f"vol={bar.get('volume', 0)} ticks"
