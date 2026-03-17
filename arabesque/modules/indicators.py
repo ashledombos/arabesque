@@ -22,6 +22,7 @@ Fonctions disponibles :
     compute_htf_regime(df, ema_fast, ema_slow, adx_period, adx_strong) → df enrichi
     compute_vwap(df, session_reset)     → Series
     compute_vwap_bands(df, session_reset, std_mult) → dict {vwap, upper, lower, dist}
+    compute_rsi_divergence(df, rsi, lookback)  → Series (-1 bearish, 0 none, +1 bullish)
 """
 
 from __future__ import annotations
@@ -183,6 +184,16 @@ def compute_williams_r(df: pd.DataFrame, period: int = 14) -> pd.Series:
 # EMA simple
 # ─────────────────────────────────────────────────────────────────────────────
 
+def compute_donchian(df: pd.DataFrame, period: int = 20, shift: int = 1):
+    """Donchian channels (highest high / lowest low over N bars).
+
+    Returns (upper, lower). shift=1 avoids lookahead (uses bars [i-period-shift+1, i-shift]).
+    """
+    upper = df["High"].rolling(period).max().shift(shift)
+    lower = df["Low"].rolling(period).min().shift(shift)
+    return upper, lower
+
+
 def compute_ema(series: pd.Series, span: int, adjust: bool = False) -> pd.Series:
     """EMA standard (EWMA, alpha=2/(span+1)).
 
@@ -263,6 +274,99 @@ def compute_htf_regime(
 # ─────────────────────────────────────────────────────────────────────────────
 # VWAP — Volume-Weighted Average Price (session-based)
 # ─────────────────────────────────────────────────────────────────────────────
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RSI Divergence — détecte les divergences prix/RSI sur pivots locaux
+# ─────────────────────────────────────────────────────────────────────────────
+
+def compute_rsi_divergence(
+    df: pd.DataFrame,
+    rsi: pd.Series | None = None,
+    lookback: int = 20,
+    rsi_period: int = 14,
+    pivot_window: int = 5,
+) -> pd.Series:
+    """Détecte les divergences RSI classiques sur des pivots locaux.
+
+    Divergence bullish (+1) : le prix fait un creux plus bas mais le RSI
+    fait un creux plus haut → affaiblissement de la pression vendeuse.
+
+    Divergence bearish (-1) : le prix fait un sommet plus haut mais le RSI
+    fait un sommet plus bas → affaiblissement de la pression acheteuse.
+
+    Utilisable comme :
+    - Filtre d'entrée (confirmer un breakout avec divergence)
+    - Signal de retournement (Glissade, sorties de range)
+    - Shadow filter pour Extension
+
+    Args:
+        df: DataFrame avec colonnes High, Low, Close.
+        rsi: Series RSI pré-calculée. Si None, calcule RSI(rsi_period).
+        lookback: Fenêtre max pour chercher le pivot précédent.
+        rsi_period: Période RSI si rsi=None.
+        pivot_window: Demi-fenêtre pour détecter les pivots locaux
+                      (pivot = extremum sur 2×pivot_window+1 barres).
+
+    Returns:
+        Series d'entiers : -1 (bearish div), 0 (aucune), +1 (bullish div).
+    """
+    if rsi is None:
+        rsi = compute_rsi(df["Close"], rsi_period)
+
+    n = len(df)
+    result = pd.Series(0, index=df.index, dtype=int)
+
+    low = df["Low"].values
+    high = df["High"].values
+    rsi_vals = rsi.values
+    w = pivot_window
+
+    # Pré-calculer les pivots low et high (fenêtre centrée)
+    # Un pivot à la barre p est confirmé à la barre p+w (première barre
+    # où toutes les barres de la fenêtre sont disponibles).
+    pivot_lows = np.zeros(n, dtype=bool)
+    pivot_highs = np.zeros(n, dtype=bool)
+
+    for i in range(w, n - w):
+        # Pivot low : low[i] est le min sur la fenêtre [i-w, i+w]
+        if low[i] == np.min(low[max(0, i - w):i + w + 1]):
+            pivot_lows[i] = True
+        # Pivot high : high[i] est le max sur la fenêtre [i-w, i+w]
+        if high[i] == np.max(high[max(0, i - w):i + w + 1]):
+            pivot_highs[i] = True
+
+    # Scanner les divergences — ANTI-LOOKAHEAD
+    # Le pivot à la barre p n'est confirmé qu'à la barre p+w.
+    # On scanne donc à la barre i (= moment présent) et on regarde
+    # le pivot candidat à i-w (qui vient d'être confirmé).
+    # La divergence est reportée à la barre i (première barre
+    # où la divergence est observable sans lookahead).
+    res = np.zeros(n, dtype=int)
+
+    for i in range(2 * w, n):
+        candidate = i - w  # Pivot qui vient d'être confirmé
+
+        # Bullish divergence : pivot low confirmé à candidate
+        if pivot_lows[candidate]:
+            for j in range(candidate - w - 1, max(candidate - lookback, w) - 1, -1):
+                if pivot_lows[j]:
+                    # Prix : creux plus bas, RSI : creux plus haut
+                    if low[candidate] < low[j] and rsi_vals[candidate] > rsi_vals[j]:
+                        res[i] = 1
+                    break
+
+        # Bearish divergence : pivot high confirmé à candidate
+        if pivot_highs[candidate]:
+            for j in range(candidate - w - 1, max(candidate - lookback, w) - 1, -1):
+                if pivot_highs[j]:
+                    # Prix : sommet plus haut, RSI : sommet plus bas
+                    if high[candidate] > high[j] and rsi_vals[candidate] < rsi_vals[j]:
+                        res[i] = -1
+                    break
+
+    result[:] = res
+    return result
+
 
 def compute_vwap(
     df: pd.DataFrame,

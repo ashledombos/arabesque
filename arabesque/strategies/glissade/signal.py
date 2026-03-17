@@ -1,35 +1,17 @@
 """
 arabesque/strategies/glissade/signal.py
 =======================================
-Glissade — Scalping intraday sur pullback VWAP + EMA.
+Glissade — Deux modes de signal :
 
-Une glissade en danse classique est un pas glissé, court et fluide, qui relie
-deux mouvements plus grands. Le prix "glisse" brièvement contre la tendance
-intraday puis repart — un pullback vers le VWAP capté au bon moment.
+**Mode RSI divergence H1 (validé, walk-forward PASS 3/3)** :
+    RSI divergence comme signal principal sur H1.
+    XAUUSD H1 : WR 87%, +5.7R OOS. BTCUSD H1 : WR 85%, +10.6R OOS.
+    Utiliser GlissadeRSIDivGenerator.
 
-Timeframe cible  : M1 (entrée) + M5 (contexte via resample)
-Instruments      : XAUUSD, crypto liquides, indices
-Session          : Heures de marché à haute liquidité (NY, London)
-
-Logique
--------
-1. Contexte (M5 resample) : EMA200 direction + ADX in range [15,30]
-2. VWAP session : prix doit être du bon côté du VWAP (confirme le biais)
-3. Pullback : 2+ bougies M1 contre-tendance, creux/sommet touchant EMA20(M1)
-4. Trigger : bougie M1 de retournement clôturant au-delà du high/low précédent
-5. Entrée : OPEN de bougie i+1 (anti-lookahead strict)
-
-Gestion
--------
-- SL : sl_atr_factor × ATR14(M1), capped à sl_atr_max × ATR14
-- TP : rr_tp × SL distance (simple ratio, position manager gère BE/trailing)
-- Time stop : géré par position_manager (pas dans signal.py)
-
-Guards spécifiques
-------------------
-- ADX(M5) : adx_min ≤ ADX ≤ adx_max (pas de chop, pas de trend violent)
-- Session window : entry_delay après ouverture, session_end_buffer avant fin
-- Max trades/jour : max_trades_per_day
+**Mode VWAP pullback M1 (abandonné, structurellement négatif)** :
+    Scalping intraday sur pullback VWAP + EMA.
+    Conservé pour référence, ne pas déployer.
+    Utiliser GlissadeSignalGenerator.
 """
 
 from __future__ import annotations
@@ -46,6 +28,8 @@ from arabesque.modules.indicators import (
     compute_adx,
     compute_atr,
     compute_ema,
+    compute_rsi,
+    compute_rsi_divergence,
     compute_vwap,
 )
 
@@ -85,6 +69,11 @@ class GlissadeConfig:
     sl_atr_factor: float = 1.0              # SL = facteur × ATR14(M1)
     sl_atr_max: float = 1.5                 # Cap SL à max × ATR14(M1)
     rr_tp: float = 2.0                      # TP = rr_tp × SL distance
+
+    # ── RSI divergence filter ──────────────────────────────────────────
+    rsi_div_required: bool = False          # True = only enter on RSI divergence
+    rsi_div_lookback: int = 20              # Fenêtre pour chercher le pivot précédent
+    rsi_div_pivot_window: int = 5           # Demi-fenêtre pour les pivots locaux
 
     # ── Risk ─────────────────────────────────────────────────────────────
     max_trades_per_day: int = 6
@@ -150,6 +139,18 @@ class GlissadeSignalGenerator:
                                "low": "Low", "close": "Close",
                                "volume": "Volume"}),
             session_reset=self.cfg.vwap_session_reset,
+        )
+
+        # ── RSI + divergence ──
+        df_caps = df.rename(columns={
+            "open": "Open", "high": "High", "low": "Low",
+            "close": "Close", "volume": "Volume",
+        })
+        df["rsi"] = compute_rsi(df_caps["Close"], period=14)
+        df["rsi_div"] = compute_rsi_divergence(
+            df_caps, rsi=df["rsi"],
+            lookback=self.cfg.rsi_div_lookback,
+            pivot_window=self.cfg.rsi_div_pivot_window,
         )
 
         # ── M5 context via resample ──
@@ -285,6 +286,14 @@ class GlissadeSignalGenerator:
             if not pullback_ok:
                 continue
 
+            # ── RSI divergence filter ──
+            if cfg.rsi_div_required:
+                rsi_div_val = df["rsi_div"].iloc[i] if "rsi_div" in df.columns else 0
+                if bullish_bias and rsi_div_val != 1:
+                    continue
+                if bearish_bias and rsi_div_val != -1:
+                    continue
+
             # ── Detect trigger (reversal bar) ──
             if bullish_bias:
                 # Current bar closes above previous bar's high
@@ -308,6 +317,9 @@ class GlissadeSignalGenerator:
                 tp = c - cfg.rr_tp * sl_dist
                 side = Side.SHORT
 
+            rsi_div_val = int(df["rsi_div"].iloc[i]) if "rsi_div" in df.columns else 0
+            rsi_val = float(df["rsi"].iloc[i]) if "rsi" in df.columns else 50.0
+
             sig = Signal(
                 instrument=instrument,
                 side=side,
@@ -315,8 +327,11 @@ class GlissadeSignalGenerator:
                 sl=sl,
                 tp_indicative=tp,
                 atr=atr_val,
+                rsi=rsi_val,
+                rsi_div=rsi_div_val,
                 bb_width=1.0,  # Neutral — BB squeeze guard is Extension-specific
-                strategy_type="glissade_vwap_pullback",
+                strategy_type="glissade",
+                sub_type="vwap_pullback" + ("_rdiv" if rsi_div_val != 0 else ""),
                 timeframe="1m",
             )
 
@@ -380,3 +395,111 @@ class GlissadeSignalGenerator:
             return False
 
         return pullback_high >= ema_val - tol and pullback_high <= ema_val + tol
+
+
+# ─── RSI Divergence H1 mode (validated) ─────────────────────────────────────
+
+@dataclass
+class GlissadeRSIDivConfig:
+    """Paramètres du mode RSI divergence H1.
+
+    Validés par walk-forward (3/3 PASS) :
+    - XAUUSD H1 pw3 RR2 +BE : 31 OOS trades, WR 87%, +5.7R
+    - BTCUSD H1 pw3 RR2 +BE : 54 OOS trades, WR 85%, +10.6R
+    """
+    rr_tp: float = 2.0
+    pivot_window: int = 3
+    lookback: int = 20
+    sl_lookback: int = 10
+    ema_period: int = 200
+
+
+class GlissadeRSIDivGenerator:
+    """RSI divergence comme signal principal — mode validé H1.
+
+    Setup :
+    1. Contexte : close au-dessus/en-dessous de EMA200 (trend)
+    2. Signal : RSI divergence bullish/bearish dans le sens du trend
+    3. SL : recent swing low/high ± 0.1×ATR
+    4. TP : RR × SL distance
+    """
+
+    def __init__(self, cfg: GlissadeRSIDivConfig | None = None):
+        self.cfg = cfg or GlissadeRSIDivConfig()
+
+    def prepare(self, df: pd.DataFrame) -> pd.DataFrame:
+        df = df.copy()
+        c = self.cfg
+        df["rsi"] = compute_rsi(df["Close"], period=14)
+        df["ema200"] = compute_ema(df["Close"], span=c.ema_period)
+        df["atr"] = compute_atr(df, period=14)
+        df["rsi_div"] = compute_rsi_divergence(
+            df, rsi=df["rsi"], lookback=c.lookback, pivot_window=c.pivot_window
+        )
+        df["swing_low"] = df["Low"].rolling(c.sl_lookback, center=False).min()
+        df["swing_high"] = df["High"].rolling(c.sl_lookback, center=False).max()
+        return df
+
+    def generate_signals(
+        self, df: pd.DataFrame, instrument: str = "UNKNOWN"
+    ) -> list[tuple[int, Signal]]:
+        signals: list[tuple[int, Signal]] = []
+        c = self.cfg
+
+        for i in range(max(c.ema_period, 50), len(df) - 1):
+            row = df.iloc[i]
+            rsi_div = int(row["rsi_div"])
+            if rsi_div == 0:
+                continue
+
+            close = row["Close"]
+            ema200 = row["ema200"]
+            atr = row["atr"]
+            if pd.isna(ema200) or pd.isna(atr) or atr <= 0:
+                continue
+
+            if rsi_div == 1 and close > ema200:
+                sl = row["swing_low"] - 0.1 * atr
+                risk = close - sl
+                if risk <= 0 or risk > 3 * atr:
+                    continue
+                tp = close + c.rr_tp * risk
+                sig = Signal(
+                    instrument=instrument,
+                    side=Side.LONG,
+                    close=close,
+                    sl=sl,
+                    tp_indicative=tp,
+                    atr=atr,
+                    rsi=row["rsi"],
+                    rsi_div=1,
+                    bb_width=1.0,
+                    strategy_type="glissade",
+                    timeframe="1h",
+                    timestamp=df.index[i],
+                )
+                signals.append((i, sig))
+
+            elif rsi_div == -1 and close < ema200:
+                sl = row["swing_high"] + 0.1 * atr
+                risk = sl - close
+                if risk <= 0 or risk > 3 * atr:
+                    continue
+                tp = close - c.rr_tp * risk
+                sig = Signal(
+                    instrument=instrument,
+                    side=Side.SHORT,
+                    close=close,
+                    sl=sl,
+                    tp_indicative=tp,
+                    atr=atr,
+                    rsi=row["rsi"],
+                    rsi_div=-1,
+                    bb_width=1.0,
+                    strategy_type="glissade",
+                    timeframe="1h",
+                    timestamp=df.index[i],
+                )
+                signals.append((i, sig))
+
+        return signals

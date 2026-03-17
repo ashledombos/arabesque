@@ -119,6 +119,16 @@ def _run_backtest(args: argparse.Namespace) -> int:
         # Les seuils H1 (spread/slip < 0.10-0.15×ATR) rejettent 97% des signaux M1.
         # 0.5×ATR M1 ≈ $0.40 → filtre les moments illiquides sans rejeter le spread normal.
         exec_cfg = ExecConfig(max_spread_atr=0.5, max_slippage_atr=0.5)
+    elif strategy == "cabriole":
+        from arabesque.strategies.cabriole.signal import CabrioleSignalGenerator, CabrioleConfig
+        sig_gen = CabrioleSignalGenerator(CabrioleConfig())
+        timeframe = "4h"    # Cabriole = Donchian breakout 4H
+        exec_cfg = None
+    elif strategy == "glissade":
+        from arabesque.strategies.glissade.signal import GlissadeRSIDivGenerator, GlissadeRSIDivConfig
+        sig_gen = GlissadeRSIDivGenerator(GlissadeRSIDivConfig())
+        timeframe = "1h"    # Glissade RSI div = H1
+        exec_cfg = None
     else:
         from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
         sig_gen = ExtensionSignalGenerator(ExtensionConfig())
@@ -152,10 +162,12 @@ def _run_backtest(args: argparse.Namespace) -> int:
         use_sub_bar = False
 
     # Boucle multi-instruments avec collecte des résultats
+    from arabesque.execution.backtest import manager_config_for
     results: dict[str, object] = {}
     for inst in instruments:
         try:
-            runner = BacktestRunner(cfg, signal_generator=sig_gen, exec_config=exec_cfg)
+            mgr_cfg = manager_config_for(inst, timeframe)
+            runner = BacktestRunner(cfg, manager_config=mgr_cfg, signal_generator=sig_gen, exec_config=exec_cfg)
             df = load_ohlc(inst, period=period, interval=timeframe)
             if df is None or len(df) < 100:
                 print(f"  Données insuffisantes pour {inst}", file=sys.stderr)
@@ -274,6 +286,14 @@ def cmd_walkforward(args: argparse.Namespace) -> int:
         from arabesque.strategies.fouette.signal import FouetteSignalGenerator, FouetteConfig
         sig_gen = FouetteSignalGenerator(FouetteConfig())
         default_tf = "min1"
+    elif strategy == "cabriole":
+        from arabesque.strategies.cabriole.signal import CabrioleSignalGenerator, CabrioleConfig
+        sig_gen = CabrioleSignalGenerator(CabrioleConfig())
+        default_tf = "4h"
+    elif strategy == "glissade":
+        from arabesque.strategies.glissade.signal import GlissadeRSIDivGenerator, GlissadeRSIDivConfig
+        sig_gen = GlissadeRSIDivGenerator(GlissadeRSIDivConfig())
+        default_tf = "1h"
     else:
         from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
         sig_gen = ExtensionSignalGenerator(ExtensionConfig())

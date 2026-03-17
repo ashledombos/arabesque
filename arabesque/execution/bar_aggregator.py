@@ -402,15 +402,22 @@ class BarAggregator:
     def _make_signal_generator(self):
         """Instancie le générateur selon la stratégie configurée."""
         strategy = self.cfg.signal_strategy
-        if strategy == "mean_reversion":
-            from arabesque.strategies.extension.signal import ExtensionSignalGenerator as BacktestSignalGenerator, ExtensionConfig as SignalGenConfig
-            return BacktestSignalGenerator(SignalGenConfig(), live_mode=True)
-        elif strategy == "trend":
-            from arabesque.strategies.extension.signal import ExtensionSignalGenerator as TrendSignalGenerator, ExtensionConfig as TrendSignalConfig
-            return TrendSignalGenerator(TrendSignalConfig())
-        else:  # combined
-            # abandoned: from arabesque.backtest.signal_gen_combined import CombinedSignalGenerator
-            return CombinedSignalGenerator()  # live_mode non supporté par CombinedSignalGenerator
+        if strategy in ("mean_reversion", "trend", "extension"):
+            from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
+            return ExtensionSignalGenerator(ExtensionConfig())
+        elif strategy == "glissade":
+            from arabesque.strategies.glissade.signal import GlissadeRSIDivGenerator, GlissadeRSIDivConfig
+            return GlissadeRSIDivGenerator(GlissadeRSIDivConfig())
+        elif strategy == "cabriole":
+            from arabesque.strategies.cabriole.signal import CabrioleSignalGenerator, CabrioleConfig
+            return CabrioleSignalGenerator(CabrioleConfig())
+        elif strategy == "fouette":
+            from arabesque.strategies.fouette.signal import FouetteSignalGenerator, FouetteConfig
+            return FouetteSignalGenerator(FouetteConfig())
+        else:
+            logger.warning(f"[BarAggregator] Stratégie inconnue: {strategy}, fallback extension")
+            from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
+            return ExtensionSignalGenerator(ExtensionConfig())
 
     # ------------------------------------------------------------------
     # Stats

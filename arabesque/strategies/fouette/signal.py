@@ -59,6 +59,9 @@ class FouetteConfig:
     """
 
     # ── Session ──────────────────────────────────────────────────────────────
+    # Presets : "ny" (défaut), "london", "tokyo"
+    # ou override manuel via session_open_hour_utc_winter/summer
+    session_preset: str = "ny"
     session_open_hour_utc_winter: int = 14   # EST (UTC-5)  : nov→mars
     session_open_hour_utc_summer: int = 13   # EDT (UTC-4)  : mars→nov
     session_open_minute_utc: int = 30        # 9h30 NY
@@ -126,8 +129,29 @@ class FouetteSignalGenerator:
     >>> signals = sg.generate_signals(df, instrument="XAUUSD")
     """
 
+    # Presets de session (heure_hiver, heure_été, minute, auto_dst, fin_session_h, fin_session_m)
+    _SESSION_PRESETS: dict = {
+        "ny":     {"winter": 14, "summer": 13, "minute": 30, "dst": True,  "end_h": 20, "end_m": 0},
+        "london": {"winter":  8, "summer":  7, "minute":  0, "dst": True,  "end_h": 16, "end_m": 0},
+        "tokyo":  {"winter":  0, "summer":  0, "minute":  0, "dst": False, "end_h":  6, "end_m": 0},
+    }
+
     def __init__(self, config: Optional[FouetteConfig] = None):
         self.cfg = config or FouetteConfig()
+        self._apply_session_preset()
+
+    def _apply_session_preset(self):
+        """Applique un preset de session si session_preset != 'ny' ou si les heures n'ont pas été overridées."""
+        preset = self.cfg.session_preset.lower()
+        if preset not in self._SESSION_PRESETS:
+            return
+        p = self._SESSION_PRESETS[preset]
+        self.cfg.session_open_hour_utc_winter = p["winter"]
+        self.cfg.session_open_hour_utc_summer = p["summer"]
+        self.cfg.session_open_minute_utc = p["minute"]
+        self.cfg.auto_dst = p["dst"]
+        self.cfg.session_end_hour_utc = p["end_h"]
+        self.cfg.session_end_minute_utc = p["end_m"]
 
     # ── prepare ──────────────────────────────────────────────────────────────
 

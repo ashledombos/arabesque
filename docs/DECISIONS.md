@@ -1279,9 +1279,10 @@ crypto 4H (walk-forward validé).
 
 | Nom de code | Logique | TF | WR brut estimé | Statut | Priorité |
 |---|---|---|---|---|---|
-| **Extension** | Trend-following BB squeeze → breakout | H1 | ~45% → 75% (BE) | ✅ Live validé | — |
-| **Fouetté** | Opening Range Breakout NY | M1 | 53-65% | 🔬 Backtest | Haute |
-| **Glissade** | Scalping pullback VWAP + EMA | M1+M5 | 55-70% → 70-80%? (BE) | 📋 Placeholder | Haute |
+| **Extension** | Trend-following BB squeeze → breakout | H1/H4 | ~45% → 75% (BE) | ✅ Live multi-strat | — |
+| **Glissade** | RSI divergence + EMA200 | H1 | 80-85% (BE) | ✅ Live (shadow) | Haute |
+| **Fouetté** | Opening Range Breakout | M1 | 65-92% | ⚠️ Freq trop basse | Moyenne |
+| **Cabriole** | Donchian breakout + EMA200 | H4 | ~75% (BE) | ✅ WF 6/6, overlap Ext | Basse |
 | **Pas de Deux** | Pairs trading cointégration + z-score | M15 | 50-65% | 📋 Placeholder | Long terme |
 
 ### Stratégies évaluées et rejetées
@@ -1364,6 +1365,49 @@ Arabesque a déjà `guards.py` + `PropConfig` + `ExecConfig`, mais certains manq
 Plusieurs prop firms sanctionnent les algos qui exploitent l'absence de slippage
 du simulateur (brackets ultra-serrés, hyperactivité). À garder en tête pour
 Glissade (scalping) : le backtest doit être pessimiste sur les fills.
+
+### Multi-strategy live engine (2026-03-17)
+
+**Décision :** Modifier `_start_bar_aggregator()` dans `live.py` pour créer des BarAggregators par `(timeframe, strategy)` au lieu de timeframe seul.
+
+**Pourquoi :**
+- Extension + Glissade doivent tourner en parallèle sur les mêmes instruments (XAUUSD/BTCUSD)
+- Extension H4 crypto + Extension H1 forex + Glissade H1 = 3 aggregators indépendants
+- Chaque aggregator a son propre signal generator
+- Les signaux sont tagués par `strategy_type` pour le dispatcher
+
+**Config :** `strategy_assignments` dans settings.yaml. Chaque entrée crée un aggregator dédié.
+
+**Résultat live :** 3 aggregators opérationnels — H1/glissade (2 instr), H1/trend (51 instr), H4/trend (31 instr).
+
+### Extension comprehensive universe backtest (2026-03-17)
+
+24 instruments with sub-bar M1. 887 trades, +31.8R. 16/24 positifs.
+Top: BNBUSD +11.1R PF 2.58, ETHUSD +8.1R PF 2.35, BTCUSD +7.6R PF 1.95.
+Négatifs: DOTUSD, XLMUSD, NEOUSD, GBPUSD, EURUSD, USDJPY.
+
+### Glissade RSI div detailed backtest (2026-03-17)
+
+Sub-bar M1 confirms WF results:
+- XAUUSD H1 RR2 +BE: 60 trades, WR 80%, Exp +0.121R, +7.3R
+- BTCUSD H1 RR2 +BE: 91 trades, WR 84.6%, Exp +0.177R, +16.1R
+RR3 slightly better than RR2 on XAUUSD (+7.9R vs +7.3R), similar on BTCUSD.
+
+### Fouetté signal frequency issue (2026-03-17)
+
+Multi-instrument scan reveals:
+- XAUUSD M1 fvg_multiple NY: only 14 trades in 2+ years — too few for WF
+- BTCUSD M1 fvg_multiple NY: 185 trades, WR 72.4%, marginal Exp +0.019R
+- ETHUSD M1 fvg_multiple NY: 314 trades, near-zero Exp
+- Forex (GBPJPY, EURUSD): 0 trades — range never broken
+
+**Conclusion:** Fouetté is only viable on crypto (BTCUSD has enough signals) and possibly indices (US100 24 trades, promising but small sample). XAUUSD FVG mode rarely triggers. Breakout mode more promising (12 trades WR 91.7%) but still too few.
+
+### CCXT mappings expanded (2026-03-17)
+
+Added 17 missing crypto instrument mappings in `_CCXT_MAP` (store.py): BCHUSD, XLMUSD, NEOUSD, ICPUSD, XMRUSD, ETCUSD, DASHUSD, ALGOUSD, GRTUSD, IMXUSD, SANDUSD, FETUSD, VETUSD, MANAUSD, BARUSD.
+
+---
 
 ### Extension multi-TF — Résultats 4H vs H1 (2026-03-15)
 
@@ -1561,3 +1605,214 @@ des nouvelles fonctionnalités, pas de la restructuration.
 **barres_au_sol :** les repos restent indépendants. La logique de fetch est
 dupliquée dans `arabesque/data/fetch.py`. Pas de git submodule (trop fragile).
 `parquet_clock.py` reste séparé (source de barres distincte de l'exécution).
+
+---
+
+## Décision 2026-03-16 — ROI désactivé pour crypto H4
+
+**Contexte :** l'ablation framework (42 instruments, 1623 trades, sub-bar M1)
+a montré que le ROI backstop détruit l'edge sur crypto H4 :
+- Avec ROI : Exp +0.044R
+- Sans ROI : Exp +0.181R (×4.1)
+
+**Pourquoi le ROI nuit :** les tiers ROI (bars=0 → 3.0R, bars=240 → 0.15R)
+sont calibrés pour H1 (240 barres H1 = 10 jours). Sur H4, 240 barres = 40 jours,
+ce qui est plus réaliste comme backstop, mais le tier bars=0 → 3.0R coupe les
+mouvements crypto forts dès qu'ils atteignent +3R. Le BE + trailing capturent
+ces mouvements naturellement.
+
+**Implémentation :**
+- `manager_config_for(instrument, interval)` dans `backtest.py` retourne
+  `ManagerConfig(roi_enabled=False)` quand `_categorize(instrument) == "crypto"`
+  et `interval in ("4h", "H4")`.
+- Utilisé automatiquement dans backtest CLI, walk-forward, et ablation.
+- Le live n'est pas affecté (le `LivePositionMonitor` ne gère que BE + trailing,
+  pas le ROI — qui est un mécanisme backtest/PositionManager uniquement).
+
+**Pas touché :** `position_manager.py` inchangé (le flag `roi_enabled` existait déjà).
+
+## Décision 2026-03-17 — Audit biais backtest H/L vs Sub-bar M1
+
+**Contexte :** Besoin de quantifier l'écart entre le backtest H/L agrégé (rapide mais
+imprécis sur l'ordre intra-barre) et le sub-bar replay M1 (lent mais résout l'ambiguïté).
+
+**Résultats sur 6 instruments (14 mois) :**
+
+| Instrument | TF | WR H/L | WR Sub-bar | Exp H/L | Exp Sub-bar | Biais Exp |
+|---|---|---|---|---|---|---|
+| XAUUSD | 1h | 70% | 77% | +0.096 | +0.051 | +0.045 |
+| BTCUSD | 4h | 67% | 81% | +0.092 | +0.149 | -0.057 |
+| ETHUSD | 4h | 55% | 76% | +0.231 | +0.162 | +0.069 |
+| SOLUSD | 4h | 83% | 87% | +0.283 | +0.043 | +0.240 ⚠️ |
+| GBPJPY | 1h | 55% | 60% | -0.008 | +0.046 | -0.054 |
+| AUDJPY | 1h | 70% | 77% | +0.099 | +0.154 | -0.055 |
+
+**Conclusions :**
+1. Le biais est **bidirectionnel**, pas systématiquement optimiste.
+2. Le WR H/L est systématiquement **plus bas** que sub-bar (règle conservatrice SL en cas
+   d'ambiguïté abaisse le WR). Mais l'Exp H/L peut être plus haute car avg_win est plus
+   élevé (les positions survivent plus longtemps quand le BE intra-barre n'est pas résolu).
+3. L'écart moyen est ±0.05R, sauf SOLUSD 4h (+0.24R) qui est un outlier.
+4. **Règle :** le backtest H/L est fiable pour le screening rapide (direction correcte dans
+   5/6 cas). Le sub-bar replay M1 reste obligatoire pour la validation finale (walk-forward).
+
+## Décision 2026-03-17 — Fouetté : London session XAUUSD, US100 NY, BTCUSD NY
+
+**Contexte :** Tests exhaustifs Fouetté sur 14 mois, 3 instruments, 3 sessions, 4 configs.
+
+**Résultats clés (14 mois, M1) :**
+
+| Instrument | Session | Config | Trades | WR | Exp | TotR | DD |
+|---|---|---|---|---|---|---|---|
+| **XAUUSD** | **London** | **RR1.5 no_BE** | 63 | 62% | +0.409 | +25.7R | 1.6% |
+| XAUUSD | London | RR1.5 +BE | 63 | 76% | +0.086 | +5.4R | 1.0% |
+| XAUUSD | London | RR2 no_BE | 61 | 52% | +0.423 | +25.8R | 1.6% |
+| XAUUSD | NY | RR2 no_BE | 189 | 37% | +0.011 | +2.1R | 7.1% |
+| **US100** | **NY** | **RR2 no_BE** | 181 | 43% | +0.171 | +31.0R | 7.0% |
+| US100 | NY | RR1.5 +BE | 252 | 75% | +0.000 | 0.0R | 3.5% |
+| BTCUSD | NY | RR1.5 +BE | 326 | 74% | +0.023 | +7.6R | 2.4% |
+| BTCUSD | NY | RR2 no_BE | 281 | 38% | +0.030 | +8.5R | 6.8% |
+
+**Découvertes :**
+1. XAUUSD London >> NY pour ORB. Hypothèse : le London open à 8h UTC crée un vrai
+   breakout directionnel (flux institutionnel européen), tandis que le NY open à 14h30
+   arrive dans un marché déjà formé.
+2. Le mode no_BE est systématiquement meilleur en expectancy pour ORB. Le BE convertit
+   des trades gagnants (+1R, +1.5R) en +0.20R, ce qui détruit l'edge.
+3. US100 est le meilleur instrument pour Fouetté NY (momentum tech fort).
+4. BTCUSD est le seul où +BE reste profitable (crypto a assez de momentum pour
+   que les petits gains s'accumulent).
+
+**Walk-forward Fouetté (2026-03-17) — 4/4 PASS :**
+
+| Combo | OOS Trades | WR | Exp | PF | Total R | MaxDD |
+|---|---|---|---|---|---|---|
+| XAUUSD London RR1.5 no_BE | 63 | 62% | +0.409R | 2.07 | +25.7R | 1.6% |
+| XAUUSD London RR1.5 +BE | 63 | 76% | +0.086R | 1.38 | +5.4R | 1.0% |
+| US100 NY RR2 no_BE | 147 | 44% | +0.190R | 1.35 | +28.0R | 7.6% |
+| BTCUSD NY RR1.5 +BE | 280 | 76% | +0.043R | 1.19 | +12.0R | 2.3% |
+
+**FVG vs breakout London :** breakout >> FVG. FVG divise l'edge par 2 (XAUUSD +25.7→+12.5R).
+
+**Prochaine étape :** Dry-run parquet 3 mois sur les 3 combos gagnantes, puis shadow filter live.
+
+## Décision 2026-03-17 — Extension indices/energy : GER40 4H prometteur, reste marginal
+
+**Contexte :** Premiers backtests Extension sur données indices/energy Dukascopy.
+
+**Résultats backtest flat (20 mois) :**
+
+| Instrument | H1 (Exp, TotR) | H4 (Exp, TotR) |
+|---|---|---|
+| GER40 | +0.005, +0.4R | **+0.406, +10.2R** ⭐ |
+| UK100 | +0.064, +3.5R | -0.172, -2.4R |
+| US100 | +0.057, +4.4R | -0.319, -3.2R |
+| US500 | -0.105, -7.0R | -0.240, -2.2R |
+| JP225 | +0.000, +0.0R | -0.049, -0.9R |
+| UKOIL | -0.209, -11.5R | +0.118, +1.5R |
+
+**Walk-forward GER40 4H :** PASS technique mais seulement 3 trades OOS en 6 fenêtres.
+Pas assez pour être statistiquement significatif. L'instrument génère ~1 trade/2 mois
+en OOS. À accumuler avant de conclure.
+
+**Walk-forward UK100 H1 et US100 H1 (2026-03-17) :**
+
+| Instrument | OOS Trades | WR | Exp | Total R | Verdict |
+|---|---|---|---|---|---|
+| UK100 H1 | 25 | 76% | +0.061R | +1.5R | MARGINAL (σ WR=20.5%) |
+| US100 H1 | 29 | 72% | -0.027R | -0.8R | FAIL |
+
+**Décision :** GER40 4H, UK100 H1, US100 H1 — tous en watchlist mais PAS au basket live.
+GER40 : trop peu de trades. UK100 : instable. US100 : Exp négative en OOS.
+Les indices Dukascopy ne contribuent pas positivement au basket Extension pour l'instant.
+
+## Décision 2026-03-17 — RSI divergence : lookahead corrigé + Glissade v2
+
+**Bug critique découvert** : `compute_rsi_divergence()` détectait les pivots locaux avec
+une fenêtre centrée `[i-w, i+w]`, regardant `w` barres dans le futur. Avec `pivot_window=5`,
+cela donne 5 barres de lookahead → les backtests étaient faussement optimistes (WR 89-100%).
+
+**Fix** : Le pivot à la barre `p` n'est confirmé qu'à la barre `p+w`. La divergence est
+maintenant reportée à la barre `p+w` (première barre où elle est observable sans lookahead).
+
+**Impact sur Extension** : Le shadow filter RSI div dans Extension utilisait aussi cet
+indicateur, mais comme shadow filter log-only (pas bloquant), l'impact est nul sur les
+résultats de trading. La version corrigée donne des logs plus réalistes.
+
+**Résultats Glissade v2 (RSI divergence comme signal principal, post-fix) :**
+
+| Instrument | TF | Config | Trades | WR | Exp | TotR |
+|---|---|---|---|---|---|---|
+| XAUUSD | 1h | pw3 RR2 +BE | 53 | 72% | +0.137 | +7.3R |
+| XAUUSD | 1h | RR3 no_BE | 25 | 36% | +0.348 | +8.7R |
+| BTCUSD | 1h | pw3 RR2 +BE | 75 | 76% | +0.218 | +16.3R |
+| BTCUSD | 1h | RR2 no_BE | 28 | 43% | +0.270 | +7.6R |
+
+H1 fonctionne, H4 non. GBPJPY, ETHUSD, SOLUSD négatifs.
+
+**Glissade VWAP pullback M1** : reste négatif avec ou sans RSI div filter (0 trades quand
+activé — la conjonction VWAP pullback + RSI div pivot est trop rare en M1). Le setup VWAP
+pullback M1 n'a pas d'edge mesurable. Pivoter vers RSI div H1 comme signal principal.
+
+### Walk-forward Glissade v2 — 3/3 PASS ✅ (2026-03-17)
+
+| Combo | OOS Trades | WR | Exp(R) | PF | Total R | MaxDD |
+|---|---|---|---|---|---|---|
+| XAUUSD H1 pw3 RR2 +BE | 31 | **87%** | +0.185 | 2.43 | +5.7R | 0.4% |
+| BTCUSD H1 pw3 RR2 +BE | 54 | **85%** | +0.196 | 2.32 | +10.6R | 1.3% |
+| XAUUSD H1 RR3 no_BE | 17 | 35% | +0.285 | 1.44 | +4.8R | 1.6% |
+
+Les 3 combos passent (Exp > 0, ≥ 15 trades), mais seuls les variants +BE (WR 85-87%)
+correspondent au profil prop firm (boussole ≥ 70%). Le RR3 no_BE (WR 35%) est rentable
+mais inadapté au profil FTMO.
+
+**Décision** : retenir XAUUSD H1 pw3 RR2 +BE et BTCUSD H1 pw3 RR2 +BE pour dry-run.
+**Prochaine étape** : dry-run parquet 3 mois, puis shadow filter live.
+
+## Décision 2026-03-17 — Cabriole (Donchian breakout) : stratégie validée
+
+**Origine** : Adaptation de la stratégie Donchian du projet Envolées (zip `tmp/donchian.zip`).
+Setup : EMA200 trend filter + Donchian(20) channel breakout + 0.10×ATR buffer + volatilité filter (ATR rel < P90).
+
+**Scan initial (H/L mode, 18 instruments × 2 TF × 8 configs)** :
+- Crypto 4H : dominant (DOGEUSD +30.7R, XAUUSD +27.0R, LINKUSD +23.6R, AVAXUSD +19.3R)
+- Crypto H1 : certains positifs (AVAXUSD +38.8R, LINKUSD +30.4R) mais WR < 66%
+- Forex : uniformément négatif (même pattern que Extension)
+
+### Walk-forward Cabriole — 6/6 PASS ✅
+
+| Combo | OOS Trades | WR | Exp(R) | PF | Total R | MaxDD |
+|---|---|---|---|---|---|---|
+| LINKUSD 4H SL1 +BE | 44 | 73% | +0.354 | 2.30 | +15.6R | 1.2% |
+| ADAUSD 4H DC30 +BE | 37 | 70% | +0.326 | 2.20 | +12.1R | 0.8% |
+| XAUUSD 4H SL2 +BE | 25 | 76% | +0.304 | 2.27 | +7.6R | 0.6% |
+| DOGEUSD 4H +BE | 45 | 73% | +0.249 | 1.93 | +11.2R | 1.4% |
+| ETHUSD 4H SL2 +BE | 39 | 69% | +0.214 | 1.70 | +8.4R | 1.5% |
+| AVAXUSD 4H RR1.5 +BE | 51 | 73% | +0.168 | 1.61 | +8.6R | 1.5% |
+
+**Même univers que Extension** (crypto 4H + XAUUSD). La corrélation des signaux entre
+Extension (BB squeeze) et Cabriole (Donchian) reste à mesurer — possiblement la même
+tendance capturée par deux filtres différents.
+
+**Décision** : Cabriole est une stratégie validée. Implémenter `strategies/cabriole/signal.py`,
+puis mesurer le recouvrement de signaux avec Extension avant de déployer les deux en parallèle.
+**Signal.py implémenté** : `arabesque/strategies/cabriole/signal.py` + CLI `--strategy cabriole`.
+`compute_donchian()` ajouté dans `indicators.py`.
+
+### Recouvrement Extension vs Cabriole (crypto 4H, ±2 barres)
+
+| Instrument | Ext sigs | Cab sigs | Overlap | Overlap% Ext→Cab |
+|---|---|---|---|---|
+| XAUUSD | 60 | 231 | 57 | 95% |
+| DOGEUSD | 65 | 209 | 59 | 91% |
+| ETHUSD | 64 | 187 | 57 | 89% |
+| BTCUSD | 77 | 198 | 63 | 82% |
+| LINKUSD | 62 | 226 | 45 | 73% |
+
+73-95% des signaux Extension sont aussi des signaux Cabriole (±2 barres). Cabriole
+génère 3-4× plus de signaux (Donchian est moins sélectif que BB squeeze).
+
+**Conclusion** : même edge sous-jacent, pas de diversification réelle.
+Cabriole est un **backup/enrichissement**, pas une stratégie indépendante.
+Usage possible : confirmation quand les deux déclenchent, ou remplacement
+sur instruments spécifiques où Cabriole surperforme Extension.

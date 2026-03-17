@@ -56,8 +56,9 @@ arabesque/core/          ← IMMUABLE (models, guards, audit) — Opus uniquemen
 arabesque/modules/       ← indicators, position_manager
 arabesque/strategies/
   └── extension/         ← signal.py UNIQUE backtest+live (Opus uniquement pour modifier)
-  └── fouette/           ← ORB M1, en développement (pas encore validé)
-  └── glissade/          ← Scalping VWAP pullback M1+M5 (placeholder)
+  └── fouette/           ← ORB M1, WF PASS 4/4 (London XAUUSD, NY US100/BTCUSD)
+  └── glissade/          ← RSI divergence H1, WF PASS 3/3 (XAUUSD, BTCUSD)
+  └── cabriole/          ← Donchian breakout 4H, WF PASS 6/6 (overlap Extension)
   └── pas_de_deux/       ← Pairs trading cointégration (placeholder, long terme)
 arabesque/execution/     ← live.py, backtest.py, dryrun.py, bar_aggregator.py
 arabesque/broker/        ← cTrader, TradeLocker
@@ -93,6 +94,12 @@ python -m arabesque walkforward --strategy extension XAUUSD GBPJPY AUDJPY
 # Backtest Fouetté (M1 automatique)
 python -m arabesque run --strategy fouette --mode backtest XAUUSD
 
+# Backtest Glissade (RSI divergence H1)
+python -m arabesque run --strategy glissade --mode backtest XAUUSD BTCUSD
+
+# Backtest Cabriole (Donchian breakout 4H)
+python -m arabesque run --strategy cabriole --mode backtest --interval 4h DOGEUSD LINKUSD
+
 # Live
 python -m arabesque.live.engine
 
@@ -121,9 +128,10 @@ class <Nom>SignalGenerator:
 
 Noms de disciplines artistiques gracieuses (danse classique, GR, GAF...).
 Terme français, relation imagée avec la logique de trading.
-- Extension = trend-following H1 (BB squeeze → breakout)
-- Fouetté = Opening Range Breakout M1 (NY open)
-- Glissade = scalping pullback VWAP + EMA M1 (pas glissé, court et fluide)
+- Extension = trend-following H1/4H (BB squeeze → breakout)
+- Fouetté = Opening Range Breakout M1 (NY open, rotation rapide)
+- Glissade = RSI divergence H1 (retournement dans le trend, mouvement glissé)
+- Cabriole = Donchian breakout 4H (saut vif au-delà du canal)
 - Pas de Deux = pairs trading cointégration (danse à deux partenaires en miroir)
 
 ## Données

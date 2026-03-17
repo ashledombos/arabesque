@@ -1,16 +1,22 @@
 """
-Stratégie Glissade — Scalping intraday pullback VWAP + EMA.
+Stratégie Glissade — RSI divergence H1 (validé) + VWAP pullback M1 (abandonné).
 
 Nom de code : Glissade (mouvement de danse classique)
-Statut : 🔬 Conception — placeholder, pas encore implémenté
+Statut : ✅ Walk-forward PASS 3/3 (mode RSI divergence H1)
 
 Importer :
-    from arabesque.strategies.glissade.signal import GlissadeSignalGenerator, GlissadeConfig
+    from arabesque.strategies.glissade.signal import GlissadeRSIDivGenerator, GlissadeRSIDivConfig
 """
-# Placeholder — décommenter quand signal.py est implémenté
-# from arabesque.strategies.glissade.signal import (
-#     GlissadeSignalGenerator,
-#     GlissadeConfig,
-# )
-#
-# __all__ = ["GlissadeSignalGenerator", "GlissadeConfig"]
+from arabesque.strategies.glissade.signal import (
+    GlissadeRSIDivGenerator,
+    GlissadeRSIDivConfig,
+    GlissadeSignalGenerator,
+    GlissadeConfig,
+)
+
+__all__ = [
+    "GlissadeRSIDivGenerator",
+    "GlissadeRSIDivConfig",
+    "GlissadeSignalGenerator",
+    "GlissadeConfig",
+]

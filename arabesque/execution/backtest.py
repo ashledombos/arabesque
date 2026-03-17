@@ -52,6 +52,18 @@ from arabesque.core.signal_filter import SignalFilter
 BACKTEST_RUNS_LOG = Path("logs/backtest_runs.jsonl")
 
 
+def manager_config_for(instrument: str, interval: str) -> ManagerConfig | None:
+    """Retourne un ManagerConfig adapté à la famille d'instrument + timeframe.
+
+    Ablation crypto H4 (42 instruments, 1623 trades, sub-bar M1) :
+      Avec ROI : Exp +0.044R
+      Sans ROI : Exp +0.181R  (ROI détruit l'edge crypto)
+    """
+    if _categorize(instrument) == "crypto" and interval in ("4h", "H4", "4H"):
+        return ManagerConfig(roi_enabled=False)
+    return None
+
+
 @dataclass
 class BacktestConfig:
     """Configuration du backtest."""
@@ -637,6 +649,7 @@ def run_walk_forward(
     start: str | None = None,
     end: str | None = None,
     bt_config: BacktestConfig | None = None,
+    manager_config: ManagerConfig | None = None,
     signal_generator: object | None = None,
     strategy: str = "trend",
     interval: str = "1h",
@@ -657,6 +670,10 @@ def run_walk_forward(
         WalkForwardResult avec métriques agrégées sur toutes les fenêtres OOS.
     """
     cfg = bt_config or BacktestConfig(verbose=False)
+
+    # Auto-detect per-family ManagerConfig (e.g. ROI disabled for crypto H4)
+    if manager_config is None:
+        manager_config = manager_config_for(instrument, interval)
 
     if verbose:
         print(f"\n{'='*70}")
@@ -719,11 +736,11 @@ def run_walk_forward(
             print(f"     OOS: {df_oos.index[0].date()} → {df_oos.index[-1].date()} ({len(df_oos)} bars)")
 
         # Run IS
-        runner_is = BacktestRunner(cfg, signal_generator=signal_generator)
+        runner_is = BacktestRunner(cfg, manager_config=manager_config, signal_generator=signal_generator)
         result_is = runner_is.run(df_is, instrument, "in_sample", sub_bar_df=sub_bar_df)
 
         # Run OOS
-        runner_oos = BacktestRunner(cfg, signal_generator=signal_generator)
+        runner_oos = BacktestRunner(cfg, manager_config=manager_config, signal_generator=signal_generator)
         result_oos = runner_oos.run(df_oos, instrument, "out_of_sample", sub_bar_df=sub_bar_df)
 
         wf_windows.append(WalkForwardWindow(

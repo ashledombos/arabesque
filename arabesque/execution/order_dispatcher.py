@@ -564,8 +564,8 @@ class OrderDispatcher:
             stop_loss=validation.stop_loss if validation.stop_loss > 0 else None,
             take_profit=validation.take_profit if validation.take_profit > 0 else None,
             broker_symbol=broker_sym,
-            label=f"arabesque_{signal.signal_id[:8]}",
-            comment=f"{signal.strategy_type}/{signal.regime}",
+            label=f"arb_{signal.strategy_type[:3]}_{signal.signal_id[:8]}",
+            comment=f"{signal.strategy_type}/{signal.regime}/{getattr(signal, 'timeframe', '')}",
         )
 
         try:

@@ -31,6 +31,33 @@ strategy:
   type: trend            # "trend" | "mean_reversion" | "combined" — trend-only validé sur 20 mois
 
 # -----------------------------------------------------------------------------
+# MULTI-STRATÉGIE — Assignments instrument → stratégie + timeframe
+# Chaque entrée crée un BarAggregator dédié. Un même instrument peut
+# apparaître dans plusieurs stratégies (signaux indépendants).
+# La section strategy.type ci-dessus reste le défaut pour les instruments
+# non listés ici.
+# -----------------------------------------------------------------------------
+strategy_assignments:
+  # Extension : utilise le timeframe déclaré dans instruments.yaml (H1/H4)
+  # Ne pas lister ici = les instruments with follow:true utilisent Extension par défaut
+  #extension:
+  #  instruments: []  # vide = tous les instruments followed (comportement actuel)
+
+  # Glissade RSI divergence H1 — WF PASS 3/3
+  glissade:
+    timeframe: "H1"
+    instruments:
+      - XAUUSD
+      - BTCUSD
+
+  # Fouetté ORB M1 — WF PASS 4/4 (shadow mode pour commencer)
+  # Désactivé pour l'instant : nécessite M1 price feed + config session
+  #fouette:
+  #  timeframe: "M1"
+  #  instruments:
+  #    - XAUUSD
+
+# -----------------------------------------------------------------------------
 # PRICE FEED (surveillance prix cTrader)
 # -----------------------------------------------------------------------------
 price_feed:

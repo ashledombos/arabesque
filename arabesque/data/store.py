@@ -96,11 +96,14 @@ _DUKASCOPY_MAP: dict[str, str] = {
     "XAUEUR": "XAUEUR", "XAGEUR": "XAGEUR",
     # Indices (noms internes Dukascopy)
     "US500": "USA500IDXUSD", "US30": "USA30IDXUSD", "US100": "USATECHIDXUSD",
-    "NAS100": "USATECHIDXUSD",
+    "NAS100": "USATECHIDXUSD", "US2000": "USA2000IDXUSD",
     "GER40": "DEUIDXEUR", "UK100": "GBRIDXGBP", "JP225": "JPNIDXJPY",
     "JPN225": "JPNIDXJPY",
+    "AUS200": "AUS200IDXAUD", "EU50": "STOXXIDXEUR", "FRA40": "FRAIDXEUR",
+    "HK50": "HKGIDXHKD", "N25": "NLDIDXEUR", "SPN35": "ESPIDXEUR",
     # Energy (noms internes Dukascopy)
     "UKOIL": "BRENTCMDUSD", "USOIL": "LIGHTCMDUSD",
+    "NATGAS": "NATGASCMDUSD", "HEATOIL": "HABOROILUSD",
 }
 
 # Mapping FTMO instrument → clé Parquet dans ccxt/derived/
@@ -132,6 +135,21 @@ _CCXT_MAP: dict[str, str] = {
     "SHIBUSD": "SHIBUSDT_BINANCE",
     "PEPE1000USD": "1000PEPEUSDT_BINANCE",
     "PEPEUSD": "1000PEPEUSDT_BINANCE",
+    "BCHUSD": "BCHUSDT_BINANCE",
+    "XLMUSD": "XLMUSDT_BINANCE",
+    "NEOUSD": "NEOUSDT_BINANCE",
+    "ICPUSD": "ICPUSDT_BINANCE",
+    "XMRUSD": "XMRUSDT_BINANCE",
+    "ETCUSD": "ETCUSDT_BINANCE",
+    "DASHUSD": "DASHUSDT_BINANCE",
+    "ALGOUSD": "ALGOUSDT_BINANCE",
+    "GRTUSD": "GRTUSDT_BINANCE",
+    "IMXUSD": "IMXUSDT_BINANCE",
+    "SANDUSD": "SANDUSDT_BINANCE",
+    "FETUSD": "FETUSDT_BINANCE",
+    "VETUSD": "VETUSDT_BINANCE",
+    "MANAUSD": "MANAUSDT_BINANCE",
+    "BARUSD": "BARUSDT_BINANCE",
 }
 
 # Mapping instrument → Yahoo symbol
@@ -168,8 +186,11 @@ _CATEGORIES: dict[str, str] = {
     "NZDUSD": "forex_major",
     "XAUUSD": "metal", "XAGUSD": "metal", "XAUEUR": "metal", "XAGEUR": "metal",
     "NAS100": "index", "US30": "index", "US500": "index", "US100": "index",
+    "US2000": "index",
     "GER40": "index", "UK100": "index", "JPN225": "index", "JP225": "index",
-    "UKOIL": "energy", "USOIL": "energy", "NATGAS": "energy",
+    "AUS200": "index", "EU50": "index", "FRA40": "index",
+    "HK50": "index", "N25": "index", "SPN35": "index",
+    "UKOIL": "energy", "USOIL": "energy", "NATGAS": "energy", "HEATOIL": "energy",
 }
 
 

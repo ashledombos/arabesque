@@ -51,7 +51,7 @@ class LiveEngine:
 
         self._price_feed = None
         self._bar_aggregator = None  # Primary aggregator (legacy compat)
-        self._bar_aggregators: dict = {}  # TF → BarAggregator (multi-TF)
+        self._bar_aggregators: dict = {}  # (TF, strategy) → BarAggregator
         self._dispatcher = None
         self._position_monitor = None
         self._brokers = {}
@@ -122,7 +122,7 @@ class LiveEngine:
 
         self._running = True
         tf_summary = ", ".join(
-            f"{agg._timeframe_label()}({len(agg.cfg.instruments)})"
+            f"{agg._timeframe_label()}/{agg.cfg.signal_strategy}({len(agg.cfg.instruments)})"
             for agg in self._bar_aggregators.values()
         )
         logger.info(
@@ -373,17 +373,41 @@ class LiveEngine:
                 )
             ]
 
-        # Grouper les instruments par timeframe
+        # Grouper les instruments par (timeframe, stratégie)
         # Chaque instrument peut déclarer timeframe: "H4" dans instruments.yaml
-        # Par défaut : "H1" (3600s)
+        # Par défaut : "H1" (3600s), stratégie par défaut depuis strategy.type
         _TF_SECONDS = {"M1": 60, "M5": 300, "M15": 900, "M30": 1800,
                         "H1": 3600, "H4": 14400, "D1": 86400}
-        by_tf: dict[int, list[str]] = {}
+
+        strategy_type = self.settings.get("strategy", {}).get("type", "combined")
+
+        # Clé = (tf_seconds, strategy_name), valeur = liste de symboles
+        by_tf_strat: dict[tuple[int, str], list[str]] = {}
+
+        # 1) Instruments par défaut → stratégie Extension (strategy.type)
         for sym in symbols:
             inst_data = self.instruments.get(sym, {})
             tf_str = inst_data.get("timeframe", "H1").upper() if isinstance(inst_data, dict) else "H1"
             tf_s = _TF_SECONDS.get(tf_str, 3600)
-            by_tf.setdefault(tf_s, []).append(sym)
+            by_tf_strat.setdefault((tf_s, strategy_type), []).append(sym)
+
+        # 2) strategy_assignments → aggregators additionnels par stratégie
+        strat_assignments = self.settings.get("strategy_assignments", {}) or {}
+        for strat_name, strat_cfg in strat_assignments.items():
+            if not isinstance(strat_cfg, dict):
+                continue
+            tf_str = strat_cfg.get("timeframe", "H1").upper()
+            tf_s = _TF_SECONDS.get(tf_str, 3600)
+            assigned_instruments = strat_cfg.get("instruments", []) or []
+            # Ne garder que les instruments présents dans le price feed
+            valid = [s for s in assigned_instruments if s in symbols]
+            if valid:
+                by_tf_strat.setdefault((tf_s, strat_name), []).append(None)  # placeholder
+                by_tf_strat[(tf_s, strat_name)] = valid
+                logger.info(
+                    f"[Engine] 🎯 Assignment {strat_name} {tf_str}: "
+                    f"{', '.join(valid)}"
+                )
 
         # Le broker source fournit get_history()
         source_broker = self._brokers.get(source_broker_id)
@@ -399,15 +423,13 @@ class LiveEngine:
             except Exception as e:
                 logger.warning(f"[Engine] Pré-chargement symboles: {e}")
 
-        strategy_type = self.settings.get("strategy", {}).get("type", "combined")
-
-        # Créer un BarAggregator par timeframe
+        # Créer un BarAggregator par (timeframe, stratégie)
         self._bar_aggregators = {}
-        for tf_s, tf_symbols in sorted(by_tf.items()):
+        for (tf_s, strat), tf_symbols in sorted(by_tf_strat.items()):
             agg_cfg = BarAggregatorConfig(
                 instruments=tf_symbols,
                 timeframe_s=tf_s,
-                signal_strategy=strategy_type,
+                signal_strategy=strat,
             )
             agg = BarAggregator(
                 config=agg_cfg,
@@ -419,10 +441,10 @@ class LiveEngine:
             if self._position_monitor:
                 agg.add_bar_closed_callback(self._position_monitor.on_bar_closed)
 
-            self._bar_aggregators[tf_s] = agg
+            self._bar_aggregators[(tf_s, strat)] = agg
             tf_label = agg._timeframe_label()
             logger.info(
-                f"[Engine] 📊 BarAggregator {tf_label} prêt — "
+                f"[Engine] 📊 BarAggregator {tf_label}/{strat} prêt — "
                 f"{len(tf_symbols)} instrument(s): {', '.join(tf_symbols)}"
             )
 

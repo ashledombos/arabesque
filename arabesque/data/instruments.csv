@@ -48,24 +48,24 @@ USDCHF,dukascopy,USDCHF,,1e5
 
 DXY.cash,dukascopy,DXY,,1e5
 
-AUS200.cash,dukascopy,AUS200,,1e5
-EU50.cash,dukascopy,EU50,,1e5
-FRA40.cash,dukascopy,FRA40,,1e5
-GER40.cash,dukascopy,GER40,,1e5
-HK50.cash,dukascopy,HK50,,1e5
-JP225.cash,dukascopy,JP225,,1e5
-N25.cash,dukascopy,N25,,1e5
-SPN35.cash,dukascopy,SPN35,,1e5
-UK100.cash,dukascopy,UK100,,1e5
-US30.cash,dukascopy,US30,,1e5
-US100.cash,dukascopy,US100,,1e5
-US2000.cash,dukascopy,US2000,,1e5
-US500.cash,dukascopy,US500,,1e5
+AUS200,dukascopy,AUS200IDXAUD,,1e5
+EU50,dukascopy,STOXXIDXEUR,,1e5
+FRA40,dukascopy,FRAIDXEUR,,1e5
+GER40,dukascopy,DEUIDXEUR,,1e5
+HK50,dukascopy,HKGIDXHKD,,1e5
+JP225,dukascopy,JPNIDXJPY,,1e5
+N25,dukascopy,NLDIDXEUR,,1e5
+SPN35,dukascopy,ESPIDXEUR,,1e5
+UK100,dukascopy,GBRIDXGBP,,1e5
+US30,dukascopy,USA30IDXUSD,,1e5
+US100,dukascopy,USATECHIDXUSD,,1e5
+US2000,dukascopy,USA2000IDXUSD,,1e5
+US500,dukascopy,USA500IDXUSD,,1e5
 
-UKOIL.cash,dukascopy,UKOIL,,1e5
-USOIL.cash,dukascopy,USOIL,,1e5
-HEATOIL.cash,dukascopy,HEATOIL,,1e5
-NATGAS.cash,dukascopy,NATGAS,,1e5
+UKOIL,dukascopy,BRENTCMDUSD,,1e5
+USOIL,dukascopy,LIGHTCMDUSD,,1e5
+HEATOIL,dukascopy,HABOROILUSD,,1e5
+NATGAS,dukascopy,NATGASCMDUSD,,1e5
 
 XAGEUR,dukascopy,XAGEUR,,1e3
 XAGUSD,dukascopy,XAGUSD,,1e3

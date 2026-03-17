@@ -1,8 +1,8 @@
-# ARABESQUE — Handoff v22
+# ARABESQUE — Handoff v23
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque
-> **Dernière mise à jour** : 2026-03-16, session Opus 4.6 (ablation framework, indices/energy mappings, migration machine)
+> **Dernière mise à jour** : 2026-03-17, session Opus 4.6 (multi-strategy live engine, comprehensive backtests, Glissade/Fouetté/Extension universe)
 
 ---
 
@@ -35,7 +35,114 @@ Score prop: 4/5 (seul échec: jours pour +10% = 58j > 45j)
 
 ---
 
-## 2. Session 2026-03-16 (suite — migration machine)
+## 2. Session 2026-03-17 (Opus 4.6 — multi-strategy live, comprehensive backtests)
+
+### Ce qui a changé
+
+- **Multi-strategy live engine** : `live.py` modifié pour grouper les BarAggregators par `(timeframe, strategy)` au lieu de timeframe seul. Lit `strategy_assignments` de settings.yaml pour créer des aggregators additionnels. Extension + Glissade tournent en parallèle sur les mêmes instruments.
+- **strategy_assignments dans settings.yaml** : Glissade sur XAUUSD/BTCUSD H1 configuré, Fouetté M1 prêt (commenté).
+- **store.py — mappings CCXT complétés** : 17 crypto supplémentaires (BCHUSD, XLMUSD, NEOUSD, ICPUSD, XMRUSD, ETCUSD, DASHUSD, ALGOUSD, GRTUSD, IMXUSD, SANDUSD, FETUSD, VETUSD, MANAUSD, BARUSD).
+- **Comprehensive universe backtests** avec sub-bar M1 (résultats ci-dessous).
+
+### Extension — Universe backtest (24 instruments, sub-bar M1)
+
+| Instrument | TF | Trades | WR | Exp | Total R | PF | MaxDD |
+|---|---|---|---|---|---|---|---|
+| BNBUSD | H4 | 41 | 82.9% | +0.270R | +11.1R | 2.58 | 0.8% |
+| ETHUSD | H4 | 35 | 82.9% | +0.231R | +8.1R | 2.35 | 0.8% |
+| BTCUSD | H4 | 43 | 81.4% | +0.176R | +7.6R | 1.95 | 0.8% |
+| XAUUSD | H1 | 108 | 74.1% | +0.056R | +6.0R | 1.23 | 1.3% |
+| AUDJPY | H1 | 52 | 76.9% | +0.105R | +5.5R | 1.58 | 1.5% |
+| LTCUSD | H4 | 29 | 79.3% | +0.149R | +4.3R | 1.72 | 1.0% |
+| LINKUSD | H4 | 39 | 84.6% | +0.061R | +2.4R | 1.40 | 1.0% |
+| XRPUSD | H4 | 36 | 80.6% | +0.064R | +2.3R | 1.33 | 1.1% |
+
+16/24 instruments positifs, 887 trades total, +31.8R. Négatifs : DOTUSD, XLMUSD, NEOUSD, GBPUSD, EURUSD, USDJPY.
+
+### Glissade RSI div — Backtest détaillé (sub-bar M1)
+
+| Instrument | Config | Trades | WR | Exp | Total R | PF | MaxDD |
+|---|---|---|---|---|---|---|---|
+| XAUUSD H1 | RR2 +BE | 60 | 80.0% | +0.121R | +7.3R | 1.61 | 1.5% |
+| XAUUSD H1 | RR3 +BE | 60 | 80.0% | +0.132R | +7.9R | 1.66 | 1.5% |
+| BTCUSD H1 | RR2 +BE | 91 | 84.6% | +0.177R | +16.1R | 2.15 | 1.3% |
+| BTCUSD H1 | RR3 +BE | 91 | 84.6% | +0.157R | +14.3R | 2.02 | 1.3% |
+
+RR3 +BE légèrement meilleur que RR2 +BE sur XAUUSD, quasi-identique sur BTCUSD. Les deux sont exploitables.
+
+### Fouetté — Signal frequency M1
+
+Seulement 14 trades sur 2+ ans XAUUSD M1 (fvg_multiple NY). NY breakout mode: 12 trades, WR 91.7%, +1.8R.
+Trop peu de signaux pour WF validation robuste. Scan multi-instrument en cours.
+
+---
+
+## Session 2026-03-17 (début — audit biais, Fouetté London, indices)
+
+### Ce qui a changé
+
+- **Audit biais H/L vs sub-bar M1** sur Extension (6 instruments, 14 mois) :
+  - Biais bidirectionnel, ±0.05R en moyenne, pas systématiquement optimiste
+  - WR H/L < WR sub-bar (règle conservatrice SL), mais Exp peut être plus haute
+  - Sub-bar reste obligatoire pour validation finale, H/L fiable pour screening
+- **Fouetté — découvertes majeures** :
+  - **XAUUSD London** : +25.7R (RR1.5 no_BE), +5.4R (RR1.5 +BE, WR 76%)
+  - **US100 NY** : +31.0R (RR2 no_BE, WR 43%)
+  - **BTCUSD NY** : +7.6R (RR1.5 +BE, WR 74%)
+  - London >> NY pour XAUUSD, mode no_BE >> +BE pour ORB (sauf BTCUSD)
+- **Extension indices/energy** — premiers backtests :
+  - GER40 4H : +10.2R, PF 2.69 (mais 3 trades OOS en walk-forward — trop peu)
+  - UK100 H1 : +3.5R, PF 1.18
+  - US100 H1 : +4.4R, PF 1.15
+  - Le reste négatif (US500, US30, JP225, pétrole)
+- **Live dry run** : 46 trades le 2026-03-16, WR 61%, -4.3R (1 journée, non significatif)
+
+### Fouetté — Config optimales par instrument
+
+| Instrument | Session | Config | Profil | Trades/14m | TotR |
+|---|---|---|---|---|---|
+| XAUUSD | London | RR1.5 no_BE | Trend | 63 | +25.7R |
+| XAUUSD | London | RR1.5 +BE | FTMO | 63 | +5.4R |
+| US100 | NY | RR2 no_BE | Trend | 181 | +31.0R |
+| BTCUSD | NY | RR1.5 +BE | FTMO | 326 | +7.6R |
+
+### Walk-forward Fouetté — 4/4 PASS ✅
+
+| Combo | OOS Trades | WR | Exp | PF | Total R | MaxDD |
+|---|---|---|---|---|---|---|
+| XAUUSD London RR1.5 no_BE | 63 | 62% | +0.409R | 2.07 | +25.7R | 1.6% |
+| XAUUSD London RR1.5 +BE | 63 | 76% | +0.086R | 1.38 | +5.4R | 1.0% |
+| US100 NY RR2 no_BE | 147 | 44% | +0.190R | 1.35 | +28.0R | 7.6% |
+| BTCUSD NY RR1.5 +BE | 280 | 76% | +0.043R | 1.19 | +12.0R | 2.3% |
+
+FVG mode London << breakout (divise l'edge par 2).
+
+### Walk-forward Glissade v2 (RSI divergence H1) — 3/3 PASS ✅
+
+| Combo | OOS Trades | WR | Exp | PF | Total R | MaxDD |
+|---|---|---|---|---|---|---|
+| XAUUSD H1 pw3 RR2 +BE | 31 | 87% | +0.185R | 2.43 | +5.7R | 0.4% |
+| BTCUSD H1 pw3 RR2 +BE | 54 | 85% | +0.196R | 2.32 | +10.6R | 1.3% |
+| XAUUSD H1 RR3 no_BE | 17 | 35% | +0.285R | 1.44 | +4.8R | 1.6% |
+
+Seules les variantes +BE (WR 85-87%) correspondent au profil FTMO. RR3 no_BE rentable mais WR 35% hors boussole.
+
+### Cabriole (Donchian breakout) — 6/6 PASS mais 73-95% overlap Extension
+
+Donchian(20) + EMA200 trend + volatilité filter. Même univers que Extension (crypto 4H + XAUUSD).
+73-95% des signaux Extension sont aussi des signaux Cabriole — même edge, pas de diversification.
+Implémenté dans `strategies/cabriole/signal.py`, `compute_donchian()` ajouté à `indicators.py`.
+
+### Prochaines étapes Fouetté
+
+1. ~~Walk-forward~~ → FAIT, 4/4 PASS
+2. Dry-run parquet 3 mois sur les 3 combos
+3. Shadow filter live 2-4 semaines
+4. Implémenter multi-strategy dans le live engine (Extension + Fouetté en parallèle)
+
+---
+
+## Session 2026-03-16 (suite — migration machine)
 
 ### Ce qui a changé
 
@@ -265,12 +372,10 @@ arabesque/
 ├── core/              ← Kernel immuable (models, guards, audit)
 ├── modules/           ← Briques réutilisables (indicators, position_manager)
 ├── strategies/
-│   ├── extension/     ← Trend-following H1 ✅ Validé
-│   │   ├── signal.py  ← Générateur UNIQUE backtest + live
-│   │   ├── params.yaml
-│   │   └── STRATEGY.md
-│   ├── fouette/       ← ORB M1 🔬 En développement
-│   ├── glissade/      ← Scalping VWAP 📋 Placeholder
+│   ├── extension/     ← Trend-following H1/4H ✅ Validé live
+│   ├── fouette/       ← ORB M1 ✅ WF PASS 4/4
+│   ├── glissade/      ← RSI divergence H1 ✅ WF PASS 3/3
+│   ├── cabriole/      ← Donchian breakout 4H ✅ WF PASS 6/6 (overlap Extension)
 │   └── pas_de_deux/   ← Pairs trading 📋 Placeholder
 ├── execution/         ← Moteurs (backtest, dryrun, live, bar_aggregator…)
 ├── broker/            ← Adapters (cTrader, TradeLocker, DryRun)
@@ -285,9 +390,11 @@ uniquement par **Claude Opus 4.6**.
 
 ## 5. Prochaines étapes
 
-### P0 : Désactiver ROI sur crypto H4
-L'ablation a prouvé que le ROI backstop détruit l'edge crypto (+0.044R → +0.181R sans).
-Implémenter une config ROI par famille dans ManagerConfig ou via ExecConfig.
+### P0 (fait) : Désactiver ROI sur crypto H4
+`manager_config_for(instrument, interval)` dans `backtest.py` retourne
+`ManagerConfig(roi_enabled=False)` pour crypto H4. Utilisé par backtest CLI,
+walk-forward, et ablation. Le live n'est pas affecté (LivePositionMonitor ne
+gère pas le ROI). Ablation validée : +0.044R → +0.181R sans ROI.
 
 ### P0 : Fetch données indices/energy
 Les mappings Dukascopy sont prêts dans store.py. Lancer le fetch pour :
@@ -309,9 +416,10 @@ si activer comme filtre bloquant. Voir `docs/DECISIONS.md`.
 
 | Stratégie | Priorité | Statut | Prochain pas |
 |---|---|---|---|
-| **Extension 4H crypto** | **Critique** | ✅ Walk-forward PASS +29.1R | Configurer multi-TF live (H1+4H) |
-| **Fouetté** (ORB M1) | Haute | 🔬 Backtest négatif sur XAUUSD | Tester BTCUSD, US500, NAS100 |
-| **Glissade** (scalp VWAP) | Haute | 🔬 Signal implémenté, backtest négatif | Affiner pullback detection (35% MFE<0.25R) |
+| **Extension 4H crypto** | **Critique** | ✅ Live, 16/24 positifs, +31.8R | Multi-strat live engine FAIT |
+| **Glissade** (RSI div) | Haute | ✅ WF 3/3, live engine prêt | Shadow mode live, observer |
+| **Fouetté** (ORB M1) | Moyenne | ✅ WF 4/4 mais freq trop basse (14 tr/2ans M1) | Scanner plus d'instruments |
+| **Cabriole** (Donchian) | Basse | ✅ WF 6/6, 73-95% overlap Extension | Backup, pas prioritaire |
 | **Pas de Deux** (pairs) | Long terme | 📋 Placeholder créé | Définir interface multi-jambes |
 
 ### P4 : Multi-compte prop firm
