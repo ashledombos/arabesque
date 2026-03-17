@@ -1,8 +1,8 @@
-# ARABESQUE — Handoff v23
+# ARABESQUE — Handoff v24
 ## Pour reprendre le développement dans un nouveau chat
 
 > **Repo** : https://github.com/ashledombos/arabesque
-> **Dernière mise à jour** : 2026-03-17, session Opus 4.6 (multi-strategy live engine, comprehensive backtests, Glissade/Fouetté/Extension universe)
+> **Dernière mise à jour** : 2026-03-17, session Opus 4.6 (live monitoring/protection: trade journal, equity tracking, drift detection, margin alerts)
 
 ---
 
@@ -35,7 +35,65 @@ Score prop: 4/5 (seul échec: jours pour +10% = 58j > 45j)
 
 ---
 
-## 2. Session 2026-03-17 (Opus 4.6 — multi-strategy live, comprehensive backtests)
+## 2. Session 2026-03-17 (Opus 4.6 — live monitoring + multi-strategy live)
+
+### Ce qui a changé (live monitoring)
+
+- **LiveMonitor** (`arabesque/execution/live_monitor.py`) — nouveau module avec **protection active** :
+  - **Trade journal** : chaque entrée/sortie persistée en JSONL (`logs/trade_journal.jsonl`)
+  - **Equity snapshots** : balance/equity/marge enregistrées toutes les 5min (`logs/equity_snapshots.jsonl`)
+  - **Performance tracking** : WR, Exp, TotalR, Max DD en R par stratégie et par instrument
+  - **Drift detection** : alerte si WR live < baseline-15pp ou Exp < -0.05R
+  - **4 paliers de protection** (voir tableau ci-dessous)
+  - **Risk multiplier** : réduit automatiquement le sizing via `risk_multiplier_fn` dans le dispatcher
+  - **Emergency kill switch** : ferme TOUTES les positions et freeze le trading
+  - **Close unprotected** : en DANGER, ferme les positions sans breakeven
+  - **Notifications** : Telegram (détaillé) + ntfy (urgent) via apprise
+  - Charge l'historique journal au démarrage pour continuité des métriques
+- **Position monitor** : callback `on_position_closed` ajouté à `reconcile()` — estime exit_price/reason (TP, SL, BE, trailing) et notifie le LiveMonitor
+- **OrderDispatcher** : accepte `risk_multiplier_fn` pour réduire le sizing dynamiquement
+- **live.py** intégration complète :
+  - LiveMonitor instancié au `start()`, brokers/dispatcher/position_monitor injectés
+  - `receive_signal()` vérifie `should_accept_signal()` (freeze gate)
+  - `_on_order_result()` → `record_entry()`
+  - `_refresh_account_state()` → `record_equity_snapshot()` + `check_protection()`
+  - `_account_refresh_loop()` → `emit_health_report()` périodique
+- **Fix equity/marge cTrader** (bug critique — avait fermé une position AVAUSD en fausse EMERGENCY) :
+  - `ProtoOATrader` ne fournit que `balance`, pas equity. Ancien code : `equity = balance` (faux)
+  - Nouveau : `equity = balance + Σ(PnL flottant + swap + commission)` par position, prix live du tick feed
+  - `margin_free = equity - usedMargin` (usedMargin au niveau compte, fourni par cTrader)
+  - Per-position `swap`, `commission`, `usedMargin` parsés depuis reconcile
+  - Reconcile appelé AVANT get_account_info dans le refresh cycle pour données fraîches
+
+### Paliers de protection active
+
+| Palier | Déclencheur | Risque | Action | Notification |
+|---|---|---|---|---|
+| NORMAL | DD daily > -2.5% ET total > -5% | 100% | — | — |
+| CAUTION | DD daily ≤ -2.5% OU total ≤ -5% OU 5 pertes consec. | **50%** | Réduction sizing | Telegram |
+| DANGER | DD daily ≤ -3.0% OU total ≤ -6.5% OU 8 pertes consec. | **25%** | Ferme positions sans BE | ntfy + Telegram |
+| EMERGENCY | DD daily ≤ -3.5% OU total ≤ -8.0% OU marge < 10% | **0%** | **Ferme TOUT, freeze** | ntfy + Telegram urgent |
+
+Le freeze EMERGENCY nécessite intervention humaine (`manual_unfreeze()` ou redémarrage).
+
+### Notifications
+
+Configurer dans `config/secrets.yaml` :
+```yaml
+notifications:
+  channels:
+    - "tgram://BOTTOKEN@CHATID"    # Telegram détaillé
+    - "ntfys://arabesque-urgent"    # ntfy push urgent
+```
+
+### Baselines backtest pour drift detection
+
+| Stratégie | WR baseline | Exp baseline | Source |
+|---|---|---|---|
+| Extension (trend) | 75% | +0.10R | 20 mois, 1998 trades |
+| Glissade (RSI div) | 55% | +0.15R | WF XAUUSD+BTCUSD |
+
+### Session 2026-03-17 (multi-strategy live, comprehensive backtests)
 
 ### Ce qui a changé
 
@@ -404,9 +462,10 @@ Puis ablation sur ces nouvelles familles.
 ### P0 (fait) : Basket live adapté au walk-forward
 `_DEFAULT_INSTRUMENTS` mis à jour : XAUUSD H1 + crypto 4H + JPY crosses H1.
 
-### P1 : Validation live continue
-Le moteur tourne sur `ftmo_swing_test`. Observer la correspondance
-backtest ↔ live (WR, nb trades/semaine, exit reasons).
+### P1 (fait) : Live monitoring & protection
+LiveMonitor implémenté : trade journal JSONL, equity snapshots, drift detection
+vs baselines backtest, margin monitoring, consecutive loss alerts, health reports.
+Position monitor enrichi avec exit tracking (callback on_position_closed).
 
 ### P2 : Décision shadow filters
 Accumuler ~100 trades avec logs Williams %R et RSI div, puis décider

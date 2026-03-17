@@ -113,17 +113,19 @@ class LivePositionMonitor:
       1. Engine appelle register_position() après un fill réussi
       2. Engine appelle on_bar_closed() à chaque bougie H1
       3. Le monitor vérifie BE/trailing et appelle amend_position_sltp()
-      4. reconcile() nettoie les positions fermées
+      4. reconcile() nettoie les positions fermées et notifie on_position_closed
     """
 
     def __init__(
         self,
         brokers: Dict,
         config: MonitorConfig | None = None,
+        on_position_closed: Optional[callable] = None,
     ):
         self._brokers = brokers
         self._cfg = config or MonitorConfig()
         self._positions: Dict[str, TrackedPosition] = {}
+        self._on_position_closed = on_position_closed
         # Trier trailing tiers du plus haut au plus bas
         self._cfg.trailing_tiers.sort(key=lambda t: t[0], reverse=True)
 
@@ -384,8 +386,25 @@ class LivePositionMonitor:
                                 f"[Monitor] 🗑️ {pos.symbol} {pos.position_id}: "
                                 f"position fermée (POSITION_NOT_FOUND) — arrêt monitoring"
                             )
-                            # Marquer pour suppression rapide par reconcile
-                            pos.registered_at = 0  # bypass grace period
+                            # Notify LiveMonitor immediately
+                            exit_reason = self._estimate_exit_reason(pos)
+                            exit_price = self._estimate_exit_price(pos, exit_reason)
+                            if self._on_position_closed:
+                                try:
+                                    self._on_position_closed(
+                                        broker_id=pos.broker_id,
+                                        position_id=pos.position_id,
+                                        exit_price=exit_price,
+                                        exit_reason=exit_reason,
+                                        mfe_r=pos.mfe_r,
+                                        be_set=pos.breakeven_set,
+                                        trailing_tier=pos.trailing_tier,
+                                    )
+                                except Exception:
+                                    pass
+                            # Remove from tracking
+                            key = f"{pos.broker_id}:{pos.position_id}"
+                            self._positions.pop(key, None)
                             return False
                         logger.warning(
                             f"[Monitor] ❌ Amend failed (attempt {attempt}/"
@@ -457,16 +476,67 @@ class LivePositionMonitor:
                         continue
 
                     self._positions.pop(key, None)
+
+                    # Estimate exit details for trade journal
+                    exit_reason = self._estimate_exit_reason(pos)
+                    exit_price = self._estimate_exit_price(pos, exit_reason)
+
                     logger.info(
                         f"[Monitor] 🗑️ Position {pos.symbol} {pos.position_id} "
                         f"non trouvée sur {broker_id} après {age:.0f}s — retirée "
                         f"(MFE={pos.mfe_r:.2f}R BE={'✓' if pos.breakeven_set else '✗'} "
-                        f"trail={pos.trailing_tier})"
+                        f"trail={pos.trailing_tier} exit≈{exit_reason})"
                     )
+
+                    # Notify LiveMonitor
+                    if self._on_position_closed:
+                        try:
+                            self._on_position_closed(
+                                broker_id=broker_id,
+                                position_id=pos.position_id,
+                                exit_price=exit_price,
+                                exit_reason=exit_reason,
+                                mfe_r=pos.mfe_r,
+                                be_set=pos.breakeven_set,
+                                trailing_tier=pos.trailing_tier,
+                            )
+                        except Exception as e:
+                            logger.warning(
+                                f"[Monitor] on_position_closed callback error: {e}"
+                            )
             except Exception as e:
                 logger.warning(f"[Monitor] Reconcile error for {broker_id}: {e}")
 
-    def get_stats(self) -> dict:
+    def _estimate_exit_reason(self, pos: TrackedPosition) -> str:
+        """Estime la raison de sortie basée sur l'état du trailing/BE."""
+        if pos.trailing_active and pos.trailing_tier > 0:
+            return "trailing_stop"
+        if pos.breakeven_set:
+            # BE was set — could be BE exit or TP
+            if pos.tp > 0:
+                # If MFE reached TP zone, likely TP hit
+                if pos.R > 0:
+                    tp_r = abs(pos.tp - pos.entry) / pos.R
+                    if pos.mfe_r >= tp_r * 0.95:
+                        return "take_profit"
+            return "breakeven_exit"
+        # No BE set — likely SL hit
+        return "stop_loss"
+
+    def _estimate_exit_price(self, pos: TrackedPosition, reason: str) -> float:
+        """Estime le prix de sortie basé sur la raison."""
+        if reason == "take_profit" and pos.tp > 0:
+            return pos.tp
+        if reason == "stop_loss":
+            return pos.sl_initial
+        if reason == "breakeven_exit":
+            return pos.entry + (0.20 * pos.R if pos.side == Side.LONG
+                                else -0.20 * pos.R)
+        if reason == "trailing_stop":
+            return pos.sl  # Current (trailed) SL
+        return pos.sl
+
+
         """Statistiques du monitor."""
         return {
             "tracked_positions": len(self._positions),

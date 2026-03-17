@@ -980,16 +980,60 @@ class CTraderBroker(BaseBroker):
 
     def _process_trader_response(self, payload):
         trader = payload.trader
+        balance = trader.balance / 100
+        margin_used = getattr(trader, "usedMargin", 0) / 100
+        equity = self._compute_equity(balance)
+        margin_free = max(0.0, equity - margin_used)
+
+        floating = equity - balance
+        n_pos = len(self._positions)
+        print(f"[cTrader] 💰 balance={balance:.2f} equity={equity:.2f} "
+              f"(floating={floating:+.2f}, {n_pos} pos) "
+              f"margin_used={margin_used:.2f} margin_free={margin_free:.2f}")
+
         self._account_info = AccountInfo(
             account_id=str(self.account_id),
             broker_name=self.name,
-            balance=trader.balance / 100,
-            equity=trader.balance / 100,
-            margin_used=getattr(trader, "usedMargin", 0) / 100,
+            balance=balance,
+            equity=equity,
+            margin_used=margin_used,
+            margin_free=margin_free,
             currency=getattr(trader, "depositAssetId", "USD"),
             leverage=getattr(trader, "leverageInCents", 10000) // 100,
             is_demo=self.is_demo
         )
+
+    def _compute_equity(self, balance: float) -> float:
+        """Compute equity = balance + floating PnL + swap + commission.
+
+        Uses live tick prices for unrealized PnL. This is approximate for
+        cross-currency pairs but sufficient for margin/DD protection.
+        """
+        total_floating = 0.0
+        for pos in self._positions:
+            # Get current price from tick feed
+            sym_id = self._position_symbol_ids.get(pos.position_id)
+            tick = self._price_ticks.get(sym_id) if sym_id else None
+            if tick:
+                # Use bid for closing a BUY, ask for closing a SELL
+                current = tick.bid if pos.side == OrderSide.BUY else tick.ask
+            elif pos.current_price:
+                current = pos.current_price
+            else:
+                current = pos.entry_price  # no tick = no floating PnL
+
+            # Unrealized PnL in quote currency (approximate)
+            direction = 1.0 if pos.side == OrderSide.BUY else -1.0
+            lot_size = 100000  # default forex
+            if sym_id and sym_id in self._symbols:
+                lot_size = self._symbols[sym_id].lot_size
+
+            unrealized_pnl = (current - pos.entry_price) * direction * pos.volume * lot_size
+
+            # Add swap + commission (already in account currency)
+            total_floating += unrealized_pnl + pos.swap + pos.commission
+
+        return balance + total_floating
 
     def _resolve_symbol_name(self, symbol_id: int) -> str:
         """Résout un symbolId numérique en nom unifié."""
@@ -1057,14 +1101,30 @@ class CTraderBroker(BaseBroker):
             sym_id = pos.tradeData.symbolId
             self._position_symbol_ids[pos_id] = sym_id
             lot_cents = self._get_lot_size_cents(sym_id)
+            # Money fields (swap, commission, usedMargin) are in cents (moneyDigits=2)
+            pos_swap = getattr(pos, "swap", 0) / 100
+            pos_commission = getattr(pos, "commission", 0) / 100
+            pos_used_margin = getattr(pos, "usedMargin", 0) / 100
+
+            # Current price from live tick feed (entry_price as fallback)
+            tick = self._price_ticks.get(sym_id)
+            if tick:
+                current_price = tick.ask if side == OrderSide.SELL else tick.bid
+            else:
+                current_price = pos.price  # fallback: entry price
+
             self._positions.append(Position(
                 position_id=str(pos.positionId),
                 symbol=self._resolve_symbol_name(sym_id),
                 side=side,
                 volume=pos.tradeData.volume / lot_cents,  # API units → lots
                 entry_price=pos.price,
+                current_price=current_price,
                 stop_loss=getattr(pos, "stopLoss", None),
                 take_profit=getattr(pos, "takeProfit", None),
+                swap=pos_swap,
+                commission=pos_commission,
+                used_margin=pos_used_margin,
             ))
         for order in payload.order:
             side = OrderSide.BUY if order.tradeData.tradeSide == 1 else OrderSide.SELL

@@ -76,6 +76,9 @@ class Position:
     stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
     profit: Optional[float] = None
+    swap: float = 0.0
+    commission: float = 0.0
+    used_margin: float = 0.0
     open_time: Optional[datetime] = None
 
 

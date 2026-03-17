@@ -54,6 +54,7 @@ class LiveEngine:
         self._bar_aggregators: dict = {}  # (TF, strategy) → BarAggregator
         self._dispatcher = None
         self._position_monitor = None
+        self._live_monitor = None
         self._brokers = {}
         self._running = False
         self._account_refresh_task: Optional[asyncio.Task] = None
@@ -98,9 +99,18 @@ class LiveEngine:
         # 2. Dispatcher
         self._dispatcher = self._make_dispatcher()
 
-        # 3. Position monitor (BE + trailing live)
+        # 3. Live monitor (trade journal, equity, drift, margin, protection)
+        self._live_monitor = self._make_live_monitor()
+
+        # 3b. Position monitor (BE + trailing live)
         if not self.dry_run:
             self._position_monitor = self._make_position_monitor()
+
+        # 3c. Wire live monitor dependencies (needs dispatcher + position_monitor)
+        if self._live_monitor:
+            self._live_monitor.set_dispatcher(self._dispatcher)
+            if self._position_monitor:
+                self._live_monitor.set_position_monitor(self._position_monitor)
 
         # 4. BarAggregator branché sur receive_signal
         await self._start_bar_aggregator()
@@ -174,6 +184,15 @@ class LiveEngine:
         if not self._dispatcher:
             logger.error("[Engine] Dispatcher non initialisé")
             return False
+        # Live monitor gate: freeze check
+        if self._live_monitor:
+            ok, reason = self._live_monitor.should_accept_signal()
+            if not ok:
+                logger.warning(
+                    f"[Engine] 🔒 Signal bloqué par LiveMonitor: "
+                    f"{signal.instrument} — {reason}"
+                )
+                return False
         return await self._dispatcher.receive_signal(signal)
 
     async def get_stats(self) -> dict:
@@ -192,6 +211,8 @@ class LiveEngine:
             stats["dispatcher"] = await self._dispatcher.get_stats()
         if self._position_monitor:
             stats["position_monitor"] = self._position_monitor.get_stats()
+        if self._live_monitor:
+            stats["live_monitor"] = self._live_monitor.get_stats()
         return stats
 
     # ------------------------------------------------------------------
@@ -251,15 +272,62 @@ class LiveEngine:
             delay_ms=delay_ms,
             dry_run=self.dry_run,
             on_order_result=self._on_order_result,
+            risk_multiplier_fn=self._get_risk_multiplier,
         )
         dispatcher._price_feed = None
         return dispatcher
 
+    def _get_risk_multiplier(self) -> float:
+        """Retourne le multiplicateur de risque du LiveMonitor."""
+        if self._live_monitor:
+            return self._live_monitor.risk_multiplier
+        return 1.0
+
+    def _make_live_monitor(self):
+        from arabesque.execution.live_monitor import LiveMonitor, MonitorConfig as LMConfig
+
+        # Notification channels from secrets.yaml
+        notif_secrets = self.secrets.get("notifications", {})
+        channels = notif_secrets.get("channels", []) or []
+        telegram_ch = ""
+        ntfy_ch = ""
+        for ch in channels:
+            if isinstance(ch, str):
+                if "tgram://" in ch or "telegram://" in ch:
+                    telegram_ch = ch
+                elif "ntfy" in ch:
+                    ntfy_ch = ch
+
+        cfg = LMConfig(
+            telegram_channel=telegram_ch,
+            ntfy_channel=ntfy_ch,
+        )
+        monitor = LiveMonitor(config=cfg)
+        # Inject broker access for active protection (close positions)
+        monitor.set_brokers(self._brokers)
+        if telegram_ch or ntfy_ch:
+            logger.info(
+                f"[Engine] 📊 Live monitor actif (protection + notifications: "
+                f"{'TG ' if telegram_ch else ''}{'ntfy' if ntfy_ch else ''})"
+            )
+        else:
+            logger.info(
+                "[Engine] 📊 Live monitor actif (protection, pas de notifications configurées)"
+            )
+        return monitor
+
     def _make_position_monitor(self):
         from arabesque.execution.position_monitor import LivePositionMonitor, MonitorConfig
+
+        # Callback quand une position est fermée → notifier LiveMonitor
+        def on_closed(**kwargs):
+            if self._live_monitor:
+                self._live_monitor.record_exit(**kwargs)
+
         monitor = LivePositionMonitor(
             brokers=self._brokers,
             config=MonitorConfig(),
+            on_position_closed=on_closed,
         )
         logger.info("[Engine] 📋 Position monitor actif (BE 0.3/0.20R + trailing)")
         return monitor
@@ -529,21 +597,20 @@ class LiveEngine:
             return
         primary_id = list(self._brokers.keys())[0]
         try:
+            # Reconcile positions FIRST so equity computation has fresh data
+            open_instruments = []
+            open_positions = 0
+            open_risk_cash = 0.0
+            try:
+                positions = await self._brokers[primary_id].get_positions()
+                open_positions = len(positions)
+                open_instruments = [p.symbol for p in positions]
+                open_risk_cash = open_positions * 400.0
+            except Exception:
+                pass
+
             info = await self._brokers[primary_id].get_account_info()
             if info:
-                # Récupérer les positions ouvertes pour les guards
-                open_instruments = []
-                open_positions = 0
-                open_risk_cash = 0.0
-                try:
-                    positions = await self._brokers[primary_id].get_positions()
-                    open_positions = len(positions)
-                    open_instruments = [p.symbol for p in positions]
-                    # Estimer le risk cash des positions ouvertes
-                    # (approximation: chaque position risque ~$400)
-                    open_risk_cash = open_positions * 400.0
-                except Exception:
-                    pass
 
                 # Compléter avec les positions du monitor si disponible
                 if self._position_monitor:
@@ -567,6 +634,25 @@ class LiveEngine:
                     f"balance={info.balance:.2f} equity={info.equity:.2f} {info.currency} "
                     f"| {open_positions} position(s) ouvertes: {open_instruments}"
                 )
+
+                # Live monitor: equity snapshot + protection check
+                if self._live_monitor:
+                    free_margin = getattr(info, 'margin_free', 0.0) or 0.0
+                    self._live_monitor.record_equity_snapshot(
+                        balance=info.balance,
+                        equity=info.equity,
+                        free_margin=free_margin,
+                        open_positions=open_positions,
+                        daily_dd_pct=state.daily_dd_pct,
+                        total_dd_pct=state.total_dd_pct,
+                    )
+                    # Active protection check
+                    await self._live_monitor.check_protection(
+                        daily_dd_pct=state.daily_dd_pct,
+                        total_dd_pct=state.total_dd_pct,
+                        equity=info.equity,
+                        free_margin=free_margin,
+                    )
         except Exception as e:
             logger.warning(f"[Engine] _refresh_account_state: {e}")
 
@@ -575,6 +661,9 @@ class LiveEngine:
             await asyncio.sleep(120)  # Toutes les 2 minutes (positions changent vite)
             if self._running:
                 await self._refresh_account_state()
+                # Health report périodique
+                if self._live_monitor and self._live_monitor.should_emit_health_report():
+                    self._live_monitor.emit_health_report()
 
     # ------------------------------------------------------------------
     # Callback ordre
@@ -587,6 +676,15 @@ class LiveEngine:
                 f"[Engine] {status} {broker_id} | {signal.instrument} "
                 f"{signal.side.value} order_id={result.order_id}"
             )
+            # Enregistrer dans le live monitor (trade journal)
+            if self._live_monitor and result.order_id:
+                self._live_monitor.record_entry(
+                    signal=signal,
+                    broker_id=broker_id,
+                    position_id=str(result.order_id),
+                    entry_price=signal.close,
+                    volume=0.01,  # sera mis à jour par register_position
+                )
             # Enregistrer la position dans le monitor pour BE/trailing
             if self._position_monitor and result.order_id:
                 await self._register_position_in_monitor(

@@ -143,6 +143,7 @@ class OrderDispatcher:
         delay_ms: tuple = (500, 3000),
         dry_run: bool = False,
         on_order_result: Optional[Callable] = None,
+        risk_multiplier_fn: Optional[Callable] = None,
     ):
         self.brokers = brokers
         self.instruments_cfg = instruments_cfg
@@ -153,6 +154,7 @@ class OrderDispatcher:
         self.delay_ms = delay_ms
         self.dry_run = dry_run
         self.on_order_result = on_order_result
+        self._risk_multiplier_fn = risk_multiplier_fn
 
         # Signaux en attente, indexés par symbole
         self._pending: Dict[str, List[PendingSignal]] = {}
@@ -230,6 +232,18 @@ class OrderDispatcher:
             logger.warning(f"[Dispatcher] risk_cash=0 pour {signal.instrument}, signal ignoré")
             self._stats["signals_rejected"] += 1
             return False
+
+        # Apply live monitor risk multiplier (protection tiers)
+        if self._risk_multiplier_fn:
+            multiplier = self._risk_multiplier_fn()
+            if multiplier < 1.0:
+                original = sizing["risk_cash"]
+                sizing["risk_cash"] = round(original * multiplier, 2)
+                logger.info(
+                    f"[Dispatcher] 🛡️ Risk réduit: {original:.0f}$ × "
+                    f"{multiplier:.0%} = {sizing['risk_cash']:.0f}$ "
+                    f"(protection active)"
+                )
 
         # Calculer le volume en lots
         risk_distance = sizing["risk_distance"]

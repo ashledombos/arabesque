@@ -1816,3 +1816,80 @@ génère 3-4× plus de signaux (Donchian est moins sélectif que BB squeeze).
 Cabriole est un **backup/enrichissement**, pas une stratégie indépendante.
 Usage possible : confirmation quand les deux déclenchent, ou remplacement
 sur instruments spécifiques où Cabriole surperforme Extension.
+
+---
+
+### Live monitoring & protection (2026-03-17)
+
+**Problème** : le moteur live génère des logs riches (audit JSONL, shadow filters,
+position monitor) mais aucune agrégation ni alerte automatique. Impossible de
+détecter rapidement un drift vs backtest, un margin call imminent, ou une série
+de pertes anormale sans parsing manuel des logs.
+
+**Solution** : `LiveMonitor` (`arabesque/execution/live_monitor.py`) — module
+centralisé qui :
+
+1. **Trade journal** : persiste chaque entrée/sortie en JSONL (`logs/trade_journal.jsonl`)
+   avec résultat en R, PnL cash, MFE, BE/trailing state, exit reason
+2. **Equity snapshots** : enregistre balance/equity/marge toutes les 5min
+   (`logs/equity_snapshots.jsonl`) pour reconstruire la courbe d'equity live
+3. **Performance live** : agrège WR, Exp, TotalR, Max DD par stratégie et instrument
+4. **Drift detection** : compare WR et Exp live aux baselines backtest.
+   Seuils : WR drift > 15pp, Exp < -0.05R. Minimum 20 trades avant évaluation.
+5. **Margin monitoring** : alerte si free_margin < 50% equity (warn) ou < 20% (critical)
+6. **Consecutive losses** : alerte après 5 pertes consécutives par stratégie
+7. **Health reports** : résumé horaire dans les logs
+
+**Intégration** :
+- `position_monitor.py` enrichi avec callback `on_position_closed` dans `reconcile()`.
+  Quand une position disparaît du broker, estime l'exit reason (TP/SL/BE/trailing)
+  et le prix de sortie, puis notifie le LiveMonitor.
+- `live.py` : LiveMonitor instancié avant le position monitor, branché sur
+  `_on_order_result()` (entrées), `_refresh_account_state()` (equity snapshots),
+  et `_account_refresh_loop()` (health reports périodiques).
+
+**Baselines** :
+- Extension (trend) : WR 75%, Exp +0.10R (20 mois, 1998 trades)
+- Glissade (RSI div) : WR 55%, Exp +0.15R (WF XAUUSD+BTCUSD)
+
+**Protection active** (ajoutée dans la même session) :
+
+Le monitoring passif ne suffit pas — si le live déconne pendant la nuit, il faut
+des actions automatiques. 4 paliers de protection progressive :
+
+| Palier | Trigger | Action |
+|---|---|---|
+| NORMAL | — | Risque plein |
+| CAUTION | DD daily ≤ -2.5% OU total ≤ -5% OU 5 pertes consec. | Risque × 0.50 |
+| DANGER | DD daily ≤ -3.0% OU total ≤ -6.5% OU 8 pertes consec. | Risque × 0.25, ferme positions sans BE |
+| EMERGENCY | DD daily ≤ -3.5% OU total ≤ -8.0% OU marge < 10% | Ferme TOUT, freeze trading |
+
+**Rationale des seuils** : les guards existants bloquent à -4% daily et pause à -7% total.
+Les paliers de protection se déclenchent AVANT les guards pour agir graduellement au lieu
+d'attendre le seuil fatal. Le EMERGENCY à -3.5% daily laisse encore 0.5% avant le guard
+daily (-4%) et à -8% total laisse 1% avant le guard total (-9%).
+
+**Risk multiplier** : injecté dans le dispatcher via `risk_multiplier_fn()`. Le dispatcher
+multiplie le `risk_cash` calculé par les guards. En CAUTION, un trade de 400$ devient 200$.
+En DANGER, il devient 100$. En EMERGENCY, aucun trade n'est accepté.
+
+**Close unprotected** : en DANGER, les positions sans breakeven set sont fermées car elles
+sont exposées au SL initial complet. Les positions avec BE ou trailing sont conservées car
+le risque est limité (sortie au pire à +0.20R ou trailing SL).
+
+**Emergency kill switch** : ferme toutes les positions sur tous les brokers, freeze le
+trading. Nécessite `manual_unfreeze()` ou un redémarrage du moteur. Le freeze repart en
+CAUTION (pas NORMAL) pour observer avant de reprendre le risque plein.
+
+**Notifications** : Telegram pour les alertes détaillées (CAUTION, drift, health reports),
+ntfy pour les alertes urgentes (DANGER, EMERGENCY). Rate limited à 30s min entre messages.
+Configuration via apprise URLs dans `config/secrets.yaml`.
+
+**Bug corrigé** : le champ `margin_free` du broker cTrader retourne 0 (pas implémenté dans
+le parsing ProtoOATrader). La vérification margin est ignorée quand free_margin=0 — on se
+fie uniquement aux checks DD qui sont fiables.
+
+**Ce que ça NE fait PAS** (extensions futures) :
+- Dashboard web/Grafana (logs sont en JSONL, prêts pour l'export)
+- Corrélation multi-positions (agrégation risque sectoriel)
+- Latence signal→fill (timestamps disponibles mais pas encore mesurés)
