@@ -179,7 +179,8 @@ Toujours mettre à jour :
 
 ## Documents de référence
 
-- `HANDOFF.md` — état opérationnel (LIRE EN PREMIER)
+- `docs/STATUS.md` — **état live courant** (compte actif, stratégies, monitoring, que faire quand le compte expire)
+- `HANDOFF.md` — état de session (résultats, bugs ouverts, prochaines étapes)
 - `docs/DECISIONS.md` — historique des décisions et pourquoi
 - `docs/HYGIENE.md` — règles de code
 - `docs/ARCHITECTURE.md` — architecture technique

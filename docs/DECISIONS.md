@@ -24,22 +24,41 @@
 
 ---
 
-## 0. Boussole stratégique — IMMUABLE, PRIORITAIRE SUR TOUT
+## 0. Boussole stratégique — PRIORITAIRE SUR TOUT
 
-> **Cette section prime sur toutes les décisions de développement.**  
-> Si tu es une IA qui reprend ce projet : lis cette section en premier et relis-la avant chaque suggestion.  
+> **Cette section prime sur toutes les décisions de développement.**
+> Si tu es une IA qui reprend ce projet : lis cette section en premier et relis-la avant chaque suggestion.
 > Si quelque chose que tu t'apprêtes à proposer contredit ce qui est écrit ici : c'est ta proposition qui est fausse.
 
-### L'objectif en lettres de feu
+### L'objectif réel
+
+Arabesque est un **système de trading pour prop firms**. L'objectif n'est pas d'avoir le WR le plus élevé possible — c'est de **passer le challenge et générer des profits réguliers en restant dans les limites**.
 
 ```
-GAINS PETITS, FRÉQUENTS, CONSISTANTS.
-PEU DE PERTES. PETITES QUAND ELLES ARRIVENT.
-WIN RATE ÉLEVÉ : CIBLE ≥ 70%, IDÉAL ≥ 85%.
-COURBE D'ÉQUITÉ RÉGULIÈRE ET PRÉVISIBLE.
+CONTRAINTES NON NÉGOCIABLES (définies par la prop firm) :
+  Daily DD max     : FTMO 5% | GFT/TradeLocker 4%  ← adapter par compte
+  Total DD max     : FTMO 10% | GFT 10%
+  Consistance      : courbe d'équité régulière, pas de journée aberrante
+  Gains contenus   : éviter les journées à +3-4%+ (certaines PF le signalent)
+  Target atteint   : +10% en 30 jours pour FTMO
+
+CES CONTRAINTES S'ÉVALUENT SUR L'ENSEMBLE DU SYSTÈME,
+PAS INSTRUMENT PAR INSTRUMENT.
 ```
 
-Arabesque est une **stratégie prop firm**. Les prop firms évaluent la **consistance**, pas la performance brute. Une courbe d'équité régulière avec WR 85% passe un challenge. Une courbe en dents de scie avec WR 52% et quelques trades à +10R ne passe pas.
+### Ce qu'on cherche, et pourquoi
+
+**WR élevé (≥ 70%)** n'est pas l'objectif — c'est un **moyen efficace** pour satisfaire les contraintes :
+- WR élevé → pertes rares → daily DD difficile à breach en une journée
+- Gains petits et fréquents → courbe régulière sans pics suspects
+- Faible variance → statistiquement mesurable sur 100 trades
+
+Un WR de 60% avec des gains très bien calibrés peut aussi fonctionner, **tant que la variance par journée reste dans les seuils**. Ce qui est hors scope : la volatilité de la courbe, pas le WR en soi.
+
+Un instrument individuel avec WR 55% peut coexister dans le portefeuille si :
+- Il est non corrélé aux autres (diversification effective)
+- Sa contribution à la variance journalière reste faible
+- Son expectancy est positive et statistiquement validée
 
 ### La référence : BB_RPB_TSL
 
@@ -48,22 +67,38 @@ La stratégie dont Arabesque est dérivé tourne en live depuis ~527 jours :
 - CAGR : ~48%
 - Profil : petits gains fréquents, pertes bien délimitées
 
-C'est **la preuve empirique que ce profil est atteignable** sur les altcoins crypto H1. Arabesque doit reproduire ce profil sur les instruments FTMO, avec les guards prop firm en plus.
+C'est **la preuve empirique que ce profil est atteignable** sur les altcoins crypto. Arabesque adapte ce concept aux contraintes prop firm (SL réel, guards DD, anti-lookahead strict).
+
+### Limites par compte — adapter le risk automatiquement
+
+Les limites DD varient selon la prop firm. Les guards doivent utiliser les paramètres
+du compte actif, **pas des valeurs hardcodées**. Configuration dans `accounts.yaml` :
+
+| Prop Firm | Broker | Daily DD | Total DD | Reset TZ |
+|---|---|---|---|---|
+| FTMO | cTrader | 5% | 10% | Europe/Prague minuit |
+| GFT | TradeLocker | **4%** | 10% | à vérifier |
+
+Avec daily DD 4% (GFT), le risk/trade doit être réduit par rapport à FTMO 5%.
+Simulation indicative : si max_daily_dd 4% → risk/trade ≈ 0.30-0.35% au lieu de 0.40%.
+
+**TODO** : lire `max_daily_dd_pct` et `max_total_dd_pct` depuis `accounts.yaml` plutôt
+que depuis `PropConfig` hardcodé dans `guards.py`. Implémenter en Sonnet, valider en replay.
 
 ### Ce qui est hors scope même si c'est "plus rentable"
 
-- Stratégies avec WR < 65% (même si expectancy positive) → trop de variance pour les limites DD
-- Trailing SL long au détriment du WR → transforme des gagnants en perdants potentiels
-- Optimisation de l'avg_win au prix du WR → profil incompatible prop firm
-- TP à 2R, 3R, ou plus → WR chute mécaniquement
+- Stratégies avec variance journalière trop élevée (même si WR bon sur 6 mois)
+- Trailing SL long qui transforme des gagnants en incertains → variance ↑
+- Optimisation de l'avg_win au prix de la régularité de la courbe
+- Un trade unique qui représente > 0.5% de risk → trop d'impact sur le daily DD
 
 ### Signal d'alarme à déclencher
 
 Si tu lis dans le code, les docs, ou une proposition IA :
-- "WR ~52% compensé par avg_win de 2.3R" → **DÉRIVE, CORRIGER**
+- "WR ~52% compensé par avg_win de 2.3R" → **DÉRIVE, CORRIGER** (variance trop haute)
 - "l'edge vient des grands mouvements" → **DÉRIVE, CORRIGER**
 - "sensibilité aux outliers acceptée" → **DÉRIVE, CORRIGER**
-- "le module trend réduit le WR mais améliore l'expectancy" → **DÉRIVE** — le trend est un bonus optionnel, pas une raison d'accepter un WR plus bas
+- "augmenter le risk/trade pour accélérer le target" → **DÉRIVE** (breach DD en cas de série perdante)
 
 ### Contexte historique de la dérive (2026-02-21)
 

@@ -168,11 +168,39 @@ Source : backtests sur ~200 jours, XAUUSD M1, auteur YouTube (mars 2026).
 
 ---
 
+## Résultats de référence validés en interne (2026-03-17)
+
+Walk-forward **4/4 PASS** sur les configs optimales par instrument :
+
+| Instrument | Session | Config | OOS Trades | WR | Exp | Total R | MaxDD |
+|---|---|---|---|---|---|---|---|
+| XAUUSD | London | RR1.5 no_BE | 63 | 62% | +0.409R | +25.7R | 1.6% |
+| XAUUSD | London | RR1.5 +BE | 63 | 76% | +0.086R | +5.4R | 1.0% |
+| US100 | NY | RR2 no_BE | 147 | 44% | +0.190R | +28.0R | 7.6% |
+| BTCUSD | NY | RR1.5 +BE | 280 | 76% | +0.043R | +12.0R | 2.3% |
+
+**Config retenue pour FTMO** (profil +BE) : XAUUSD London RR1.5 +BE, BTCUSD NY RR1.5 +BE.
+US100 NY no_BE rentable mais WR 44% hors boussole FTMO + MaxDD 7.6% trop proche des limites.
+
+---
+
+## Problème connu : fréquence trop basse
+
+Sur **XAUUSD M1 alone**, seulement **14 trades en 2+ ans** (mode fvg_multiple NY).
+Pour NY breakout : 12 trades, WR 91.7%, +1.8R — statistiquement insuffisant.
+
+**London session** est plus prolifique (63 trades OOS = ~5/mois), mais uniquement sur XAUUSD.
+Il faut scanner plus d'instruments pour obtenir une fréquence suffisante en production.
+
+---
+
 ## Statut
 
-| | |
+| Phase | État |
 |---|---|
-| Statut | 🟡 En développement (signal.py créé, backtest à lancer) |
-| Stratégie live | Extension (ne pas interférer) |
-| Données requises | M1 XAUUSD Dukascopy (dispo dans data/min1/) |
-| Prochain jalon | Backtest IS/OOS + Wilson CI99 |
+| Walk-forward 4/4 | ✅ PASS |
+| Fréquence validée | ⚠️ Trop basse sur forex/métaux seuls |
+| Scan multi-instruments | 📋 À faire (indices, crypto M1) |
+| Dry-run parquet 3 mois | ⏳ Attendre fréquence suffisante |
+| Shadow live | ⏳ Après dry-run |
+| Live réel | ⏳ Après shadow |
