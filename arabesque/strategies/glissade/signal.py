@@ -406,8 +406,12 @@ class GlissadeRSIDivConfig:
     Validés par walk-forward (3/3 PASS) :
     - XAUUSD H1 pw3 RR2 +BE : 31 OOS trades, WR 87%, +5.7R
     - BTCUSD H1 pw3 RR2 +BE : 54 OOS trades, WR 85%, +10.6R
+
+    RR3 slightly better on full backtest with sub-bar M1:
+    - XAUUSD: +7.9R (RR3) vs +7.3R (RR2)
+    - BTCUSD: +14.3R (RR3) vs +16.1R (RR2) — similar
     """
-    rr_tp: float = 2.0
+    rr_tp: float = 3.0
     pivot_window: int = 3
     lookback: int = 20
     sl_lookback: int = 10
