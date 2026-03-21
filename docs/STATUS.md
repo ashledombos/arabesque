@@ -144,6 +144,8 @@ réduire le risk/trade à ~0.30% et adapter `max_daily_dd_pct` dans les guards p
 
 - [ ] Configurer les notifications Telegram/ntfy dans `secrets.yaml`
 - [ ] Renouveler le compte FTMO test quand il expire (~2026-03-19)
+  → Au renouvellement : passer `risk_per_trade_pct` à **0.45%** dans `arabesque/core/guards.py`
+    (LiveMonitor actif compense la marge réduite vs backtest sans protection)
 - [ ] Observer les premiers trades Glissade en shadow pour valider le signal
 - [ ] Quand ~100 trades Glissade shadow accumulés : décider activation
 
@@ -171,4 +173,13 @@ WF validé, non encore déployé :
 
 Placeholder :
   Pas de Deux  → pairs trading (long terme)
+
+Testé, edge insuffisant :
+  Renversé H1  → sweep + FVG retrace (WR 73%, Exp +0.006R = breakeven)
+
+WF en cours :
+  Révérence H4 → NR7 expansion (DOGEUSD PASS WR83%, overlap Extension à vérifier)
+
+Non viable :
+  Révérence    → range contraction (NR4/NR7, inside bar) → expansion breakout
 ```

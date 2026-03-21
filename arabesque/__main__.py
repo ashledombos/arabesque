@@ -129,6 +129,16 @@ def _run_backtest(args: argparse.Namespace) -> int:
         sig_gen = GlissadeRSIDivGenerator(GlissadeRSIDivConfig())
         timeframe = "1h"    # Glissade RSI div = H1
         exec_cfg = None
+    elif strategy == "renverse":
+        from arabesque.strategies.renverse.signal import RenverseSignalGenerator, RenverseConfig
+        sig_gen = RenverseSignalGenerator(RenverseConfig())
+        timeframe = "1h"    # Renversé = sweep reversal H1
+        exec_cfg = None
+    elif strategy == "reverence":
+        from arabesque.strategies.reverence.signal import ReverenceSignalGenerator, ReverenceConfig
+        sig_gen = ReverenceSignalGenerator(ReverenceConfig())
+        timeframe = "1h"    # Révérence = NR contraction → expansion H1
+        exec_cfg = None
     else:
         from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
         sig_gen = ExtensionSignalGenerator(ExtensionConfig())
@@ -293,6 +303,14 @@ def cmd_walkforward(args: argparse.Namespace) -> int:
     elif strategy == "glissade":
         from arabesque.strategies.glissade.signal import GlissadeRSIDivGenerator, GlissadeRSIDivConfig
         sig_gen = GlissadeRSIDivGenerator(GlissadeRSIDivConfig())
+        default_tf = "1h"
+    elif strategy == "renverse":
+        from arabesque.strategies.renverse.signal import RenverseSignalGenerator, RenverseConfig
+        sig_gen = RenverseSignalGenerator(RenverseConfig())
+        default_tf = "1h"
+    elif strategy == "reverence":
+        from arabesque.strategies.reverence.signal import ReverenceSignalGenerator, ReverenceConfig
+        sig_gen = ReverenceSignalGenerator(ReverenceConfig())
         default_tf = "1h"
     else:
         from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig

@@ -25,6 +25,9 @@ accounts:
     label: "FTMO Swing Test — compte de test, OK pour dry-run et live test"
     is_demo: false                  # cTrader "live" mais compte test FTMO
     broker_key: ftmo_swing_test     # clé dans config/settings.yaml → brokers
+    risk_per_trade_pct: 0.45        # funded mode (override general.risk_percent)
+    max_daily_dd_pct: 3.0           # FTMO = 5%, garde interne 3%
+    max_total_dd_pct: 8.0           # FTMO = 10%, garde interne 8%
 
   # --------------------------------------------------------------------------
   # FTMO — Challenge / Funded (cTrader)
@@ -35,6 +38,9 @@ accounts:
   #   label: "FTMO Challenge 100k — COMPTE RÉEL, ne pas utiliser en test"
   #   is_demo: false
   #   broker_key: ftmo_challenge
+  #   risk_per_trade_pct: 0.80      # challenge mode (Monte Carlo: P(breach)<2%)
+  #   max_daily_dd_pct: 3.0         # FTMO = 5%, garde interne 3%
+  #   max_total_dd_pct: 8.0         # FTMO = 10%, garde interne 8%
   #
   # ftmo_funded:
   #   type: ctrader
@@ -42,6 +48,9 @@ accounts:
   #   label: "FTMO Funded 100k — COMPTE RÉEL"
   #   is_demo: false
   #   broker_key: ftmo_funded
+  #   risk_per_trade_pct: 0.45      # funded mode (conservative)
+  #   max_daily_dd_pct: 3.0
+  #   max_total_dd_pct: 8.0
 
   # --------------------------------------------------------------------------
   # GFT — TradeLocker

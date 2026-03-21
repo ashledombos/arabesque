@@ -53,12 +53,14 @@ class PropConfig:
     max_positions: int = 10           # Filet absolu anti-bug (relevé de 3 → 10)
     max_open_risk_pct: float = 2.0    # % du start_balance max en risque ouvert simultané
     max_daily_trades: int = 10
-    risk_per_trade_pct: float = 0.40
-    # v3.3 (2026-02-24): réduit de 0.50% à 0.40%.
-    # Sur 20 mois (1998 trades), max DD = 20.5R.
-    # À 0.50%/trade: DD = 10.3% → DÉPASSE FTMO 10%.
-    # À 0.40%/trade: DD = 8.2% → marge 1.8% sous le seuil.
-    # Return reste +104% (largement au-dessus du 10% target).
+    risk_per_trade_pct: float = 0.45
+    # v3.4 (2026-03-18): relevé de 0.40% à 0.45%.
+    # Historique: 0.50% → DD 10.3% (breach FTMO), 0.40% → DD 8.2%.
+    # Estimation 0.45% → DD ~9.2% sans protection.
+    # Avec LiveMonitor actif (CAUTION/DANGER/EMERGENCY), le risk est
+    # réduit automatiquement à ×0.50 / ×0.25 / ×0 selon le DD courant,
+    # ce qui ramène le DD effectif bien en dessous de 9.2%.
+    # Return reste > +90% (largement au-dessus du 10% target challenge).
     # Marge de sécurité avant le seuil fatal (en points de %).
     # Pause dès que total_dd <= -(max_total_dd - dd_safety_margin).
     # Ex : max=8%, margin=1% → pause à -7%.

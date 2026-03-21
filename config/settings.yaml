@@ -9,7 +9,7 @@
 # PARAMÈTRES GÉNÉRAUX
 # -----------------------------------------------------------------------------
 general:
-  risk_percent: 0.40         # Risque par trade (% du capital) — v3.3 validé
+  risk_percent: 0.45         # Risque par trade (% du capital) — v3.4 relevé 0.40→0.45
   use_equity: true           # Utiliser l'équité (true) ou la balance (false)
   default_rr_ratio: 2.5      # R/R par défaut si non fourni dans le signal
   order_timeout_candles: 4   # Expiration des ordres limites (en bougies)

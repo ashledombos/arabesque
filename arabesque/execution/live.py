@@ -256,13 +256,30 @@ class LiveEngine:
             if delay_cfg.get("enabled", True) else (0, 0)
         )
 
+        # Per-account overrides from accounts.yaml (risk, DD limits)
+        acct_overrides = self._load_account_overrides()
+
         prop_cfg = PropConfig(
-            max_daily_dd_pct=filters.get("max_daily_drawdown_percent", 4.0),
-            max_total_dd_pct=filters.get("max_total_drawdown_percent", 9.0),
+            max_daily_dd_pct=acct_overrides.get(
+                "max_daily_dd_pct",
+                filters.get("max_daily_drawdown_percent", 4.0),
+            ),
+            max_total_dd_pct=acct_overrides.get(
+                "max_total_dd_pct",
+                filters.get("max_total_drawdown_percent", 9.0),
+            ),
             max_positions=filters.get("max_open_positions", 5),
             max_open_risk_pct=general.get("max_open_risk_pct", 2.0),
             max_daily_trades=filters.get("max_pending_orders", 10),
-            risk_per_trade_pct=general.get("risk_percent", 0.5),
+            risk_per_trade_pct=acct_overrides.get(
+                "risk_per_trade_pct",
+                general.get("risk_percent", 0.45),
+            ),
+        )
+        logger.info(
+            f"[Engine] PropConfig: risk={prop_cfg.risk_per_trade_pct}%, "
+            f"daily_dd={prop_cfg.max_daily_dd_pct}%, "
+            f"total_dd={prop_cfg.max_total_dd_pct}%"
         )
 
         dispatcher = OrderDispatcher(
@@ -276,6 +293,37 @@ class LiveEngine:
         )
         dispatcher._price_feed = None
         return dispatcher
+
+    def _load_account_overrides(self) -> dict:
+        """Charge les overrides per-account depuis accounts.yaml.
+
+        Champs supportés : risk_per_trade_pct, max_daily_dd_pct, max_total_dd_pct.
+        Permet de configurer 0.80% pour un challenge vs 0.45% pour un funded.
+        """
+        from pathlib import Path
+        try:
+            import yaml
+            path = Path("config/accounts.yaml")
+            if not path.exists():
+                return {}
+            with open(path) as f:
+                cfg = yaml.safe_load(f) or {}
+            accounts = cfg.get("accounts", {})
+            # Find active broker key
+            broker_keys = list(self._brokers.keys())
+            if not broker_keys:
+                return {}
+            active_key = broker_keys[0]
+            acct = accounts.get(active_key, {})
+            overrides = {}
+            for key in ("risk_per_trade_pct", "max_daily_dd_pct", "max_total_dd_pct"):
+                if key in acct:
+                    overrides[key] = float(acct[key])
+                    logger.info(f"[Engine] Account override: {key}={acct[key]}")
+            return overrides
+        except Exception as e:
+            logger.warning(f"[Engine] Could not load account overrides: {e}")
+            return {}
 
     def _get_risk_multiplier(self) -> float:
         """Retourne le multiplicateur de risque du LiveMonitor."""

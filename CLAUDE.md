@@ -60,6 +60,8 @@ arabesque/strategies/
   └── glissade/          ← RSI divergence H1, WF PASS 3/3 (XAUUSD, BTCUSD)
   └── cabriole/          ← Donchian breakout 4H, WF PASS 6/6 (overlap Extension)
   └── pas_de_deux/       ← Pairs trading cointégration (placeholder, long terme)
+  └── renverse/          ← Liquidity sweep + FVG retrace H1 (testé, edge insuffisant)
+  └── reverence/         ← NR7 contraction → expansion H4 (DOGEUSD WF PASS, overlap à vérifier)
 arabesque/execution/     ← live.py, backtest.py, dryrun.py, bar_aggregator.py
 arabesque/broker/        ← cTrader, TradeLocker
 arabesque/data/          ← store.py (parquet-first loader), fetch.py, backends.py
@@ -133,6 +135,8 @@ Terme français, relation imagée avec la logique de trading.
 - Glissade = RSI divergence H1 (retournement dans le trend, mouvement glissé)
 - Cabriole = Donchian breakout 4H (saut vif au-delà du canal)
 - Pas de Deux = pairs trading cointégration (danse à deux partenaires en miroir)
+- Renversé = liquidity sweep + structure shift + FVG retrace H1 (bascule puis retournement brusque)
+- Révérence = range contraction NR4/NR7 → expansion breakout (inclinaison puis redressement)
 
 ## Données
 
@@ -180,7 +184,6 @@ Toujours mettre à jour :
 ## Documents de référence
 
 - `docs/STATUS.md` — **état live courant** (compte actif, stratégies, monitoring, que faire quand le compte expire)
-- `HANDOFF.md` — état de session (résultats, bugs ouverts, prochaines étapes)
+- `HANDOFF.md` — pour reprendre le dev (résultats de référence, config active, prochaines étapes)
 - `docs/DECISIONS.md` — historique des décisions et pourquoi
 - `docs/HYGIENE.md` — règles de code
-- `docs/ARCHITECTURE.md` — architecture technique

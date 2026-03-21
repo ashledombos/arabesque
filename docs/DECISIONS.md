@@ -1928,3 +1928,89 @@ fie uniquement aux checks DD qui sont fiables.
 - Dashboard web/Grafana (logs sont en JSONL, prêts pour l'export)
 - Corrélation multi-positions (agrégation risque sectoriel)
 - Latence signal→fill (timestamps disponibles mais pas encore mesurés)
+
+## Décision 2026-03-20 — Renversé (ICT/SMC reversal) : edge insuffisant
+
+**Concept** : Liquidity sweep + structure shift (CHOCH) + FVG retrace + biais HTF EMA200 H4.
+Reversal post-sweep inspiré ICT/SMC, implémenté de façon entièrement mécanique.
+
+**Ablation** (20 mois, XAUUSD + BTCUSD, 14 configs testées) :
+- Compression BB trop restrictif : tue la fréquence (2→50 trades en la désactivant)
+- CHOCH trop restrictif : réduit trades sans améliorer WR
+- FVG retrace et HTF bias sont les seuls filtres contributifs
+
+**Résultats tick-level (meilleur config : sweep + FVG retrace + HTF bias)** :
+
+| Instrument | Trades | WR | Exp | Total R | PF |
+|---|---|---|---|---|---|
+| XAUUSD H1 | 50 | 64% | -0.128R | -6.4R | 0.58 |
+| BTCUSD H1 | 92 | 78% | +0.079R | +7.2R | 1.40 |
+| Combined | 142 | 73% | +0.006R | +0.8R | — |
+
+**Diagnostic** : BE convertit assez de losers pour 73% WR, mais avg win (+0.28R via
+trailing) vs avg loss (-0.91R) → edge structurellement trop mince. La majorité des
+trades sortent au BE (+0.20R). Les reversals ne sont pas assez amples pour RR2.
+
+**Décision** : Stratégie non déployable en l'état. Code conservé pour référence.
+Walk-forward non justifié (edge <0 sur XAUUSD, marginal sur BTCUSD).
+
+**Leçon** : Les reversals ICT/SMC sont difficilement compatibles avec la boussole
+prop firm (gains petits, fréquents, consistants). Le mouvement post-sweep est
+typiquement trop court pour générer un R significatif — la plupart finissent au BE.
+
+## Décision 2026-03-21 — Révérence (NR7 contraction → expansion) : H4 viable, H1 non
+
+**Concept** : Narrow Range 7 + body ratio confirmation + EMA200 filter.
+Breakout après contraction de range (NR7 = range le plus petit des 7 dernières bougies).
+
+**Ablation** :
+- Engulfing non contributif (réduit fréquence sans gain WR)
+- H1 breakeven (671 trades, WR 73%, Exp +0.013R)
+- **H4 edge mince mais positif** (465 trades, WR 80%, Exp +0.034R)
+
+**Walk-forward H4** (IS=2400, OOS=800, 3 fenêtres) :
+
+| Instrument | OOS Trades | WR | Exp | Verdict |
+|---|---|---|---|---|
+| DOGEUSD | 30 | 83% | +0.059R | **PASS** |
+| SOLUSD | 33 | 82% | +0.065R | MARGINAL |
+| ETHUSD | 27 | 78% | +0.130R | MARGINAL |
+| AVAXUSD | 32 | 72% | -0.002R | FAIL |
+| ADAUSD | 37 | 70% | -0.109R | FAIL |
+
+**Décision** : Code conservé. DOGEUSD H4 passe WF mais edge mince (+0.059R) et
+~1.5 trades/mois. Overlap avec Extension H4 crypto à vérifier avant déploiement.
+Si overlap < 50%, envisager shadow mode.
+
+**Comparaison avec Cabriole** : Même pattern — stratégie de breakout sur H4 crypto
+qui fonctionne sur certains instruments mais overlap potentiel avec Extension.
+
+## Décision 2026-03-21 — Per-account risk overrides dans accounts.yaml
+
+**Problème** : Le risk_per_trade_pct était hardcodé dans PropConfig (guards.py) et
+lu depuis settings.yaml (general.risk_percent). Pas de distinction challenge vs funded.
+
+Monte Carlo (session précédente) a montré 0.80% comme optimal pour les challenges
+(P(breach total DD 10%) ≈ 1-2%, P(+10% target) ≈ 38-51% sur 80-100 trades).
+
+**Solution** : accounts.yaml supporte maintenant des overrides per-account :
+```yaml
+ftmo_challenge:
+  risk_per_trade_pct: 0.80   # challenge mode
+ftmo_funded:
+  risk_per_trade_pct: 0.45   # funded mode
+```
+
+Le live engine (`_make_dispatcher` dans `execution/live.py`) lit ces overrides
+et les applique en priorité sur les valeurs de settings.yaml.
+
+Corrigé aussi : settings.yaml risk_percent 0.40 → 0.45 (cohérent avec guards.py v3.4).
+
+## Décision 2026-03-21 — Pas de Deux (pairs trading) non viable pour prop firms
+
+**Raisons** :
+1. Mean-reversion fondamentale — la boussole dit "trend-only, MR perd systématiquement"
+2. Double margin (2 positions simultanées) sur budget DD limité 5%/10%
+3. Convergence peut prendre des semaines, incompatible avec rythme challenge
+
+**Décision** : Reste en placeholder "long terme" sans investissement de temps.
