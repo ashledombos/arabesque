@@ -36,7 +36,7 @@ accounts:
   # Levier 1:30 (swing) | Overnight/weekend/news OK | Split 80%
   ftmo_challenge:
     type: ctrader
-    protected: true               # ← JAMAIS en test automatique
+    protected: false              # ← OK pour live (risk conservatif 0.45%)
     label: "FTMO Challenge Phase 1 — 100k 2-step swing"
     is_demo: false
     broker_key: ftmo_challenge
@@ -44,7 +44,8 @@ accounts:
     challenge_phase: 1            # Phase 1 = objectif 10%
     initial_balance: 100000
     profit_target_pct: 10.0       # Phase 1 target
-    risk_per_trade_pct: 0.80      # challenge mode (Monte Carlo: P(target)=82%)
+    risk_per_trade_pct: 0.45      # conservatif (compte en DD -0.44%, validation d'abord)
+    # → Passer à 0.80% une fois la config validée en live
     max_daily_dd_pct: 3.0         # FTMO = 5%, garde interne 3%
     max_total_dd_pct: 8.0         # FTMO = 10%, garde interne 8%
     leverage: 30                  # 1:30 swing

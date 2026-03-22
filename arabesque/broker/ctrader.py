@@ -88,6 +88,11 @@ _TIMEFRAME_SECONDS = {
 class CTraderBroker(BaseBroker):
     """cTrader Open API broker implementation with price feed + history support."""
 
+    # Tokens partagés par client_id : un seul refresh à la fois.
+    # Clé = client_id, valeur = (access_token, refresh_token)
+    _shared_tokens: dict[str, tuple[str, str]] = {}
+    _token_lock = threading.Lock()
+
     def __init__(self, broker_id: str, config: dict):
         super().__init__(broker_id, config)
 
@@ -186,43 +191,58 @@ class CTraderBroker(BaseBroker):
             print("[cTrader] ⚠️  No refresh token available")
             return False
 
-        old_access_token = self.access_token
-        old_refresh_token = self.refresh_token
-        token_url = "https://openapi.ctrader.com/apps/token"
-        payload = {
-            "grant_type": "refresh_token",
-            "refresh_token": self.refresh_token,
-            "client_id": self.client_id,
-            "client_secret": self.client_secret
-        }
-
-        try:
-            print("[cTrader] Refreshing access token...")
-            response = requests.post(token_url, data=payload, timeout=15)
-            if response.status_code == 200:
-                data = response.json()
-                if not data:
-                    print("[cTrader] ❌ Empty response from token endpoint")
-                    return False
-                new_access = data.get("accessToken") or data.get("access_token")
-                new_refresh = data.get("refreshToken") or data.get("refresh_token")
-                if not new_access:
-                    print("[cTrader] ❌ No access token in response")
-                    return False
-                self.access_token = new_access
-                if new_refresh:
-                    self.refresh_token = new_refresh
-                print(f"[cTrader] ✅ Token refreshed successfully")
-                self._save_tokens_to_config()
+        with CTraderBroker._token_lock:
+            # Vérifier si un autre broker du même client_id a déjà refreshé
+            shared = CTraderBroker._shared_tokens.get(self.client_id)
+            if shared and shared[0] != self.access_token:
+                # Un sibling a déjà refreshé — réutiliser ses tokens
+                self.access_token, self.refresh_token = shared
+                print(f"[cTrader] ♻️  Réutilisation token sibling pour {self.broker_id}")
                 return True
-            else:
-                print(f"[cTrader] ❌ Token refresh failed: {response.status_code}")
+
+            old_access_token = self.access_token
+            old_refresh_token = self.refresh_token
+            token_url = "https://openapi.ctrader.com/apps/token"
+            payload = {
+                "grant_type": "refresh_token",
+                "refresh_token": self.refresh_token,
+                "client_id": self.client_id,
+                "client_secret": self.client_secret
+            }
+
+            try:
+                print(f"[cTrader] Refreshing access token ({self.broker_id})...")
+                response = requests.post(token_url, data=payload, timeout=15)
+                if response.status_code == 200:
+                    data = response.json()
+                    if not data:
+                        print("[cTrader] ❌ Empty response from token endpoint")
+                        return False
+                    new_access = data.get("accessToken") or data.get("access_token")
+                    new_refresh = data.get("refreshToken") or data.get("refresh_token")
+                    if not new_access:
+                        err = data.get("errorCode", "")
+                        desc = data.get("description", "")
+                        print(f"[cTrader] ❌ No access token in response: {err} {desc}")
+                        return False
+                    self.access_token = new_access
+                    if new_refresh:
+                        self.refresh_token = new_refresh
+                    # Partager avec les siblings
+                    CTraderBroker._shared_tokens[self.client_id] = (
+                        self.access_token, self.refresh_token
+                    )
+                    print(f"[cTrader] ✅ Token refreshed successfully")
+                    self._save_tokens_to_config()
+                    return True
+                else:
+                    print(f"[cTrader] ❌ Token refresh failed: {response.status_code}")
+                    return False
+            except Exception as e:
+                print(f"[cTrader] ❌ Token refresh error: {e}")
+                self.access_token = old_access_token
+                self.refresh_token = old_refresh_token
                 return False
-        except Exception as e:
-            print(f"[cTrader] ❌ Token refresh error: {e}")
-            self.access_token = old_access_token
-            self.refresh_token = old_refresh_token
-            return False
 
     def _save_tokens_to_config(self):
         try:
@@ -395,8 +415,13 @@ class CTraderBroker(BaseBroker):
                     if not connect_future.done():
                         self._reject_future(connect_future, Exception("No accounts found"))
                     return
-                self.account_id = accounts[0].ctidTraderAccountId
-                print(f"[cTrader] Found {len(accounts)} account(s), using: {self.account_id}")
+                all_ids = [a.ctidTraderAccountId for a in accounts]
+                print(f"[cTrader] Found {len(accounts)} account(s): {all_ids}")
+                if self.account_id and self.account_id in all_ids:
+                    print(f"[cTrader] Using configured account: {self.account_id}")
+                else:
+                    self.account_id = accounts[0].ctidTraderAccountId
+                    print(f"[cTrader] Auto-selected account: {self.account_id}")
                 req = ProtoOAAccountAuthReq()
                 req.ctidTraderAccountId = self.account_id
                 req.accessToken = self.access_token

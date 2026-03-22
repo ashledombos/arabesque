@@ -201,6 +201,16 @@ def update_broker_tokens(
     Appelé par CTraderBroker._save_tokens_to_config() à chaque refresh.
     Retourne True si la sauvegarde a réussi, False sinon.
 
+    IMPORTANT — Token sharing :
+    Les tokens OAuth cTrader sont liés au client_id, pas au compte de trading.
+    Un seul jeu access_token/refresh_token donne accès à TOUS les comptes
+    du même client_id. Le refresh_token est à usage unique : quand un broker
+    le consomme, l'ancien est invalidé pour tous les autres.
+
+    Cette fonction détecte automatiquement les brokers qui partagent le même
+    client_id et met à jour leurs tokens en même temps, évitant ainsi les
+    conflits d'invalidation croisée.
+
     Le fichier est lu, modifié en mémoire, puis réécrit atomiquement.
     Les autres credentials (email, passwords) ne sont pas touchés.
     """
@@ -220,8 +230,26 @@ def update_broker_tokens(
         if broker_id not in data:
             data[broker_id] = {}
 
+        # Identifier le client_id de ce broker
+        client_id = data[broker_id].get("client_id", "")
+
+        # Trouver tous les brokers qui partagent le même client_id
+        siblings = []
+        if client_id:
+            for bid, bdata in data.items():
+                if (isinstance(bdata, dict)
+                        and bdata.get("client_id") == client_id
+                        and bid != broker_id):
+                    siblings.append(bid)
+
+        # Mettre à jour le broker principal
         data[broker_id]["access_token"] = access_token
         data[broker_id]["refresh_token"] = refresh_token
+
+        # Mettre à jour tous les brokers du même client_id
+        for sib in siblings:
+            data[sib]["access_token"] = access_token
+            data[sib]["refresh_token"] = refresh_token
 
         # Écriture atomique via fichier temporaire
         tmp_path = secrets_path.with_suffix(".yaml.tmp")
@@ -229,10 +257,17 @@ def update_broker_tokens(
             yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
         tmp_path.replace(secrets_path)
 
-        logger.info(
-            f"[update_broker_tokens] ✅ Tokens sauvegardés pour {broker_id} "
-            f"dans {secrets_path}"
-        )
+        if siblings:
+            logger.info(
+                f"[update_broker_tokens] ✅ Tokens sauvegardés pour {broker_id} "
+                f"+ {len(siblings)} sibling(s) ({', '.join(siblings)}) "
+                f"dans {secrets_path}"
+            )
+        else:
+            logger.info(
+                f"[update_broker_tokens] ✅ Tokens sauvegardés pour {broker_id} "
+                f"dans {secrets_path}"
+            )
         return True
 
     except Exception as e:

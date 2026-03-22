@@ -70,7 +70,8 @@ strategy_assignments:
 # -----------------------------------------------------------------------------
 price_feed:
   # Broker utilisé comme source de prix (doit être de type ctrader)
-  source_broker: "ftmo_swing_test"
+  # ftmo_challenge = compte permanent (pas d'expiration 15j)
+  source_broker: "ftmo_challenge"
   # Laissez vide : tous les instruments avec follow: true dans instruments.yaml
   # seront automatiquement surveillés.
   # Remplissez uniquement pour restreindre à un sous-ensemble.
@@ -94,18 +95,18 @@ filters:
 # BROKERS
 # -----------------------------------------------------------------------------
 brokers:
-#    # ---- FTMO 100k (cTrader) ----
-#    ftmo_ctrader:
-#      enabled: false
-#      type: ctrader
-#      name: "FTMO Challenge"
-#      is_demo: true
-#      auto_refresh_token: true
-#      # account_id: dans secrets.yaml (null = auto-détection via API)
-
-  # ---- FTMO compte test (cTrader) ----
-  ftmo_swing_test:
+  # ---- FTMO Challenge (cTrader) — source principale + trading ----
+  ftmo_challenge:
     enabled: true
+    type: ctrader
+    name: "FTMO Challenge Phase 1"
+    is_demo: false
+    auto_refresh_token: true
+    # account_id: dans secrets.yaml
+
+  # ---- FTMO compte test (cTrader) — expire tous les 15j ----
+  ftmo_swing_test:
+    enabled: false                # désactivé, remplacé par ftmo_challenge
     type: ctrader
     name: "FTMO compte test"
     is_demo: false
