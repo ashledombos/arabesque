@@ -10,28 +10,28 @@
 # -----------------------------------------------------------------------------
 EURUSD:
   ftmo_swing_test: "EURUSD"
-  gft_compte2: "EURUSD.X"
+  gft_compte1: "EURUSD.X"
   follow: false  # WF négatif, Exp -0.029R
   pip_size: 0.0001
   pip_value_per_lot: 10
 
 GBPUSD:
   ftmo_swing_test: "GBPUSD"
-  gft_compte2: "GBPUSD.X"
+  gft_compte1: "GBPUSD.X"
   follow: false  # WF négatif, Exp -0.184R
   pip_size: 0.0001
   pip_value_per_lot: 10
 
 AUDUSD:
   ftmo_swing_test: "AUDUSD"
-  gft_compte2: "AUDUSD.X"
+  gft_compte1: "AUDUSD.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 10
 
 NZDUSD:
   ftmo_swing_test: "NZDUSD"
-  gft_compte2: "NZDUSD.X"
+  gft_compte1: "NZDUSD.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 10
@@ -41,21 +41,21 @@ NZDUSD:
 # -----------------------------------------------------------------------------
 USDCAD:
   ftmo_swing_test: "USDCAD"
-  gft_compte2: "USDCAD.X"
+  gft_compte1: "USDCAD.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 7.25
 
 USDCHF:
   ftmo_swing_test: "USDCHF"
-  gft_compte2: "USDCHF.X"
+  gft_compte1: "USDCHF.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 12.66
 
 USDJPY:
   ftmo_swing_test: "USDJPY"
-  gft_compte2: "USDJPY.X"
+  gft_compte1: "USDJPY.X"
   follow: false  # WF négatif
   pip_size: 0.01
   pip_value_per_lot: 6.33
@@ -143,21 +143,21 @@ USDZAR:
 # -----------------------------------------------------------------------------
 EURAUD:
   ftmo_swing_test: "EURAUD"
-  gft_compte2: "EURAUD.X"
+  gft_compte1: "EURAUD.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 6.76
 
 EURCAD:
   ftmo_swing_test: "EURCAD"
-  gft_compte2: "EURCAD.X"
+  gft_compte1: "EURCAD.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 7.25
 
 EURCHF:
   ftmo_swing_test: "EURCHF"
-  gft_compte2: "EURCHF.X"
+  gft_compte1: "EURCHF.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 12.66
@@ -170,7 +170,7 @@ EURCZK:
 
 EURGBP:
   ftmo_swing_test: "EURGBP"
-  gft_compte2: "EURGBP.X"
+  gft_compte1: "EURGBP.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 13.51
@@ -183,7 +183,7 @@ EURHUF:
 
 EURJPY:
   ftmo_swing_test: "EURJPY"
-  gft_compte2: "EURJPY.X"
+  gft_compte1: "EURJPY.X"
   follow: false  # WF négatif
   pip_size: 0.01
   pip_value_per_lot: 6.33
@@ -196,7 +196,7 @@ EURNOK:
 
 EURNZD:
   ftmo_swing_test: "EURNZD"
-  gft_compte2: "EURNZD.X"
+  gft_compte1: "EURNZD.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 5.85
@@ -212,35 +212,35 @@ EURPLN:
 # -----------------------------------------------------------------------------
 GBPAUD:
   ftmo_swing_test: "GBPAUD"
-  gft_compte2: "GBPAUD.X"
+  gft_compte1: "GBPAUD.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 6.76
 
 GBPCAD:
   ftmo_swing_test: "GBPCAD"
-  gft_compte2: "GBPCAD.X"
+  gft_compte1: "GBPCAD.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 7.25
 
 GBPCHF:
   ftmo_swing_test: "GBPCHF"
-  gft_compte2: "GBPCHF.X"
+  gft_compte1: "GBPCHF.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 12.66
 
 GBPJPY:
   ftmo_swing_test: "GBPJPY"
-  gft_compte2: "GBPJPY.X"
+  gft_compte1: "GBPJPY.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 6.33
 
 GBPNZD:
   ftmo_swing_test: "GBPNZD"
-  gft_compte2: "GBPNZD.X"
+  gft_compte1: "GBPNZD.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 5.85
@@ -256,28 +256,28 @@ GBPPLN:
 # -----------------------------------------------------------------------------
 AUDCAD:
   ftmo_swing_test: "AUDCAD"
-  gft_compte2: "AUDCAD.X"
+  gft_compte1: "AUDCAD.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 7.25
 
 AUDCHF:
   ftmo_swing_test: "AUDCHF"
-  gft_compte2: "AUDCHF.X"
+  gft_compte1: "AUDCHF.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 12.66
 
 AUDJPY:
   ftmo_swing_test: "AUDJPY"
-  gft_compte2: "AUDJPY.X"
+  gft_compte1: "AUDJPY.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 6.33
 
 AUDNZD:
   ftmo_swing_test: "AUDNZD"
-  gft_compte2: "AUDNZD.X"
+  gft_compte1: "AUDNZD.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 5.85
@@ -287,21 +287,21 @@ AUDNZD:
 # -----------------------------------------------------------------------------
 NZDCAD:
   ftmo_swing_test: "NZDCAD"
-  gft_compte2: "NZDCAD.X"
+  gft_compte1: "NZDCAD.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 7.25
 
 NZDCHF:
   ftmo_swing_test: "NZDCHF"
-  gft_compte2: "NZDCHF.X"
+  gft_compte1: "NZDCHF.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 12.66
 
 NZDJPY:
   ftmo_swing_test: "NZDJPY"
-  gft_compte2: "NZDJPY.X"
+  gft_compte1: "NZDJPY.X"
   follow: false  # WF négatif
   pip_size: 0.01
   pip_value_per_lot: 6.33
@@ -311,21 +311,21 @@ NZDJPY:
 # -----------------------------------------------------------------------------
 CADCHF:
   ftmo_swing_test: "CADCHF"
-  gft_compte2: "CADCHF.X"
+  gft_compte1: "CADCHF.X"
   follow: false  # WF négatif
   pip_size: 0.0001
   pip_value_per_lot: 12.66
 
 CADJPY:
   ftmo_swing_test: "CADJPY"
-  gft_compte2: "CADJPY.X"
+  gft_compte1: "CADJPY.X"
   follow: false  # WF négatif
   pip_size: 0.01
   pip_value_per_lot: 6.33
 
 CHFJPY:
   ftmo_swing_test: "CHFJPY"
-  gft_compte2: "CHFJPY.X"
+  gft_compte1: "CHFJPY.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 6.33
@@ -335,7 +335,7 @@ CHFJPY:
 # -----------------------------------------------------------------------------
 XAUUSD:
   ftmo_swing_test: "XAUUSD"
-  gft_compte2: "XAUUSD.X"
+  gft_compte1: "XAUUSD.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 1
@@ -357,7 +357,7 @@ XAUAUD:
 
 XAGUSD:
   ftmo_swing_test: "XAGUSD"
-  gft_compte2: "XAGUSD.X"
+  gft_compte1: "XAGUSD.X"
   follow: false  # pas validé en WF
   pip_size: 0.001
   pip_value_per_lot: 5
@@ -429,7 +429,7 @@ BARUSD:
 
 BCHUSD:
   ftmo_swing_test: "BCHUSD"
-  gft_compte2: "BCHUSD.X"
+  gft_compte1: "BCHUSD.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 1
@@ -439,7 +439,7 @@ BCHUSD:
 
 BNBUSD:
   ftmo_swing_test: "BNBUSD"
-  gft_compte2: "BNBUSD.X"
+  gft_compte1: "BNBUSD.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 1
@@ -449,7 +449,7 @@ BNBUSD:
 
 BTCUSD:
   ftmo_swing_test: "BTCUSD"
-  gft_compte2: "BTCUSD.X"
+  gft_compte1: "BTCUSD.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 0.01
@@ -495,7 +495,7 @@ ETCUSD:
 
 ETHUSD:
   ftmo_swing_test: "ETHUSD"
-  gft_compte2: "ETHUSD.X"
+  gft_compte1: "ETHUSD.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 0.1
@@ -559,7 +559,7 @@ LNKUSD:
 
 LTCUSD:
   ftmo_swing_test: "LTCUSD"
-  gft_compte2: "LTCUSD.X"
+  gft_compte1: "LTCUSD.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 1
@@ -605,7 +605,7 @@ SANUSD:
 
 SOLUSD:
   ftmo_swing_test: "SOLUSD"
-  gft_compte2: "SOLUSD.X"
+  gft_compte1: "SOLUSD.X"
   follow: true
   pip_size: 0.01
   pip_value_per_lot: 1

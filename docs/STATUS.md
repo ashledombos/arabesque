@@ -129,14 +129,27 @@ Sans cette config, les alertes sont loggées localement mais pas pushées.
 
 ## Comptes connus
 
-| Compte | Broker | Type | Daily DD | Total DD | Protected | Statut |
-|---|---|---|---|---|---|---|
-| `ftmo_swing_test` | cTrader (FTMO) | Test gratuit 15j | 5% | 10% | false | ✅ Actif (expire ~19 mars) |
-| `ftmo_challenge` | cTrader (FTMO) | Challenge 100k | 5% | 10% | **true** | 🔒 Jamais en auto |
-| `gft_compte2` | TradeLocker (GFT) | Funded | **4%** | 10% | false | 📋 Connecteur en dev |
+| Compte | Broker | Type | Balance | Objectif | Daily DD | Total DD | Risk/trade | Protected | Statut |
+|---|---|---|---|---|---|---|---|---|---|
+| `ftmo_swing_test` | cTrader (FTMO) | Test gratuit 15j | 100k | - | 5% | 10% | 0.45% | false | ✅ Actif |
+| `ftmo_challenge` | cTrader (FTMO) | Challenge P1 2-step | 100k | +10% | 5% | 10% | 0.80% | **true** | 🔒 Prêt |
+| `gft_compte1` | TradeLocker (GFT) | Challenge P1 GOAT 2-step | 150k | +8% | **4%** | 10% | 0.30% | **true** | 🔒 Prêt |
 
-⚠️ **GFT a un daily DD de 4%** (pas 5% comme FTMO). Avant d'activer `gft_compte2` en live,
-réduire le risk/trade à ~0.30% et adapter `max_daily_dd_pct` dans les guards pour ce compte.
+### Différences clés FTMO vs GFT
+
+| | FTMO Swing | GFT GOAT |
+|---|---|---|
+| **Daily DD** | 5% | **4%** (plus serré) |
+| **Levier** | 1:30 | 1:100 |
+| **Overnight/WE/news** | ✅ Autorisé | ✅ Autorisé |
+| **Crypto H4** | 27 instruments | **6 instruments** (majeurs uniquement) |
+| **H1 forex** | 4 instruments | 4 instruments (identique) |
+| **Risk/trade** | 0.80% (challenge) | 0.30% (daily DD serré) |
+| **Guard interne daily** | 3.0% | 2.5% |
+| **Split funded** | 80% | Variable |
+
+⚠️ **GFT daily DD = 4%** → risk/trade réduit à 0.30% et guard interne à 2.5%.
+Instruments H4 crypto limités à : BTCUSD, ETHUSD, BNBUSD, SOLUSD, LTCUSD, BCHUSD.
 
 ---
 
@@ -145,9 +158,12 @@ réduire le risk/trade à ~0.30% et adapter `max_daily_dd_pct` dans les guards p
 - [x] Per-timeframe risk : H4 → ×1.22 (0.55% effectif), validé par backtest
 - [x] Glissade activé en live (WF 3/3 PASS, WR 83%)
 - [x] Per-account risk overrides (accounts.yaml) — session 2026-03-21
-- [x] Guard "Best Day" (métrique backtest)
+- [x] Guard "Best Day" (métrique backtest + live alert dans LiveMonitor)
 - [x] Monte Carlo barrières : Challenge 0.80% → P(+10%)=82%, P(breach)=4.5%
 - [x] Scan Fouetté crypto M1 → seuls BTCUSD+BNBUSD viables, impact marginal
+- [x] Comptes challenge configurés : ftmo_challenge (100k, 0.80%) + gft_compte1 (150k, 0.30%)
+- [x] GFT compte2 supprimé (perdu pour inactivité 30j)
+- [x] Script comparaison live vs backtest : `python tmp/compare_live_vs_backtest.py`
 
 ## Tester les notifications
 
@@ -187,12 +203,12 @@ Champs clés : `instrument`, `strategy`, `side`, `entry_price`, `exit_price`,
 
 **Comparer backtest vs live** :
 ```bash
-# Relancer un backtest sur la même période que le live
-python -m arabesque run --strategy extension --mode backtest \
-    --start 2026-03-16 --end 2026-03-22 XAUUSD
+# Script automatique (à exécuter ~1×/semaine)
+python tmp/compare_live_vs_backtest.py                # toute la période du journal
+python tmp/compare_live_vs_backtest.py --last 7       # derniers 7 jours
+python tmp/compare_live_vs_backtest.py --start 2026-03-18 --end 2026-03-22
 
-# Puis comparer result_r du journal vs result_r du backtest
-# Le trade_journal JSONL peut être chargé dans pandas :
+# Lecture rapide du journal
 python -c "
 import pandas as pd
 df = pd.read_json('logs/trade_journal.jsonl', lines=True)
@@ -207,15 +223,14 @@ maintenant calculé correctement pour les nouveaux trades.
 
 ## Prochaines étapes immédiates
 
-- [ ] Configurer les notifications Telegram/ntfy dans `secrets.yaml`
+- [ ] Corriger notifications Telegram (bot token invalide, ntfy OK)
 - [ ] Vérifier le moteur live avec la nouvelle config après le weekend
+- [ ] Exécuter `python tmp/compare_live_vs_backtest.py` (~1×/semaine)
 
 ## Prochaines étapes structurelles
 
-- [ ] Monte Carlo avec barrières : P(+10% avant DD 10%) pour le mode challenge
-- [ ] Scanner indices + crypto M1 pour Fouetté (augmenter la fréquence de signaux)
-- [ ] Guard "Best Day" en live (alerter si la journée en cours dépasse le seuil)
 - [ ] Corrélation inter-positions : facteur par catégorie pour open_risk guard
+- [ ] Activer GFT compte1 quand connecteur TradeLocker prêt
 
 ---
 

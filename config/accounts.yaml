@@ -30,37 +30,58 @@ accounts:
     max_total_dd_pct: 8.0           # FTMO = 10%, garde interne 8%
 
   # --------------------------------------------------------------------------
-  # FTMO — Challenge / Funded (cTrader)
+  # FTMO — Challenge Phase 1 (cTrader, 2-step)
   # --------------------------------------------------------------------------
-  # ftmo_challenge:
-  #   type: ctrader
-  #   protected: true               # ← JAMAIS en test automatique
-  #   label: "FTMO Challenge 100k — COMPTE RÉEL, ne pas utiliser en test"
-  #   is_demo: false
-  #   broker_key: ftmo_challenge
-  #   risk_per_trade_pct: 0.80      # challenge mode (Monte Carlo: P(breach)<2%)
-  #   max_daily_dd_pct: 3.0         # FTMO = 5%, garde interne 3%
-  #   max_total_dd_pct: 8.0         # FTMO = 10%, garde interne 8%
-  #
+  # 100k USD | Objectif P1: +10% | P2: +5% | MaxDD 10% balance | Daily DD 5% balance
+  # Levier 1:30 (swing) | Overnight/weekend/news OK | Split 80%
+  ftmo_challenge:
+    type: ctrader
+    protected: true               # ← JAMAIS en test automatique
+    label: "FTMO Challenge Phase 1 — 100k 2-step swing"
+    is_demo: false
+    broker_key: ftmo_challenge
+    prop_firm: ftmo
+    challenge_phase: 1            # Phase 1 = objectif 10%
+    initial_balance: 100000
+    profit_target_pct: 10.0       # Phase 1 target
+    risk_per_trade_pct: 0.80      # challenge mode (Monte Carlo: P(target)=82%)
+    max_daily_dd_pct: 3.0         # FTMO = 5%, garde interne 3%
+    max_total_dd_pct: 8.0         # FTMO = 10%, garde interne 8%
+    leverage: 30                  # 1:30 swing
+    overnight_allowed: true
+    news_trading_allowed: true
+
   # ftmo_funded:
   #   type: ctrader
-  #   protected: true               # ← JAMAIS en test automatique
-  #   label: "FTMO Funded 100k — COMPTE RÉEL"
+  #   protected: true
+  #   label: "FTMO Funded 100k"
   #   is_demo: false
   #   broker_key: ftmo_funded
-  #   risk_per_trade_pct: 0.45      # funded mode (conservative)
+  #   risk_per_trade_pct: 0.45
   #   max_daily_dd_pct: 3.0
   #   max_total_dd_pct: 8.0
 
   # --------------------------------------------------------------------------
-  # GFT — TradeLocker
+  # GFT — Challenge Phase 1 (TradeLocker, 2-step GOAT)
   # --------------------------------------------------------------------------
-  gft_compte2:
+  # 150k USD | Objectif P1: +8% | P2: +6% | MaxDD 10% | Daily DD 4%
+  # Levier 1:100 | Instruments limités (pas de crypto altcoins)
+  gft_compte1:
     type: tradelocker
-    protected: false                # ← funded mais utilisé en test live
-    label: "GFT TradeLocker Funded #2 — live test OK"
+    protected: true               # ← challenge réel
+    label: "GFT Challenge Phase 1 — 150k 2-step GOAT"
     is_demo: false
-    broker_key: gft_compte2
+    broker_key: gft_compte1
+    prop_firm: gft
+    challenge_phase: 1            # Phase 1 = objectif 8%
+    initial_balance: 150000
+    profit_target_pct: 8.0        # Phase 1 target
+    risk_per_trade_pct: 0.30      # conservatif (daily DD 4% = plus serré que FTMO)
+    max_daily_dd_pct: 2.5         # GFT = 4%, garde interne 2.5%
+    max_total_dd_pct: 8.0         # GFT = 10%, garde interne 8%
+    leverage: 100                 # 1:100
+    overnight_allowed: true
+    news_trading_allowed: true
 
   # --------------------------------------------------------------------------
   # DÉMO — Pour tests de connectivité uniquement

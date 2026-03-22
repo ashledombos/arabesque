@@ -112,20 +112,11 @@ brokers:
     auto_refresh_token: true
     # account_id: dans secrets.yaml
 
-#    # ---- GFT Compte 1 (TradeLocker) ----
-#    gft_compte1:
-#      enabled: false
-#      type: tradelocker
-#      name: "GFT Funded #1"
-#      is_demo: false
-#      base_url: "https://bsb.tradelocker.com"
-#      server: "GFTTL"
-
-  # ---- GFT Compte 2 (TradeLocker) - décommenter si nécessaire ----
-  gft_compte2:
-    enabled: false
+  # ---- GFT Compte 1 (TradeLocker, Challenge GOAT 150k) ----
+  gft_compte1:
+    enabled: false                  # activer quand prêt à trader
     type: tradelocker
-    name: "GFT Funded #2"
+    name: "GFT Challenge #1"
     is_demo: false
     base_url: "https://bsb.tradelocker.com"
     server: "GFTTL"

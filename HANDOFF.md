@@ -99,13 +99,20 @@ Scanner indices + crypto M1 requis.
   - Challenge 0.80% : P(target)=82%, P(breach)=4.5%, médiane 196 trades (~2-3 mois)
   - Funded 0.45% : P(target)=56%, P(breach)=0.3%, médiane 320 trades
 
+### Fait (2026-03-22, session 2)
+- [x] Guard "Best Day" en live (LiveMonitor) : alerte 25% (Telegram) et 30% (ntfy+Telegram)
+- [x] Profil `ftmo_challenge` activé dans accounts.yaml (Phase 1, 100k, risk 0.80%, protected)
+- [x] Profil `gft_compte1` ajouté (GFT GOAT Phase 1, 150k, risk 0.30%, protected)
+- [x] GFT compte2 supprimé (perdu pour dépassement 30j sans trade)
+- [x] Analyse instruments GFT : H1 100% couvert, H4 crypto 6/27 (les 3 top performers OK)
+- [x] Script `tmp/compare_live_vs_backtest.py` pour comparaison manuelle live vs backtest
+
 ### Immédiat
-- [ ] Configurer notifications Telegram/ntfy dans `config/secrets.yaml`
+- [ ] Configurer notifications Telegram (bot token invalide, ntfy OK)
 - [ ] Vérifier que le moteur live tourne avec les nouvelles config (lundi après weekend)
-- [ ] Préparer profil `ftmo_challenge` dans accounts.yaml (risk 0.80%)
+- [ ] Exécuter comparaison live vs backtest : `python tmp/compare_live_vs_backtest.py`
 
 ### Court terme
-- [ ] Guard "Best Day" en live (alerter si la journée en cours approche le seuil)
 - [ ] Corrélation inter-positions : facteur par catégorie pour le guard open_risk
 - [ ] Ajouter support `--session` CLI pour Fouetté (passer london/ny/tokyo)
 
