@@ -282,6 +282,11 @@ class LiveEngine:
             f"total_dd={prop_cfg.max_total_dd_pct}%"
         )
 
+        # Per-timeframe risk multipliers (e.g. H4 → 1.22 for higher risk)
+        tf_risk = general.get("risk_multiplier_by_timeframe", {})
+        if tf_risk:
+            logger.info(f"[Engine] Risk multipliers by TF: {tf_risk}")
+
         dispatcher = OrderDispatcher(
             brokers=self._brokers,
             instruments_cfg=self.instruments,
@@ -290,6 +295,7 @@ class LiveEngine:
             dry_run=self.dry_run,
             on_order_result=self._on_order_result,
             risk_multiplier_fn=self._get_risk_multiplier,
+            risk_multiplier_by_tf=tf_risk,
         )
         dispatcher._price_feed = None
         return dispatcher
@@ -730,8 +736,9 @@ class LiveEngine:
                     signal=signal,
                     broker_id=broker_id,
                     position_id=str(result.order_id),
-                    entry_price=signal.close,
-                    volume=0.01,  # sera mis à jour par register_position
+                    entry_price=result.fill_price or signal.close,
+                    volume=result.fill_volume or result.volume_lots or 0.01,
+                    risk_cash=result.risk_cash,
                 )
             # Enregistrer la position dans le monitor pour BE/trailing
             if self._position_monitor and result.order_id:

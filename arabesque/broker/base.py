@@ -61,6 +61,9 @@ class OrderResult:
     broker_response: Optional[Any] = None
     fill_price: Optional[float] = None
     fill_volume: Optional[float] = None
+    # Enrichi par le dispatcher après placement
+    risk_cash: float = 0.0          # Risque calculé en devise
+    volume_lots: float = 0.0        # Volume calculé en lots (avant ajustement broker)
     fill_time: Optional[datetime] = None
 
 

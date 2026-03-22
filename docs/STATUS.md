@@ -5,7 +5,7 @@
 > ce fichier est la référence rapide pour savoir ce qui tourne, sur quel compte, avec quel paramétrage.
 > **Mettre à jour à chaque changement de compte ou de configuration live.**
 
-Dernière mise à jour : 2026-03-17 (session Sonnet 4.6)
+Dernière mise à jour : 2026-03-22 (session Opus 4.6)
 
 ---
 
@@ -17,8 +17,8 @@ Dernière mise à jour : 2026-03-17 (session Sonnet 4.6)
 | **Commande** | `PYTHONUNBUFFERED=1 nohup python -m arabesque.live.engine > /tmp/arabesque_live.log 2>&1 &` |
 | **Log** | `/tmp/arabesque_live.log` |
 | **Compte actif** | `ftmo_swing_test` |
-| **Expire** | ~2026-03-19 (dans ~2 jours) |
-| **Balance** | ~$99 478 |
+| **Expire** | ~2026-04-05 (renouvelé 2026-03-22) |
+| **Balance** | ~$100 000 (nouveau compte) |
 | **Protection active** | LiveMonitor NORMAL (aucun DD déclenché) |
 | **Notifications** | Pas encore configurées (voir ci-dessous) |
 | **En marche jusqu'à** | 2026-03-21 23h (pas de modification prévue) |
@@ -29,11 +29,11 @@ Dernière mise à jour : 2026-03-17 (session Sonnet 4.6)
 
 | Stratégie | Timeframe | Instruments | Mode | Statut |
 |---|---|---|---|---|
-| **Extension** (trend BB) | H1 | XAUUSD, GBPJPY, AUDJPY, CHFJPY | Live plein | ✅ Actif |
-| **Extension** (trend BB) | H4 | 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…) | Live plein | ✅ Actif |
-| **Glissade** (RSI div) | H1 | XAUUSD, BTCUSD | Shadow (log seulement) | 👻 Shadow |
+| **Extension** (trend BB) | H1 | XAUUSD, GBPJPY, AUDJPY, CHFJPY | Live plein (0.45%) | ✅ Actif |
+| **Extension** (trend BB) | H4 | 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…) | Live plein (0.55% via ×1.22) | ✅ Actif |
+| **Glissade** (RSI div) | H1 | XAUUSD, BTCUSD | Live plein (0.45%) | ✅ Actif |
 
-Les signaux Glissade sont **loggés mais non exécutés** (shadow mode). Accumuler ≥ 100 trades avant décision.
+Glissade est maintenant **live** (WF 3/3 PASS, WR 83%, Exp +0.147R).
 
 ---
 
@@ -47,8 +47,8 @@ ftmo_swing_test:
   is_demo: false
 ```
 
-**Paramètres risk (PropConfig hardcodé dans guards.py) :**
-- `risk_per_trade_pct` : 0.40%
+**Paramètres risk (depuis accounts.yaml) :**
+- `risk_per_trade_pct` : 0.45% (H1), 0.55% effectif (H4 via ×1.22)
 - `max_daily_dd_pct` : 3.0% (guard interne — FTMO limite à 5%, marge de sécurité 2%)
 - `max_total_dd_pct` : 8.0% (guard interne — FTMO limite à 10%, marge 2%)
 - Reset journalier : minuit Europe/Prague
@@ -140,22 +140,82 @@ réduire le risk/trade à ~0.30% et adapter `max_daily_dd_pct` dans les guards p
 
 ---
 
+## Fait (2026-03-22)
+
+- [x] Per-timeframe risk : H4 → ×1.22 (0.55% effectif), validé par backtest
+- [x] Glissade activé en live (WF 3/3 PASS, WR 83%)
+- [x] Per-account risk overrides (accounts.yaml) — session 2026-03-21
+- [x] Guard "Best Day" (métrique backtest)
+- [x] Monte Carlo barrières : Challenge 0.80% → P(+10%)=82%, P(breach)=4.5%
+- [x] Scan Fouetté crypto M1 → seuls BTCUSD+BNBUSD viables, impact marginal
+
+## Tester les notifications
+
+```bash
+# Test ntfy (push immédiat sur téléphone)
+python -c "
+import asyncio, apprise
+async def t():
+    a = apprise.Apprise()
+    a.add('ntfys://arabesque_alertes_7x9k2m')
+    ok = await a.async_notify(body='Test Arabesque', title='TEST')
+    print('ntfy:', '✅' if ok else '❌')
+asyncio.run(t())
+"
+
+# Test Telegram (⚠️ token potentiellement invalide — vérifier bot + chat_id)
+python -c "
+import asyncio, apprise
+async def t():
+    a = apprise.Apprise()
+    a.add('tgram://TON_BOT_TOKEN@TON_CHAT_ID')
+    ok = await a.async_notify(body='Test Arabesque', title='TEST')
+    print('Telegram:', '✅' if ok else '❌')
+asyncio.run(t())
+"
+```
+
+**Statut 2026-03-22** : ntfy ✅ fonctionne, Telegram ❌ échec (vérifier le bot token).
+Pour corriger Telegram : créer un bot via @BotFather, récupérer le token, et mettre
+`tgram://BOT_TOKEN@CHAT_ID` dans `config/secrets.yaml → notifications.channels`.
+
+## Trade journal (base de données des trades)
+
+`logs/trade_journal.jsonl` — un fichier JSONL avec chaque entrée/sortie live.
+Champs clés : `instrument`, `strategy`, `side`, `entry_price`, `exit_price`,
+`result_r`, `pnl_cash`, `mfe_r`, `be_set`, `trailing_tier`, `exit_reason`.
+
+**Comparer backtest vs live** :
+```bash
+# Relancer un backtest sur la même période que le live
+python -m arabesque run --strategy extension --mode backtest \
+    --start 2026-03-16 --end 2026-03-22 XAUUSD
+
+# Puis comparer result_r du journal vs result_r du backtest
+# Le trade_journal JSONL peut être chargé dans pandas :
+python -c "
+import pandas as pd
+df = pd.read_json('logs/trade_journal.jsonl', lines=True)
+trades = df[df.event == 'exit']
+print(trades[['instrument', 'strategy', 'result_r', 'mfe_r', 'exit_reason']])
+"
+```
+
+**Bug corrigé** (2026-03-22) : `risk_cash` et `volume` étaient hardcodés à 0/0.01
+dans le journal → fixé dans `live.py` et `order_dispatcher.py`. Le pnl_cash sera
+maintenant calculé correctement pour les nouveaux trades.
+
 ## Prochaines étapes immédiates
 
 - [ ] Configurer les notifications Telegram/ntfy dans `secrets.yaml`
-- [ ] Renouveler le compte FTMO test quand il expire (~2026-03-19)
-  → Au renouvellement : passer `risk_per_trade_pct` à **0.45%** dans `arabesque/core/guards.py`
-    (LiveMonitor actif compense la marge réduite vs backtest sans protection)
-- [ ] Observer les premiers trades Glissade en shadow pour valider le signal
-- [ ] Quand ~100 trades Glissade shadow accumulés : décider activation
+- [ ] Vérifier le moteur live avec la nouvelle config après le weekend
 
 ## Prochaines étapes structurelles
 
-- [ ] Lire `max_daily_dd_pct` depuis `accounts.yaml` (actuellement hardcodé dans PropConfig)
-  → permet d'adapter automatiquement le risk selon GFT 4% vs FTMO 5%
-- [ ] Dry-run Fouetté 3 mois (WF PASS 4/4 mais fréquence trop basse en forex)
-- [ ] Scanner plus d'instruments pour Fouetté (indices, crypto)
-- [ ] Shadow live Fouetté 2-4 semaines quand fréquence validée
+- [ ] Monte Carlo avec barrières : P(+10% avant DD 10%) pour le mode challenge
+- [ ] Scanner indices + crypto M1 pour Fouetté (augmenter la fréquence de signaux)
+- [ ] Guard "Best Day" en live (alerter si la journée en cours dépasse le seuil)
+- [ ] Corrélation inter-positions : facteur par catégorie pour open_risk guard
 
 ---
 
@@ -163,23 +223,18 @@ réduire le risk/trade à ~0.30% et adapter `max_daily_dd_pct` dans les guards p
 
 ```
 Live actif :
-  Extension H1 → XAUUSD, GBPJPY, AUDJPY, CHFJPY
-  Extension H4 → 27 crypto
-  Glissade H1  → XAUUSD, BTCUSD (shadow)
+  Extension H1 → XAUUSD, GBPJPY, AUDJPY, CHFJPY (risk 0.45%)
+  Extension H4 → 27 crypto (risk 0.55% via ×1.22 TF multiplier)
+  Glissade H1  → XAUUSD, BTCUSD (risk 0.45%) ← activé 2026-03-22
 
 WF validé, non encore déployé :
   Fouetté M1   → XAUUSD London, US100 NY, BTCUSD NY (fréquence à valider)
   Cabriole 4H  → crypto (73-95% overlap Extension, pas prioritaire)
 
-Placeholder :
-  Pas de Deux  → pairs trading (long terme)
-
 Testé, edge insuffisant :
   Renversé H1  → sweep + FVG retrace (WR 73%, Exp +0.006R = breakeven)
-
-WF en cours :
-  Révérence H4 → NR7 expansion (DOGEUSD PASS WR83%, overlap Extension à vérifier)
+  Révérence H4 → NR7 expansion (DOGEUSD PASS WR83%, edge mince +0.059R)
 
 Non viable :
-  Révérence    → range contraction (NR4/NR7, inside bar) → expansion breakout
+  Pas de Deux  → pairs trading (mean-reversion, incompatible boussole)
 ```

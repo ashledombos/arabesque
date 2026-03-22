@@ -63,6 +63,7 @@ class BacktestMetrics:
     n_disqualifying_days: int = 0
     disqualifying_days: list[str] = field(default_factory=list)
     worst_daily_dd_pct: float = 0.0
+    best_day_pct: float = 0.0       # Best day profit as % of total positive-day profits
 
     # Timing
     avg_bars_in_trade: float = 0.0
@@ -279,6 +280,13 @@ def _compute_disqualifying_days(
 
     m.worst_daily_dd_pct = round(worst_daily, 2)
 
+    # Best day consistency check (FTMO: best day < ~X% of total positive profits)
+    positive_days = {d: p for d, p in daily_pnl.items() if p > 0}
+    total_positive = sum(positive_days.values())
+    if total_positive > 0 and positive_days:
+        best_day_profit = max(positive_days.values())
+        m.best_day_pct = round(best_day_profit / total_positive * 100, 1)
+
 
 def slippage_sensitivity(
     base_expectancy_r: float,
@@ -331,6 +339,7 @@ def format_report(m: BacktestMetrics) -> str:
         f"  PROP FIRM  :",
         f"    Jours disqualifiants : {m.n_disqualifying_days}",
         f"    Pire DD daily        : {m.worst_daily_dd_pct:.1f}%",
+        f"    Best day (% profits) : {m.best_day_pct:.1f}%",
     ]
 
     if m.disqualifying_days:

@@ -217,6 +217,105 @@ def monte_carlo_drawdown(
     )
 
 
+@dataclass
+class BarrierResult:
+    """Résultat du Monte Carlo avec barrières (challenge prop firm)."""
+    risk_pct: float
+    n_trades: int               # Nombre de trades par simulation
+    p_target: float             # P(atteindre +target% avant DD max%)
+    p_breach: float             # P(breach DD max%)
+    p_timeout: float            # P(ni target ni breach en n_trades)
+    median_trades_to_target: int  # Médiane du nb de trades pour atteindre le target
+    p10_trades: int             # P10 (rapide)
+    p90_trades: int             # P90 (lent)
+    target_pct: float
+    dd_max_pct: float
+
+
+def monte_carlo_barriers(
+    results_r: list[float],
+    risk_per_trade_pct: float = 0.45,
+    start_balance: float = 100_000,
+    target_pct: float = 10.0,
+    dd_max_pct: float = 10.0,
+    max_trades: int = 500,
+    n_simulations: int = 50_000,
+    seed: int | None = 42,
+) -> BarrierResult:
+    """Monte Carlo avec barrières : P(+target% avant -dd_max%).
+
+    Simule des séquences de trades tirées aléatoirement dans la distribution
+    historique. Chaque simulation s'arrête quand :
+    - Le target est atteint (equity >= start * (1 + target/100))
+    - Le DD max est breached (equity <= start * (1 - dd_max/100))
+    - max_trades trades ont été exécutés (timeout)
+    """
+    if not results_r:
+        return BarrierResult(risk_per_trade_pct, 0, 0, 0, 1.0, 0, 0, 0, target_pct, dd_max_pct)
+
+    if seed is not None:
+        random.seed(seed)
+
+    target_equity = start_balance * (1 + target_pct / 100)
+    breach_equity = start_balance * (1 - dd_max_pct / 100)
+
+    wins = 0
+    breaches = 0
+    timeouts = 0
+    trades_to_target = []
+
+    for _ in range(n_simulations):
+        equity = start_balance
+        peak = start_balance
+        hit = None
+
+        for t in range(max_trades):
+            r = random.choice(results_r)
+            risk_cash = equity * (risk_per_trade_pct / 100)
+            equity += r * risk_cash
+
+            if equity > peak:
+                peak = equity
+
+            # DD check: from start_balance (FTMO uses initial balance)
+            if equity <= breach_equity:
+                hit = "breach"
+                break
+
+            if equity >= target_equity:
+                hit = "target"
+                trades_to_target.append(t + 1)
+                break
+
+        if hit == "target":
+            wins += 1
+        elif hit == "breach":
+            breaches += 1
+        else:
+            timeouts += 1
+
+    trades_to_target.sort()
+
+    def _pct(data, p):
+        if not data:
+            return 0
+        idx = int(len(data) * p)
+        return data[min(idx, len(data) - 1)]
+
+    return BarrierResult(
+        risk_pct=risk_per_trade_pct,
+        n_trades=max_trades,
+        p_target=round(wins / n_simulations, 4),
+        p_breach=round(breaches / n_simulations, 4),
+        p_timeout=round(timeouts / n_simulations, 4),
+        median_trades_to_target=_pct(trades_to_target, 0.50),
+        p10_trades=_pct(trades_to_target, 0.10),
+        p90_trades=_pct(trades_to_target, 0.90),
+        target_pct=target_pct,
+        dd_max_pct=dd_max_pct,
+    )
+
+
 def full_statistical_analysis(
     results_r: list[float],
     risk_per_trade_pct: float = 0.5,

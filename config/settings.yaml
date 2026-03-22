@@ -14,6 +14,14 @@ general:
   default_rr_ratio: 2.5      # R/R par défaut si non fourni dans le signal
   order_timeout_candles: 4   # Expiration des ordres limites (en bougies)
   candle_timeframe_minutes: 240  # Timeframe des bougies (240 = H4)
+  # Multiplicateur de risque par timeframe — appliqué sur le risk_cash après sizing.
+  # H4 produit ~1.2 trades/jour en crypto → daily DD naturellement plafonné (~0.6%)
+  # → on peut monter le risk sans risquer le daily DD 3%.
+  # Validé par backtest 2026-03-22 : H4 crypto 0.60% → daily DD max 0.6%.
+  # 1.22 × 0.45% = 0.55% effectif.
+  risk_multiplier_by_timeframe:
+    "h4": 1.22              # 0.45% × 1.22 ≈ 0.55% effectif
+    # "h1": 1.0             # défaut, pas besoin de lister
 
 # -----------------------------------------------------------------------------
 # EXÉCUTION

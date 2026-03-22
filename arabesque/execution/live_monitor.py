@@ -103,6 +103,11 @@ class MonitorConfig:
     risk_multiplier_caution: float = 0.50
     risk_multiplier_danger: float = 0.25
 
+    # Best Day consistency guard (FTMO)
+    # Alert if today's profit exceeds this % of total positive-day profits
+    best_day_warn_pct: float = 25.0   # warn at 25%, FTMO flags ~30%
+    best_day_critical_pct: float = 30.0  # critical at 30%
+
     # Notifications
     # Apprise URLs — set in config/secrets.yaml → notifications section
     telegram_channel: str = ""   # tgram://bottoken@chat_id
@@ -232,6 +237,11 @@ class LiveMonitor:
         self._brokers: dict = {}
         self._dispatcher = None
         self._position_monitor = None
+
+        # Daily P&L tracking (Best Day guard)
+        # date_str → total pnl_cash for that day
+        self._daily_pnl: dict[str, float] = {}
+        self._best_day_alert_sent_today: str = ""  # date of last alert
 
         # Notification state (avoid spam)
         self._last_notification_time: float = 0.0
@@ -738,6 +748,10 @@ class LiveMonitor:
             self._perf_by_inst[inst] = StrategyPerf(strategy=inst)
         self._perf_by_inst[inst].record(trade.result_r)
 
+        # Track daily P&L for Best Day guard
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        self._daily_pnl[today] = self._daily_pnl.get(today, 0.0) + trade.pnl_cash
+
         self._closed_trades.append(trade)
         if len(self._closed_trades) > self._max_closed_history:
             self._closed_trades = self._closed_trades[-self._max_closed_history:]
@@ -774,6 +788,7 @@ class LiveMonitor:
 
         self._check_drift(strat)
         self._check_consecutive_losses(strat)
+        self._check_best_day(today)
 
         return trade
 
@@ -877,6 +892,56 @@ class LiveMonitor:
                 ))
             else:
                 asyncio.ensure_future(self._notify_telegram(f"🔴 {msg}"))
+
+    # ------------------------------------------------------------------
+    # Best Day consistency guard (FTMO)
+    # ------------------------------------------------------------------
+
+    def _check_best_day(self, today: str) -> None:
+        """Alerte si le profit du jour dépasse le seuil Best Day.
+
+        FTMO exige que le meilleur jour ne représente pas plus de ~30%
+        du total des profits des jours positifs. On alerte en amont.
+        """
+        today_pnl = self._daily_pnl.get(today, 0.0)
+        if today_pnl <= 0:
+            return  # Jour négatif ou neutre — pas de risque
+
+        # Sum of all positive days (excluding today to compute ratio correctly)
+        positive_days_total = sum(
+            pnl for d, pnl in self._daily_pnl.items()
+            if pnl > 0
+        )
+
+        if positive_days_total <= 0:
+            return
+
+        best_day_pct = today_pnl / positive_days_total * 100
+
+        # Avoid spamming: one alert per day per threshold
+        if self._best_day_alert_sent_today == today:
+            return
+
+        if best_day_pct >= self._cfg.best_day_critical_pct:
+            self._best_day_alert_sent_today = today
+            msg = (
+                f"BEST DAY CRITIQUE: aujourd'hui {today_pnl:+.0f}$ = "
+                f"{best_day_pct:.0f}% des profits positifs (seuil {self._cfg.best_day_critical_pct:.0f}%). "
+                f"Risque de flag FTMO consistency."
+            )
+            logger.warning(f"[LiveMonitor] 🚨 {msg}")
+            asyncio.ensure_future(self._notify_ntfy(f"⚠️ {msg}"))
+            asyncio.ensure_future(self._notify_telegram(f"🚨 {msg}"))
+
+        elif best_day_pct >= self._cfg.best_day_warn_pct:
+            self._best_day_alert_sent_today = today
+            msg = (
+                f"BEST DAY WARNING: aujourd'hui {today_pnl:+.0f}$ = "
+                f"{best_day_pct:.0f}% des profits positifs (seuil warn {self._cfg.best_day_warn_pct:.0f}%). "
+                f"Surveiller les prochains trades."
+            )
+            logger.warning(f"[LiveMonitor] ⚠️ {msg}")
+            asyncio.ensure_future(self._notify_telegram(f"⚠️ {msg}"))
 
     # ------------------------------------------------------------------
     # Health report
@@ -1030,6 +1095,13 @@ class LiveMonitor:
                             if inst not in self._perf_by_inst:
                                 self._perf_by_inst[inst] = StrategyPerf(strategy=inst)
                             self._perf_by_inst[inst].record(entry.get("result_r", 0.0))
+
+                        # Rebuild daily P&L for Best Day guard
+                        ts = entry.get("ts", "")
+                        pnl = entry.get("pnl_cash", 0.0)
+                        if ts and pnl != 0:
+                            day = ts[:10]  # "2026-03-22T..." → "2026-03-22"
+                            self._daily_pnl[day] = self._daily_pnl.get(day, 0.0) + pnl
 
             n_total = sum(p.n_trades for p in self._perf.values())
             if n_total > 0:

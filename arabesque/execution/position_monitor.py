@@ -504,6 +504,30 @@ class LivePositionMonitor:
                             logger.warning(
                                 f"[Monitor] on_position_closed callback error: {e}"
                             )
+                # Détection d'orphelins : positions broker non trackées par Arabesque
+                tracked_ids = {
+                    self._positions[k].position_id
+                    for k in keys if k in self._positions
+                }
+                for bp in broker_positions:
+                    pid = str(bp.position_id)
+                    if pid not in tracked_ids:
+                        has_sl = getattr(bp, 'stop_loss', None) not in (None, 0, 0.0)
+                        has_tp = getattr(bp, 'take_profit', None) not in (None, 0, 0.0)
+                        sym = getattr(bp, 'symbol', '?')
+                        vol = getattr(bp, 'volume', 0)
+                        side = getattr(bp, 'side', '?')
+                        warning_parts = []
+                        if not has_sl:
+                            warning_parts.append("PAS DE SL")
+                        if not has_tp:
+                            warning_parts.append("PAS DE TP")
+                        flags = " ".join(warning_parts) if warning_parts else "SL+TP OK"
+                        logger.warning(
+                            f"[Monitor] 👻 Position orpheline détectée: "
+                            f"{sym} {side} {vol}L id={pid} sur {broker_id} "
+                            f"— {flags} — non gérée par Arabesque"
+                        )
             except Exception as e:
                 logger.warning(f"[Monitor] Reconcile error for {broker_id}: {e}")
 

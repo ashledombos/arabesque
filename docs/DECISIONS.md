@@ -2014,3 +2014,169 @@ Corrigé aussi : settings.yaml risk_percent 0.40 → 0.45 (cohérent avec guards
 3. Convergence peut prendre des semaines, incompatible avec rythme challenge
 
 **Décision** : Reste en placeholder "long terme" sans investissement de temps.
+
+## Décision 2026-03-22 — Per-timeframe risk multiplier (H4 → 0.55%)
+
+**Problème** : H4 crypto produit ~1.2 trades/jour moyen. Le daily DD est naturellement
+plafonné par la fréquence basse. Avec 0.45%/trade (même risk que H1), on sous-utilise
+la capacité du timeframe à absorber plus de risque.
+
+**Backtest** (510 trades, 14 crypto, 20 mois) :
+
+| Risk/trade | Daily DD max | MaxDD pire instr. | Jours disq |
+|---|---|---|---|
+| 0.45% | 0.5% | 3.1% (AAVEUSD) | 0 |
+| 0.55% | 0.6% | 3.8% | 0 |
+| 0.60% | 0.6% | 4.1% | 0 |
+
+Même à 0.60%, le daily DD max est 0.6% — très loin du guard 3%.
+Pire scénario réaliste (3-4 instruments perdant le même jour) : ~1.8% daily DD.
+
+**Solution** : `risk_multiplier_by_timeframe` dans settings.yaml, appliqué dans
+le dispatcher après compute_sizing. H4 → ×1.22 (0.45% × 1.22 ≈ 0.55% effectif).
+Conservateur par rapport au 0.60% testé.
+
+**Implémentation** :
+- `settings.yaml` : `general.risk_multiplier_by_timeframe.h4: 1.22`
+- `order_dispatcher.py` : lookup `signal.timeframe.lower()` → multiplier
+- `bar_aggregator.py` : override `signal.timeframe` avec le TF réel de l'aggregator
+  (les signal.py hardcodent "1h", ce qui serait faux pour un aggregator H4)
+- `live.py` : passe le dict au dispatcher
+
+## Décision 2026-03-22 — Glissade activé en live (plus shadow)
+
+**Constat** : Glissade était documenté comme "shadow" mais dans le code, les signaux
+passaient déjà au dispatcher normalement (pas de mécanisme de shadow dans le code).
+Le shadow était une intention documentaire, pas une implémentation.
+
+**Backtest de référence** (151 trades, 0.45% risk) :
+
+| Instrument | Trades | WR | Exp(R) | PF | MaxDD | Daily DD max |
+|---|---|---|---|---|---|---|
+| XAUUSD | 60 | 80% | +0.132R | 1.66 | 1.7% | 0.5% |
+| BTCUSD | 91 | 85% | +0.157R | 2.02 | 1.4% | 0.5% |
+
+WF 3/3 PASS, WR 83%, Exp +0.147R. Les guards sont sûrs (daily DD max 0.5%).
+
+**Décision** : Glissade est maintenant officiellement live sur XAUUSD + BTCUSD H1.
+
+## Décision 2026-03-22 — Guard "Best Day" (métrique de consistance)
+
+**Problème** : FTMO impose que le meilleur jour ne représente pas plus de X% du
+profit total des jours positifs. Un trade géant peut invalider le challenge.
+
+**Implémentation** : `best_day_pct` ajouté dans `metrics.py`. Calcule le pourcentage
+du meilleur jour positif sur le total de tous les jours positifs.
+
+Résultats sur les stratégies actives :
+- Extension H1 XAUUSD : best_day = 6.4% (excellent)
+- Glissade XAUUSD : 14.9%, BTCUSD : 10.6%
+- Crypto individuelles : 19-33% (normal avec peu de trades par instrument)
+- En portefeuille combiné, dilué à ~5-10% (de multiples instruments contribuent)
+
+**Statut** : métrique de backtest uniquement. Guard live (alerter si seuil approché)
+en TODO pour le mode challenge.
+
+## Décision 2026-03-22 — Scan Fouetté crypto M1 (fréquence)
+
+**Question** : Peut-on augmenter la fréquence de trades via Fouetté sur plus de crypto ?
+
+**Résultats** (14 crypto, session NY, 803 jours, M1) :
+
+| Instrument | Trades | WR | Exp(R) | Verdict |
+|---|---|---|---|---|
+| BNBUSD | 181 | 74% | +0.031R | **Seul viable** (avec BTCUSD) |
+| BTCUSD | 185 | 72.4% | +0.019R | **Viable** (WF PASS déjà connu) |
+| ETHUSD | 314 | 73.2% | +0.004R | Breakeven |
+| SOLUSD | 476 | 74.4% | -0.002R | Breakeven |
+| NEARUSD | 586 | 73.0% | -0.000R | Breakeven |
+| LTCUSD | 346 | 74.0% | -0.007R | Breakeven |
+| XRPUSD | 358 | 74.0% | -0.013R | Négatif |
+| AVAXUSD | 524 | 71.4% | -0.006R | Breakeven |
+| Reste | - | <72% | <-0.018R | Négatif |
+
+**Constat** : XAUUSD London = 3 trades/800j (quasi mort). XAUUSD NY = 14 trades.
+Crypto : seuls BNBUSD et BTCUSD ont un edge. BTCUSD+BNBUSD = 0.46 trades/jour.
+
+**Décision** : Fouetté ne change pas la donne. Edge trop faible (+0.019-0.031R),
+fréquence insuffisante pour accélérer un challenge. Le portefeuille actuel
+(Extension H1+H4 + Glissade H1) est le vrai levier. L'accélération passe par
+le risk 0.80% en challenge, pas par l'ajout de stratégies marginales.
+
+Fouetté reste en "WF validé, non déployé" pour BTCUSD NY + BNBUSD NY.
+Activation possible comme source complémentaire de trades, mais impact marginal.
+
+## Décision 2026-03-22 — Monte Carlo avec barrières (calibration challenge)
+
+**Question** : Quelle est la probabilité d'atteindre +10% (target challenge FTMO)
+avant de toucher -10% (DD max) ?
+
+**Implémentation** : `monte_carlo_barriers()` dans `stats.py`. Tire des séquences
+de trades aléatoires dans la distribution historique, s'arrête quand une barrière
+est touchée (target ou DD) ou après 500 trades (timeout).
+
+**Résultats — Portefeuille combiné** (880 trades, WR 80%, Exp +0.040R) :
+Extension H1 (XAUUSD, GBPJPY, AUDJPY, CHFJPY) + Extension H4 (crypto) + Glissade H1 (XAUUSD, BTCUSD).
+
+| Risk/trade | P(+10%) | P(DD 10%) | Timeout | Trades médians |
+|---|---|---|---|---|
+| 0.45% | 55.9% | 0.3% | 43.8% | 320 |
+| 0.55% | 67.9% | 0.9% | 31.2% | 276 |
+| 0.60% | 72.2% | 1.5% | 26.4% | 257 |
+| **0.80%** | **81.8%** | **4.5%** | 13.7% | **196** |
+
+**Interprétation** :
+- À 0.80% (mode challenge) : **81.8% de succès, 4.5% de breach** → ratio 18:1
+- Médiane 196 trades ≈ 2-3 mois de trading (H4 ~1.2 trades/jour + H1 ~1 trade/jour)
+- Le P(breach) reste sous 5% même à 0.80% → les guards LiveMonitor (CAUTION/DANGER/EMERGENCY)
+  réduiraient encore ce risque en live
+- Le timeout (13.7%) correspond aux trajectoires "flat" où ni le target ni le DD ne sont touchés
+
+**Recommandation** :
+- **Funded** : 0.45% H1 + 0.55% H4 (config actuelle, P(target) 56-68%)
+- **Challenge** : 0.80% uniforme (P(target) 82%, P(breach) 4.5%, ~2-3 mois)
+
+**Note** : L'Exp H4 crypto est quasi-nulle (-0.003R) dans ce backtest sans tick TSL
+optimisé. En live avec tick TSL, l'edge est plus élevé (~+0.065R par CLI).
+Le portefeuille combiné est ce qui porte la performance : diversification H1+H4+Glissade.
+
+**P(breach) surestimé** : Le Monte Carlo simule à risque constant. En live, deux
+mécanismes réduisent le risque dynamiquement :
+1. `compute_sizing` (guards.py) : réduction linéaire du risk entre 0% et -(max_total_dd - margin%)
+2. LiveMonitor (live_monitor.py) : 4 paliers de protection
+   - CAUTION (daily ≤-2.5% ou total ≤-5%) → risk ×0.50
+   - DANGER (daily ≤-3.0% ou total ≤-6.5%) → risk ×0.25 + ferme positions sans BE
+   - EMERGENCY (daily ≤-3.5% ou total ≤-8.0%) → ferme TOUT + freeze trading
+Le P(breach) réel est donc significativement inférieur aux 4.5% simulés à 0.80%.
+
+## Décision 2026-03-22 — Fix risk_cash/volume dans le trade journal
+
+**Problème** : Tous les trades dans `trade_journal.jsonl` affichent `risk_cash: 0.0`
+et `volume: 0.01` (hardcodé). Résultat : `pnl_cash` calculé à 0 → impossible de
+mesurer la performance en $ depuis le journal.
+
+**Cause** : `live.py:_on_order_result()` passait `volume=0.01` (hardcodé) et ne
+passait pas `risk_cash` au `LiveMonitor.record_entry()`. Le `OrderResult` du broker
+ne contient pas les données de sizing (calculées par le dispatcher, pas par le broker).
+
+**Fix** :
+1. `base.py:OrderResult` : ajouté `risk_cash` et `volume_lots` (enrichi par le dispatcher)
+2. `order_dispatcher.py` : enrichit `result.risk_cash` et `result.volume_lots` depuis
+   le `PlaceSignal` avant de passer au callback
+3. `live.py:_on_order_result()` : utilise `result.fill_volume or result.volume_lots`
+   et `result.risk_cash`
+
+**Impact** : les anciens trades dans le JSONL gardent `risk_cash: 0.0` (pas corrigeable
+rétroactivement). Les nouveaux trades auront les bonnes valeurs.
+
+## Décision 2026-03-22 — Alerte lot sous-évalué + orphelins
+
+**Lot sous-évalué** : ajouté warning dans le dispatcher si `risque_effectif < 50%
+du risk_cash demandé`. Permet de détecter un problème de pip_value ou lot_size.
+
+**Positions orphelines** : `reconcile()` dans position_monitor.py détecte maintenant
+les positions broker non trackées par Arabesque. Log `👻 Position orpheline` avec
+alerte si pas de SL ou pas de TP. Cas d'usage : positions ouvertes manuellement,
+positions residuelles d'un crash, ou positions d'un autre système.
+
+Pas de fermeture automatique (trop dangereux) — alerte seulement.

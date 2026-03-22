@@ -377,6 +377,8 @@ class BarAggregator:
                 )
 
             for _, signal in new_signals:
+                # Override timeframe with actual aggregator TF (signal.py may hardcode "1h")
+                signal.timeframe = self._timeframe_label()
                 self._signals_emitted += 1
                 self._batch_signals += 1
                 logger.info(

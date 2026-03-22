@@ -3,17 +3,17 @@
 > **Pour reprendre le développement dans un nouveau chat.**
 > État live courant → `docs/STATUS.md`. Décisions techniques → `docs/DECISIONS.md`.
 >
-> Dernière mise à jour : 2026-03-20
+> Dernière mise à jour : 2026-03-22
 
 ---
 
 ## État en un coup d'œil
 
 ```
-Live actif (compte ftmo_swing_test, expire ~2026-03-19) :
-  Extension H1  → XAUUSD, GBPJPY, AUDJPY, CHFJPY
-  Extension H4  → 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…)
-  Glissade H1   → XAUUSD, BTCUSD (shadow — log seulement)
+Live actif (compte ftmo_swing_test, renouvelé 2026-03-22) :
+  Extension H1  → XAUUSD, GBPJPY, AUDJPY, CHFJPY (risk 0.45%)
+  Extension H4  → 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…) (risk 0.55% via TF multiplier)
+  Glissade H1   → XAUUSD, BTCUSD (LIVE — WF 3/3 PASS, WR 83%, Exp +0.147R)
 
 WF validé, non déployé :
   Fouetté M1    → XAUUSD London, US100 NY, BTCUSD NY (fréquence insuffisante)
@@ -66,11 +66,12 @@ Scanner indices + crypto M1 requis.
 
 | Paramètre | Valeur | Source |
 |---|---|---|
-| `risk_per_trade_pct` | **0.45%** | `arabesque/core/guards.py` (relevé 0.40→0.45 le 2026-03-18) |
-| `max_daily_dd_pct` | 3.0% | guards.py (FTMO limite 5%, GFT 4%) |
-| `max_total_dd_pct` | 8.0% | guards.py (FTMO limite 10%) |
+| `risk_per_trade_pct` | **0.45%** (H1), **0.55%** (H4 via ×1.22) | accounts.yaml + settings.yaml |
+| `max_daily_dd_pct` | 3.0% | accounts.yaml (FTMO limite 5%, GFT 4%) |
+| `max_total_dd_pct` | 8.0% | accounts.yaml (FTMO limite 10%) |
 | BE trigger / offset | 0.3R / 0.20R | position_manager.py |
 | Protection active | LiveMonitor 4 paliers | execution/live_monitor.py |
+| Per-TF risk multiplier | H4 → ×1.22 | settings.yaml (risk_multiplier_by_timeframe) |
 
 ---
 
@@ -88,19 +89,40 @@ Scanner indices + crypto M1 requis.
 
 ## Prochaines étapes
 
+### Fait (2026-03-22)
+- [x] Per-timeframe risk : H4 → ×1.22 (0.55% effectif). Backtest validé : daily DD max 0.6% à 0.60%.
+- [x] Glissade activée en live (était déjà intégrée au pipeline, pas en shadow dans le code)
+- [x] Per-account risk overrides (accounts.yaml) — déjà fait session 2026-03-21
+- [x] Guard "Best Day" (% du profit total) ajouté dans metrics.py
+- [x] Bar aggregator override le timeframe du signal (corrige le hardcode "1h" dans signal.py)
+- [x] Monte Carlo avec barrières : P(+10% avant DD 10%) — `monte_carlo_barriers()` dans stats.py
+  - Challenge 0.80% : P(target)=82%, P(breach)=4.5%, médiane 196 trades (~2-3 mois)
+  - Funded 0.45% : P(target)=56%, P(breach)=0.3%, médiane 320 trades
+
 ### Immédiat
-- [ ] Renouveler le compte FTMO test (~2026-03-21) — voir procédure dans `docs/STATUS.md`
 - [ ] Configurer notifications Telegram/ntfy dans `config/secrets.yaml`
+- [ ] Vérifier que le moteur live tourne avec les nouvelles config (lundi après weekend)
+- [ ] Préparer profil `ftmo_challenge` dans accounts.yaml (risk 0.80%)
 
 ### Court terme
-- [ ] Accumuler ~100 trades Glissade shadow → décider activation live
-- [ ] Scanner indices + crypto M1 pour Fouetté (augmenter la fréquence de signaux)
-- [ ] Analyser overlap Révérence H4 vs Extension H4 crypto (comme Cabriole)
-- [ ] Si overlap < 50% : shadow Révérence DOGEUSD, SOLUSD, ETHUSD H4
+- [ ] Guard "Best Day" en live (alerter si la journée en cours approche le seuil)
+- [ ] Corrélation inter-positions : facteur par catégorie pour le guard open_risk
+- [ ] Ajouter support `--session` CLI pour Fouetté (passer london/ny/tokyo)
 
-### Structurel
-- [ ] Lire `max_daily_dd_pct` depuis `accounts.yaml` (GFT = 4%, FTMO = 5%)
-  → actuellement hardcodé dans `PropConfig` dans `guards.py`
+### Exploré et conclu (2026-03-22)
+- [x] Monte Carlo barrières → Challenge 0.80% : P(target)=82%, P(breach)=4.5% (surestimé vu les guards adaptatifs)
+- [x] Scan Fouetté crypto M1 → seuls BTCUSD+BNBUSD NY viables, edge faible (+0.019-0.031R)
+  → Fouetté ne change pas la donne. L'accélération challenge passe par risk 0.80%
+- [x] XAUUSD London Fouetté → 3 trades/800j, quasi mort
+
+### Bugs corrigés (2026-03-22)
+- [x] `risk_cash: 0.0` dans trade_journal → live.py hardcodait `volume=0.01, risk_cash=0`
+  au lieu de passer les valeurs calculées par le dispatcher. Fix : `OrderResult` enrichi
+  avec `risk_cash` et `volume_lots` depuis le dispatcher.
+- [x] Alerte lot sous-évalué : warning si lot effectif < 50% du risque demandé
+- [x] Détection positions orphelines : `reconcile()` détecte les positions broker
+  non trackées par Arabesque et logge un warning `👻 Position orpheline`
+- [x] ntfy testé et fonctionnel. Telegram KO (bot token à vérifier)
 
 ---
 

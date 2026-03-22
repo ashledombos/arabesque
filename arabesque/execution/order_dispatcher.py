@@ -144,6 +144,7 @@ class OrderDispatcher:
         dry_run: bool = False,
         on_order_result: Optional[Callable] = None,
         risk_multiplier_fn: Optional[Callable] = None,
+        risk_multiplier_by_tf: Optional[Dict[str, float]] = None,
     ):
         self.brokers = brokers
         self.instruments_cfg = instruments_cfg
@@ -155,6 +156,7 @@ class OrderDispatcher:
         self.dry_run = dry_run
         self.on_order_result = on_order_result
         self._risk_multiplier_fn = risk_multiplier_fn
+        self._risk_multiplier_by_tf = risk_multiplier_by_tf or {}
 
         # Signaux en attente, indexés par symbole
         self._pending: Dict[str, List[PendingSignal]] = {}
@@ -233,6 +235,17 @@ class OrderDispatcher:
             self._stats["signals_rejected"] += 1
             return False
 
+        # Per-timeframe risk multiplier (H4 → higher risk, validated by backtest)
+        tf_key = getattr(signal, "timeframe", "1h").lower()
+        tf_mult = self._risk_multiplier_by_tf.get(tf_key, 1.0)
+        if tf_mult != 1.0:
+            original = sizing["risk_cash"]
+            sizing["risk_cash"] = round(original * tf_mult, 2)
+            logger.info(
+                f"[Dispatcher] 📊 TF risk adjust: {original:.0f}$ × "
+                f"{tf_mult:.2f} ({tf_key}) = {sizing['risk_cash']:.0f}$"
+            )
+
         # Apply live monitor risk multiplier (protection tiers)
         if self._risk_multiplier_fn:
             multiplier = self._risk_multiplier_fn()
@@ -249,6 +262,17 @@ class OrderDispatcher:
         risk_distance = sizing["risk_distance"]
         risk_cash = sizing["risk_cash"]
         volume_lots = self._compute_lots(signal, risk_cash, risk_distance)
+
+        # Alerter si le lot semble sous-évalué (< 50% du risque attendu)
+        if volume_lots > 0 and risk_cash > 0 and risk_distance > 0:
+            pip_val = self.instruments_cfg.get(signal.instrument, {}).get("pip_value_per_lot", 10)
+            expected_risk = volume_lots * risk_distance * pip_val
+            if expected_risk < risk_cash * 0.5:
+                logger.warning(
+                    f"[Dispatcher] ⚠️ Lot sous-évalué {signal.instrument}: "
+                    f"vol={volume_lots:.3f}L risque_effectif≈{expected_risk:.0f}$ "
+                    f"vs demandé={risk_cash:.0f}$ (ratio={expected_risk/risk_cash:.1%})"
+                )
 
         # Déterminer le type d'ordre (LIMIT vs STOP)
         # Arabesque utilise les entrées LIMIT par défaut (mean-reversion)
@@ -476,6 +500,9 @@ class OrderDispatcher:
                 await asyncio.sleep(delay_s)
 
             result = await self._place_on_broker(broker_id, broker, ps, tick)
+            # Enrichir le result avec les données de sizing
+            result.risk_cash = ps.risk_cash
+            result.volume_lots = ps.volume_lots
             results.append((broker_id, result))
 
             if self.on_order_result:
