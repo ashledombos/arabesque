@@ -1,8 +1,8 @@
 # Arabesque
 
-*Personal algorithmic trading experiment for proprietary trading firm challenges (FTMO, GFT).*
+*Personal algorithmic trading experiment for proprietary trading firm challenges.*
 
-*Expérimentation personnelle de trading algorithmique pour challenges de prop firms (FTMO, GFT).*
+*Expérimentation personnelle de trading algorithmique pour challenges de prop firms.*
 
 Feel free to explore, fork, or adapt any part of this project for your own use.
 Libre à vous d'explorer, forker ou adapter ce projet à vos besoins.
