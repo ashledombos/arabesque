@@ -182,7 +182,40 @@ def load_full_config(
     else:
         instruments = instruments_from_settings
 
+    # --- Résolution des références credentials dans secrets ---
+    # Les brokers peuvent référencer des credentials partagés via oauth:/auth:
+    # Ex: ftmo_challenge.oauth: ctrader_oauth → merge ctrader_oauth dans ftmo_challenge
+    _resolve_secret_refs(secrets)
+
     return settings, secrets, instruments
+
+
+def _resolve_secret_refs(secrets: dict) -> None:
+    """Résout les références oauth:/auth: dans secrets.yaml.
+
+    Permet de stocker les credentials OAuth/login une seule fois et de les
+    référencer depuis chaque broker par clé.
+
+    Exemple secrets.yaml :
+        ctrader_oauth:
+          client_id: ...
+          access_token: ...
+        ftmo_challenge:
+          account_id: '12345'
+          oauth: ctrader_oauth    ← référence résolue ici
+    """
+    for broker_id, broker_data in list(secrets.items()):
+        if not isinstance(broker_data, dict):
+            continue
+        for ref_key in ("oauth", "auth"):
+            ref_name = broker_data.pop(ref_key, None)
+            if ref_name and ref_name in secrets:
+                ref_data = secrets[ref_name]
+                if isinstance(ref_data, dict):
+                    # Merge : les champs du broker ont priorité sur la ref
+                    merged = dict(ref_data)
+                    merged.update(broker_data)
+                    secrets[broker_id] = merged
 
 
 # =============================================================================
@@ -199,20 +232,14 @@ def update_broker_tokens(
     Met à jour les tokens cTrader dans secrets.yaml après un refresh OAuth2.
 
     Appelé par CTraderBroker._save_tokens_to_config() à chaque refresh.
-    Retourne True si la sauvegarde a réussi, False sinon.
 
-    IMPORTANT — Token sharing :
-    Les tokens OAuth cTrader sont liés au client_id, pas au compte de trading.
-    Un seul jeu access_token/refresh_token donne accès à TOUS les comptes
-    du même client_id. Le refresh_token est à usage unique : quand un broker
-    le consomme, l'ancien est invalidé pour tous les autres.
-
-    Cette fonction détecte automatiquement les brokers qui partagent le même
-    client_id et met à jour leurs tokens en même temps, évitant ainsi les
-    conflits d'invalidation croisée.
+    Supporte deux structures secrets.yaml :
+    1. Ancienne : tokens directement dans chaque broker (client_id dupliqué)
+    2. Nouvelle : tokens dans une section partagée (ctrader_oauth), référencée
+       par oauth: dans chaque broker. Les tokens sont mis à jour UNE SEULE FOIS
+       dans la section partagée.
 
     Le fichier est lu, modifié en mémoire, puis réécrit atomiquement.
-    Les autres credentials (email, passwords) ne sont pas touchés.
     """
     secrets_path = Path(secrets_path)
 
@@ -227,29 +254,32 @@ def update_broker_tokens(
         with open(secrets_path) as f:
             data = yaml.safe_load(f) or {}
 
-        if broker_id not in data:
-            data[broker_id] = {}
+        # Stratégie 1 : le broker référence une section partagée via oauth:
+        broker_data = data.get(broker_id, {})
+        oauth_ref = broker_data.get("oauth") if isinstance(broker_data, dict) else None
 
-        # Identifier le client_id de ce broker
-        client_id = data[broker_id].get("client_id", "")
+        if oauth_ref and oauth_ref in data:
+            # Mettre à jour la section partagée uniquement
+            data[oauth_ref]["access_token"] = access_token
+            data[oauth_ref]["refresh_token"] = refresh_token
+            target_label = f"{oauth_ref} (shared, via {broker_id})"
+        else:
+            # Stratégie 2 (ancienne) : tokens dans le broker directement
+            if broker_id not in data:
+                data[broker_id] = {}
+            data[broker_id]["access_token"] = access_token
+            data[broker_id]["refresh_token"] = refresh_token
 
-        # Trouver tous les brokers qui partagent le même client_id
-        siblings = []
-        if client_id:
-            for bid, bdata in data.items():
-                if (isinstance(bdata, dict)
-                        and bdata.get("client_id") == client_id
-                        and bid != broker_id):
-                    siblings.append(bid)
-
-        # Mettre à jour le broker principal
-        data[broker_id]["access_token"] = access_token
-        data[broker_id]["refresh_token"] = refresh_token
-
-        # Mettre à jour tous les brokers du même client_id
-        for sib in siblings:
-            data[sib]["access_token"] = access_token
-            data[sib]["refresh_token"] = refresh_token
+            # Propager aux siblings qui ont le même client_id
+            client_id = data[broker_id].get("client_id", "")
+            if client_id:
+                for bid, bdata in data.items():
+                    if (isinstance(bdata, dict)
+                            and bdata.get("client_id") == client_id
+                            and bid != broker_id):
+                        bdata["access_token"] = access_token
+                        bdata["refresh_token"] = refresh_token
+            target_label = broker_id
 
         # Écriture atomique via fichier temporaire
         tmp_path = secrets_path.with_suffix(".yaml.tmp")
@@ -257,17 +287,9 @@ def update_broker_tokens(
             yaml.dump(data, f, default_flow_style=False, allow_unicode=True)
         tmp_path.replace(secrets_path)
 
-        if siblings:
-            logger.info(
-                f"[update_broker_tokens] ✅ Tokens sauvegardés pour {broker_id} "
-                f"+ {len(siblings)} sibling(s) ({', '.join(siblings)}) "
-                f"dans {secrets_path}"
-            )
-        else:
-            logger.info(
-                f"[update_broker_tokens] ✅ Tokens sauvegardés pour {broker_id} "
-                f"dans {secrets_path}"
-            )
+        logger.info(
+            f"[update_broker_tokens] ✅ Tokens sauvegardés: {target_label}"
+        )
         return True
 
     except Exception as e:

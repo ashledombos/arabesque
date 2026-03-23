@@ -104,15 +104,6 @@ brokers:
     auto_refresh_token: true
     # account_id: dans secrets.yaml
 
-  # ---- FTMO compte test (cTrader) — expire tous les 15j ----
-  ftmo_swing_test:
-    enabled: false                # désactivé, remplacé par ftmo_challenge
-    type: ctrader
-    name: "FTMO compte test"
-    is_demo: false
-    auto_refresh_token: true
-    # account_id: dans secrets.yaml
-
   # ---- GFT Compte 1 (TradeLocker, Challenge GOAT 150k) ----
   gft_compte1:
     enabled: false                  # activer quand prêt à trader

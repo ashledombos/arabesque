@@ -17,23 +17,11 @@
 accounts:
 
   # --------------------------------------------------------------------------
-  # FTMO — Compte de test (cTrader)
-  # --------------------------------------------------------------------------
-  ftmo_swing_test:
-    type: ctrader
-    protected: false                # ← test OK, pas de fonds réels
-    label: "FTMO Swing Test — compte de test, OK pour dry-run et live test"
-    is_demo: false                  # cTrader "live" mais compte test FTMO
-    broker_key: ftmo_swing_test     # clé dans config/settings.yaml → brokers
-    risk_per_trade_pct: 0.45        # funded mode (override general.risk_percent)
-    max_daily_dd_pct: 3.0           # FTMO = 5%, garde interne 3%
-    max_total_dd_pct: 8.0           # FTMO = 10%, garde interne 8%
-
-  # --------------------------------------------------------------------------
   # FTMO — Challenge Phase 1 (cTrader, 2-step)
   # --------------------------------------------------------------------------
   # 100k USD | Objectif P1: +10% | P2: +5% | MaxDD 10% balance | Daily DD 5% balance
   # Levier 1:30 (swing) | Overnight/weekend/news OK | Split 80%
+  # Solde actuel : ~94 989$ (DD -5.01%) — mode conservatif
   ftmo_challenge:
     type: ctrader
     protected: false              # ← OK pour live (risk conservatif 0.45%)
@@ -44,8 +32,8 @@ accounts:
     challenge_phase: 1            # Phase 1 = objectif 10%
     initial_balance: 100000
     profit_target_pct: 10.0       # Phase 1 target
-    risk_per_trade_pct: 0.45      # conservatif (compte en DD -0.44%, validation d'abord)
-    # → Passer à 0.80% une fois la config validée en live
+    risk_per_trade_pct: 0.45      # conservatif (compte en DD -5%, validation d'abord)
+    # → Passer à 0.80% une fois stabilisé
     max_daily_dd_pct: 3.0         # FTMO = 5%, garde interne 3%
     max_total_dd_pct: 8.0         # FTMO = 10%, garde interne 8%
     leverage: 30                  # 1:30 swing
