@@ -42,7 +42,7 @@ Voir `params.yaml` pour les jeux de paramètres validés.
 | `sl_atr_mult` | 1.5 | Multiplicateur ATR pour le SL |
 | `be_trigger_r` | 0.30 | MFE pour activer le breakeven |
 | `be_offset_r` | 0.20 | Offset du breakeven (SL à entry + offset) |
-| `risk_pct` | 0.40 | % du capital risqué par trade |
+| `risk_pct` | 0.45 | % du capital risqué par trade (H4: ×1.22 = 0.55%) |
 
 ---
 
@@ -108,7 +108,7 @@ L'edge de cette stratégie repose sur **deux mécanismes indépendants** :
    perd sur toutes les catégories sur les deux périodes testées.
 2. **Offset BE = 0.20R** (pas 0.15) — 323/339 trailing exits étaient à +0.15R
    exact avec offset 0.15. Chaque BE exit rapporte +0.05R de plus avec 0.20.
-3. **Risk 0.40%/trade** — À 0.50%, le max DD dépasse 10% (FTMO). Marge de 1.8%.
+3. **Risk 0.45%/trade** (H1), **0.55%** (H4 via ×1.22) — À 0.50%, le max DD dépasse 10%. Marge de 1.8%.
 4. **Univers complet forex + métaux + crypto** — La crypto surperforme le forex
    sur 20 mois (+145R vs +115R). Exclure la crypto est une erreur.
 
@@ -120,8 +120,9 @@ L'edge de cette stratégie repose sur **deux mécanismes indépendants** :
 |---|---|
 | Backtest IS/OOS | ✅ Validé (IC99 > 0) |
 | Replay parquet 20 mois | ✅ Validé |
-| Live dry-run cTrader | ✅ En cours |
-| Live FTMO | 🟡 En phase de validation live |
+| Live dry-run cTrader | ✅ Terminé |
+| Live FTMO (cTrader) | ✅ **Actif** — H1 forex + H4 crypto |
+| Live GFT (TradeLocker) | ✅ **Actif** — dispatch multi-broker |
 
 ---
 

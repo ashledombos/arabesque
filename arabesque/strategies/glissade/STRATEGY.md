@@ -99,5 +99,5 @@ Les guards `max_open_risk_pct` limitent l'exposition cumulée — aucun doubleme
 | Backtest IS/OOS | ✅ Validé |
 | Walk-forward 3/3 | ✅ PASS |
 | Wilson CI99 | ✅ > 0 |
-| Shadow live | 👻 En cours (XAUUSD + BTCUSD H1, log seulement) |
-| Live réel | ⏳ Attendre ~100 trades shadow |
+| Shadow live | ✅ Terminé |
+| Live réel | ✅ **Actif** depuis 2026-03-22 (XAUUSD + BTCUSD H1) |

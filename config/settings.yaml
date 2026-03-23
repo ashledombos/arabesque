@@ -100,13 +100,13 @@ brokers:
     enabled: true
     type: ctrader
     name: "FTMO Challenge Phase 1"
-    is_demo: false
+    is_demo: true             # Challenge FTMO = environnement démo cTrader
     auto_refresh_token: true
     # account_id: dans secrets.yaml
 
   # ---- GFT Compte 1 (TradeLocker, Challenge GOAT 150k) ----
   gft_compte1:
-    enabled: false                  # activer quand prêt à trader
+    enabled: true
     type: tradelocker
     name: "GFT Challenge #1"
     is_demo: false

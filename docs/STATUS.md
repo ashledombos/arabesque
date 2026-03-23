@@ -5,7 +5,7 @@
 > ce fichier est la référence rapide pour savoir ce qui tourne, sur quel compte, avec quel paramétrage.
 > **Mettre à jour à chaque changement de compte ou de configuration live.**
 
-Dernière mise à jour : 2026-03-22 (session Opus 4.6)
+Dernière mise à jour : 2026-03-23 (session Opus 4.6)
 
 ---
 
@@ -14,14 +14,14 @@ Dernière mise à jour : 2026-03-22 (session Opus 4.6)
 | Paramètre | Valeur |
 |---|---|
 | **Statut** | ✅ En marche |
-| **Commande** | `PYTHONUNBUFFERED=1 nohup python -m arabesque.live.engine > /tmp/arabesque_live.log 2>&1 &` |
+| **Commande** | `nohup .venv/bin/python -m arabesque.live.engine > /tmp/arabesque_live.log 2>&1 &` |
 | **Log** | `/tmp/arabesque_live.log` |
-| **Compte actif** | `ftmo_swing_test` |
-| **Expire** | ~2026-04-05 (renouvelé 2026-03-22) |
-| **Balance** | ~$100 000 (nouveau compte) |
-| **Protection active** | LiveMonitor NORMAL (aucun DD déclenché) |
-| **Notifications** | Pas encore configurées (voir ci-dessous) |
-| **En marche jusqu'à** | 2026-03-21 23h (pas de modification prévue) |
+| **Compte actif** | `ftmo_challenge` (account_id: 45667282) |
+| **Type** | Challenge Phase 1 (2-step, 100k USD) |
+| **Environnement cTrader** | **Démo** (`is_demo: true` — les challenges FTMO utilisent l'endpoint démo) |
+| **Balance** | ~$94 989 (DD -5.01%) |
+| **Protection active** | LiveMonitor NORMAL (risk linéaire réduit ~×0.33 vu le DD) |
+| **Notifications** | ntfy ✅, Telegram ❌ (bot token invalide) |
 
 ---
 
@@ -33,50 +33,113 @@ Dernière mise à jour : 2026-03-22 (session Opus 4.6)
 | **Extension** (trend BB) | H4 | 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…) | Live plein (0.55% via ×1.22) | ✅ Actif |
 | **Glissade** (RSI div) | H1 | XAUUSD, BTCUSD | Live plein (0.45%) | ✅ Actif |
 
-Glissade est maintenant **live** (WF 3/3 PASS, WR 83%, Exp +0.147R).
+Glissade est **live** (WF 3/3 PASS, WR 83%, Exp +0.147R).
 
 ---
 
-## Compte actif : ftmo_swing_test
+## Compte actif : ftmo_challenge
 
 ```yaml
 # config/accounts.yaml
-ftmo_swing_test:
+ftmo_challenge:
   type: ctrader
-  protected: false
-  is_demo: false
+  protected: false              # OK pour live (risk conservatif 0.45%)
+  is_demo: true                 # Challenge FTMO = environnement démo cTrader
+  initial_balance: 100000
+  profit_target_pct: 10.0       # Phase 1
+  risk_per_trade_pct: 0.45      # conservatif (compte en DD -5%)
+  max_daily_dd_pct: 3.0         # FTMO = 5%, garde interne 3%
+  max_total_dd_pct: 8.0         # FTMO = 10%, garde interne 8%
+  leverage: 30                  # 1:30 swing
 ```
 
-**Paramètres risk (depuis accounts.yaml) :**
-- `risk_per_trade_pct` : 0.45% (H1), 0.55% effectif (H4 via ×1.22)
-- `max_daily_dd_pct` : 3.0% (guard interne — FTMO limite à 5%, marge de sécurité 2%)
-- `max_total_dd_pct` : 8.0% (guard interne — FTMO limite à 10%, marge 2%)
-- Reset journalier : minuit Europe/Prague
+**Credentials** : stockées UNE SEULE FOIS dans `config/secrets.yaml` → section `ctrader_oauth`.
+Le compte challenge référence `oauth: ctrader_oauth` (pas de duplication de tokens).
+
+**Réduction linéaire de risque** : le compte est en DD -5.01%. Le `compute_sizing` réduit
+automatiquement le risque : ratio ≈ 0.33 → risque effectif ~0.15% au lieu de 0.45%.
+→ Passer à 0.80% une fois le compte stabilisé et la config validée.
 
 ---
 
-## Quand le compte expire (~2026-03-19)
+## Architecture des credentials (secrets.yaml)
 
-1. **Activer le nouveau compte FTMO test** sur le site FTMO
-2. Récupérer le nouvel `account_id` cTrader (dans l'interface FTMO → cTrader)
-3. Mettre à jour `config/accounts.yaml` :
-   ```yaml
-   ftmo_swing_test:
-     account_id: <NOUVEL_ID>   # ← seul champ qui change
-   ```
-4. Mettre à jour les tokens dans `config/secrets.yaml` si changés :
-   ```yaml
-   ftmo_swing_test:
-     access_token: <NOUVEAU>
-     refresh_token: <NOUVEAU>
-   ```
-5. Tuer et relancer le moteur :
-   ```bash
-   kill $(pgrep -f arabesque.live.engine)
-   PYTHONUNBUFFERED=1 nohup python -m arabesque.live.engine > /tmp/arabesque_live.log 2>&1 &
-   tail -f /tmp/arabesque_live.log
-   ```
-6. Vérifier dans les logs : `💰 balance=100000.00 equity=100000.00`
+```yaml
+ctrader_oauth:           # Section partagée — une seule fois
+  client_id: ...
+  client_secret: ...
+  access_token: <auto-refreshed>
+  refresh_token: <auto-refreshed>
+
+ftmo_challenge:
+  account_id: '45667282'
+  oauth: ctrader_oauth   # ← référence, pas duplication
+
+gft_compte1:
+  account_id: '1711519'
+  auth: tradelocker_gft  # ← référence
+
+tradelocker_gft:
+  email: ...
+  password: ...
+```
+
+Le token refresh sauvegarde dans la section partagée `ctrader_oauth`.
+`_resolve_secret_refs()` dans `config.py` résout les références au chargement.
+
+---
+
+## Comptes connus
+
+| Compte | Broker | Type | Balance | Objectif | Daily DD | Total DD | Risk/trade | Protected | Statut |
+|---|---|---|---|---|---|---|---|---|---|
+| `ftmo_challenge` | cTrader (FTMO) | Challenge P1 2-step | 100k (act. ~95k) | +10% | 5% | 10% | 0.45% | false | ✅ **Actif** |
+| `gft_compte1` | TradeLocker (GFT) | Challenge P1 GOAT 2-step | 150k (act. ~143k) | +8% | **4%** | 10% | 0.30% | false | ✅ **Actif** |
+
+### Architecture multi-prop firm
+
+cTrader (FTMO) est la source unique de prix (ticks). Les signaux sont générés
+une seule fois, puis `OrderDispatcher._dispatch_to_all_brokers()` route les ordres
+vers **tous** les brokers activés (cTrader + TradeLocker). TradeLocker ne fournit
+pas de ticks — un seul price feed suffit.
+
+Les instruments non disponibles chez un broker sont automatiquement ignorés
+(ex: GRTUSD non dispo chez GFT → skippé silencieusement, log warning).
+
+**Pourquoi multi-prop firm** : reproduire les mêmes trades sur plusieurs comptes
+pour multiplier les gains sans déclencher de copy-trading intra-broker.
+Chaque compte a son propre sizing (risk_per_trade_pct, max_dd) adapté aux
+règles de la prop firm.
+
+**Validé le 2026-03-23** : connexion, place_order, cancel_order testés sur
+TradeLocker (GFT). 36 instruments mappés. Premier dispatch réel : GRTUSD → FTMO OK, GFT ignoré (instrument non dispo).
+
+### Comptes cTrader connus (via API)
+
+| account_id | live | Balance | Statut | Usage |
+|---|---|---|---|---|
+| 45667282 | false (démo) | 94 989$ | ACTIVE | **Challenge actuel** |
+| 46570880 | true | 99 558$ | ACTIVE | Ancien test (accès supprimé) |
+| 46738849 | true | 100 264$ | ACTIVE | Ancien test (ne plus utiliser) |
+
+⚠️ Les challenges FTMO utilisent l'environnement **démo** cTrader (`live: false`).
+→ `is_demo: true` obligatoire dans settings.yaml et accounts.yaml.
+
+### Différences clés FTMO vs GFT
+
+| | FTMO Swing | GFT GOAT |
+|---|---|---|
+| **Daily DD** | 5% | **4%** (plus serré) |
+| **Levier** | 1:30 | 1:100 |
+| **Overnight/WE/news** | ✅ Autorisé | ✅ Autorisé |
+| **Crypto H4** | 27 instruments | **6 instruments** (majeurs uniquement) |
+| **H1 forex** | 4 instruments | 4 instruments (identique) |
+| **Risk/trade** | 0.45% (conservatif) | 0.30% (daily DD serré) |
+| **Guard interne daily** | 3.0% | 2.5% |
+| **Split funded** | 80% | Variable |
+
+⚠️ **GFT daily DD = 4%** → risk/trade réduit à 0.30% et guard interne à 2.5%.
+Instruments H4 crypto limités à : BTCUSD, ETHUSD, BNBUSD, SOLUSD, LTCUSD, BCHUSD.
 
 ---
 
@@ -113,62 +176,20 @@ grep "💰\|🔒\|🛡️\|🚨\|⚠️" /tmp/arabesque_live.log | tail -20
 
 ---
 
-## Notifications — à configurer
+## Notifications
 
-Ajouter dans `config/secrets.yaml` (non versionné) :
+Configurées dans `config/secrets.yaml` (non versionné) :
 ```yaml
 notifications:
   channels:
-    - "tgram://BOTTOKEN/CHATID"      # Telegram — alertes détaillées
-    - "ntfys://arabesque-urgent"      # ntfy — push urgent (DANGER/EMERGENCY)
+    - "tgram://BOTTOKEN/CHATID"           # Telegram — alertes détaillées
+    - "ntfys://arabesque_alertes_7x9k2m"  # ntfy — push urgent
 ```
 
-Sans cette config, les alertes sont loggées localement mais pas pushées.
+**Statut 2026-03-23** : ntfy ✅ fonctionne, Telegram ❌ échec (bot token invalide).
 
----
-
-## Comptes connus
-
-| Compte | Broker | Type | Balance | Objectif | Daily DD | Total DD | Risk/trade | Protected | Statut |
-|---|---|---|---|---|---|---|---|---|---|
-| `ftmo_swing_test` | cTrader (FTMO) | Test gratuit 15j | 100k | - | 5% | 10% | 0.45% | false | ✅ Actif |
-| `ftmo_challenge` | cTrader (FTMO) | Challenge P1 2-step | 100k | +10% | 5% | 10% | 0.80% | **true** | 🔒 Prêt |
-| `gft_compte1` | TradeLocker (GFT) | Challenge P1 GOAT 2-step | 150k | +8% | **4%** | 10% | 0.30% | **true** | 🔒 Prêt |
-
-### Différences clés FTMO vs GFT
-
-| | FTMO Swing | GFT GOAT |
-|---|---|---|
-| **Daily DD** | 5% | **4%** (plus serré) |
-| **Levier** | 1:30 | 1:100 |
-| **Overnight/WE/news** | ✅ Autorisé | ✅ Autorisé |
-| **Crypto H4** | 27 instruments | **6 instruments** (majeurs uniquement) |
-| **H1 forex** | 4 instruments | 4 instruments (identique) |
-| **Risk/trade** | 0.80% (challenge) | 0.30% (daily DD serré) |
-| **Guard interne daily** | 3.0% | 2.5% |
-| **Split funded** | 80% | Variable |
-
-⚠️ **GFT daily DD = 4%** → risk/trade réduit à 0.30% et guard interne à 2.5%.
-Instruments H4 crypto limités à : BTCUSD, ETHUSD, BNBUSD, SOLUSD, LTCUSD, BCHUSD.
-
----
-
-## Fait (2026-03-22)
-
-- [x] Per-timeframe risk : H4 → ×1.22 (0.55% effectif), validé par backtest
-- [x] Glissade activé en live (WF 3/3 PASS, WR 83%)
-- [x] Per-account risk overrides (accounts.yaml) — session 2026-03-21
-- [x] Guard "Best Day" (métrique backtest + live alert dans LiveMonitor)
-- [x] Monte Carlo barrières : Challenge 0.80% → P(+10%)=82%, P(breach)=4.5%
-- [x] Scan Fouetté crypto M1 → seuls BTCUSD+BNBUSD viables, impact marginal
-- [x] Comptes challenge configurés : ftmo_challenge (100k, 0.80%) + gft_compte1 (150k, 0.30%)
-- [x] GFT compte2 supprimé (perdu pour inactivité 30j)
-- [x] Script comparaison live vs backtest : `python tmp/compare_live_vs_backtest.py`
-
-## Tester les notifications
-
+### Tester les notifications
 ```bash
-# Test ntfy (push immédiat sur téléphone)
 python -c "
 import asyncio, apprise
 async def t():
@@ -178,66 +199,61 @@ async def t():
     print('ntfy:', '✅' if ok else '❌')
 asyncio.run(t())
 "
-
-# Test Telegram (⚠️ token potentiellement invalide — vérifier bot + chat_id)
-python -c "
-import asyncio, apprise
-async def t():
-    a = apprise.Apprise()
-    a.add('tgram://TON_BOT_TOKEN@TON_CHAT_ID')
-    ok = await a.async_notify(body='Test Arabesque', title='TEST')
-    print('Telegram:', '✅' if ok else '❌')
-asyncio.run(t())
-"
 ```
 
-**Statut 2026-03-22** : ntfy ✅ fonctionne, Telegram ❌ échec (vérifier le bot token).
-Pour corriger Telegram : créer un bot via @BotFather, récupérer le token, et mettre
-`tgram://BOT_TOKEN@CHAT_ID` dans `config/secrets.yaml → notifications.channels`.
+---
 
-## Trade journal (base de données des trades)
+## Trade journal
 
 `logs/trade_journal.jsonl` — un fichier JSONL avec chaque entrée/sortie live.
-Champs clés : `instrument`, `strategy`, `side`, `entry_price`, `exit_price`,
-`result_r`, `pnl_cash`, `mfe_r`, `be_set`, `trailing_tier`, `exit_reason`.
 
 **Comparer backtest vs live** :
 ```bash
-# Script automatique (à exécuter ~1×/semaine)
 python tmp/compare_live_vs_backtest.py                # toute la période du journal
 python tmp/compare_live_vs_backtest.py --last 7       # derniers 7 jours
-python tmp/compare_live_vs_backtest.py --start 2026-03-18 --end 2026-03-22
-
-# Lecture rapide du journal
-python -c "
-import pandas as pd
-df = pd.read_json('logs/trade_journal.jsonl', lines=True)
-trades = df[df.event == 'exit']
-print(trades[['instrument', 'strategy', 'result_r', 'mfe_r', 'exit_reason']])
-"
 ```
 
-**Bug corrigé** (2026-03-22) : `risk_cash` et `volume` étaient hardcodés à 0/0.01
-dans le journal → fixé dans `live.py` et `order_dispatcher.py`. Le pnl_cash sera
-maintenant calculé correctement pour les nouveaux trades.
+---
+
+## Fait (2026-03-23)
+
+- [x] **Compte challenge FTMO identifié** : 45667282 (is_demo: true — endpoint démo cTrader)
+- [x] **OAuth centralisé** : tokens dans `ctrader_oauth`, référencés par `oauth:` depuis chaque broker
+- [x] `update_broker_tokens()` sauvegarde dans la section partagée (plus de duplication)
+- [x] Moteur relancé sur le bon compte challenge avec la bonne config
+- [x] **GFT compte1 activé** : `enabled: true`, `protected: false`, testé (connect + place_order + cancel)
+- [x] Moteur relancé avec 2 brokers : ftmo_challenge (83 instruments) + gft_compte1 (36 instruments)
+- [x] Premier dispatch multi-broker : GRTUSD SHORT → FTMO OK, GFT ignoré (instrument non dispo)
+
+## Fait (2026-03-22)
+
+- [x] Per-timeframe risk : H4 → ×1.22 (0.55% effectif), validé par backtest
+- [x] Glissade activé en live (WF 3/3 PASS, WR 83%)
+- [x] Per-account risk overrides (accounts.yaml)
+- [x] Guard "Best Day" (métrique backtest + live alert dans LiveMonitor)
+- [x] Monte Carlo barrières : Challenge 0.80% → P(+10%)=82%, P(breach)=4.5%
+- [x] Scan Fouetté crypto M1 → seuls BTCUSD+BNBUSD viables, impact marginal
+- [x] Comptes challenge configurés : ftmo_challenge (100k, 0.45%) + gft_compte1 (150k, 0.30%)
+- [x] GFT compte2 supprimé (perdu pour inactivité 30j)
+- [x] Script comparaison live vs backtest : `python tmp/compare_live_vs_backtest.py`
 
 ## Prochaines étapes immédiates
 
 - [ ] Corriger notifications Telegram (bot token invalide, ntfy OK)
-- [ ] Vérifier le moteur live avec la nouvelle config après le weekend
 - [ ] Exécuter `python tmp/compare_live_vs_backtest.py` (~1×/semaine)
+- [ ] Augmenter le risk à 0.80% une fois le compte stabilisé
 
 ## Prochaines étapes structurelles
 
 - [ ] Corrélation inter-positions : facteur par catégorie pour open_risk guard
-- [ ] Activer GFT compte1 quand connecteur TradeLocker prêt
+- [x] ~~Activer GFT compte1~~ (fait 2026-03-23)
 
 ---
 
 ## Architecture snapshot (v9)
 
 ```
-Live actif :
+Live actif (compte ftmo_challenge, 45667282, démo cTrader) :
   Extension H1 → XAUUSD, GBPJPY, AUDJPY, CHFJPY (risk 0.45%)
   Extension H4 → 27 crypto (risk 0.55% via ×1.22 TF multiplier)
   Glissade H1  → XAUUSD, BTCUSD (risk 0.45%) ← activé 2026-03-22

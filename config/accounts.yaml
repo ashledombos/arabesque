@@ -26,7 +26,7 @@ accounts:
     type: ctrader
     protected: false              # ← OK pour live (risk conservatif 0.45%)
     label: "FTMO Challenge Phase 1 — 100k 2-step swing"
-    is_demo: false
+    is_demo: true                 # Challenge FTMO = environnement démo cTrader
     broker_key: ftmo_challenge
     prop_firm: ftmo
     challenge_phase: 1            # Phase 1 = objectif 10%
@@ -57,7 +57,7 @@ accounts:
   # Levier 1:100 | Instruments limités (pas de crypto altcoins)
   gft_compte1:
     type: tradelocker
-    protected: true               # ← challenge réel
+    protected: false              # ← testé et validé 2026-03-23
     label: "GFT Challenge Phase 1 — 150k 2-step GOAT"
     is_demo: false
     broker_key: gft_compte1

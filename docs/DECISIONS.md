@@ -2180,3 +2180,30 @@ alerte si pas de SL ou pas de TP. Cas d'usage : positions ouvertes manuellement,
 positions residuelles d'un crash, ou positions d'un autre système.
 
 Pas de fermeture automatique (trop dangereux) — alerte seulement.
+
+## Décision 2026-03-23 — Challenges FTMO = endpoint démo cTrader
+
+**Problème** : le compte challenge 45667282 retournait `CANT_ROUTE_REQUEST` via l'API
+cTrader. Le moteur tournait sur 46738849 (ancien compte test) par défaut.
+
+**Cause** : Les challenges FTMO ont `live: false` dans l'API cTrader (ce sont des
+comptes simulés/démo). Notre config avait `is_demo: false` → connexion à l'endpoint
+`PROTOBUF_LIVE_HOST` au lieu de `PROTOBUF_DEMO_HOST` → le compte démo n'est pas
+routable via l'endpoint live.
+
+**Fix** : `is_demo: true` dans `settings.yaml` et `accounts.yaml` pour `ftmo_challenge`.
+
+**Règle** : Toujours vérifier le champ `live` dans la réponse API cTrader
+(`/trading/ctrader/accounts`) pour déterminer `is_demo`. Les comptes de challenge
+prop firm utilisent typiquement l'environnement démo.
+
+## Décision 2026-03-23 — OAuth centralisé (secrets.yaml)
+
+**Problème** : les tokens cTrader étaient dupliqués par broker dans secrets.yaml.
+Le refresh_token est à usage unique — si un broker le consomme, il invalide les
+autres. Race condition au démarrage multi-comptes.
+
+**Fix** : section partagée `ctrader_oauth` contenant client_id, client_secret,
+access_token, refresh_token. Chaque broker référence via `oauth: ctrader_oauth`.
+`_resolve_secret_refs()` dans `config.py` fusionne au chargement.
+`update_broker_tokens()` détecte la référence et écrit dans la section partagée.
