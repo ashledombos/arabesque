@@ -3,21 +3,25 @@
 Arabesque — Compare live trades vs backtest sur la même période.
 
 Usage:
-    python tmp/compare_live_vs_backtest.py
-    python tmp/compare_live_vs_backtest.py --start 2026-03-18 --end 2026-03-22
-    python tmp/compare_live_vs_backtest.py --last 7       # derniers 7 jours
+    python scripts/compare_live_vs_backtest.py
+    python scripts/compare_live_vs_backtest.py --start 2026-03-18 --end 2026-03-22
+    python scripts/compare_live_vs_backtest.py --last 7       # derniers 7 jours
 
 Presets (équivalents filtres cTrader) :
-    python tmp/compare_live_vs_backtest.py --period today
-    python tmp/compare_live_vs_backtest.py --period yesterday
-    python tmp/compare_live_vs_backtest.py --period this_week
-    python tmp/compare_live_vs_backtest.py --period this_month
-    python tmp/compare_live_vs_backtest.py --period prev_month
-    python tmp/compare_live_vs_backtest.py --period 3m
-    python tmp/compare_live_vs_backtest.py --period 12m
+    python scripts/compare_live_vs_backtest.py --period today
+    python scripts/compare_live_vs_backtest.py --period yesterday
+    python scripts/compare_live_vs_backtest.py --period this_week
+    python scripts/compare_live_vs_backtest.py --period this_month
+    python scripts/compare_live_vs_backtest.py --period prev_month
+    python scripts/compare_live_vs_backtest.py --period 3m
+    python scripts/compare_live_vs_backtest.py --period 12m
 
 Lit le trade_journal.jsonl, relance un backtest sur la même période
 et les mêmes instruments, puis affiche un tableau comparatif.
+
+Le backtest utilise les données M1 comme sub-bar replay (même résolution
+intra-barre que le moteur live : BE trigger, trailing, ordre SL/TP).
+Si les M1 ne sont pas disponibles, repli silencieux sur H/L agrégé.
 
 Sans risque : lecture seule du journal + backtest offline.
 """
@@ -112,6 +116,18 @@ def run_backtest_for_instrument(instrument: str, start: str, end: str) -> dict:
         if df is None or len(df) < 50:
             return {"instrument": instrument, "error": f"Pas assez de données ({interval})"}
 
+        # Sub-bar M1 pour résolution intra-barre (BE trigger, trailing, ordre SL/TP)
+        # Même comportement que le moteur live — repli silencieux sur H/L si indispo.
+        sub_bar_df = None
+        try:
+            df_m1 = load_ohlc(instrument, interval="min1", start=warmup_start, end=end)
+            if df_m1 is not None and len(df_m1) > 0:
+                if "close" in df_m1.columns and "Close" not in df_m1.columns:
+                    df_m1.columns = [c.capitalize() for c in df_m1.columns]
+                sub_bar_df = df_m1
+        except Exception:
+            pass
+
         sig_gen = ExtensionSignalGenerator(ExtensionConfig())
         df_prepared = sig_gen.prepare(df)
 
@@ -121,7 +137,8 @@ def run_backtest_for_instrument(instrument: str, start: str, end: str) -> dict:
             manager_config=mgr_cfg,
             signal_generator=sig_gen,
         )
-        result = runner.run(df_prepared, instrument=instrument, sample_type="comparison")
+        result = runner.run(df_prepared, instrument=instrument, sample_type="comparison",
+                            sub_bar_df=sub_bar_df)
 
         # Filtrer les trades dans la fenêtre demandée seulement
         all_trades = result.closed_positions or []
@@ -132,10 +149,10 @@ def run_backtest_for_instrument(instrument: str, start: str, end: str) -> dict:
 
         # Si pas de trades filtrables, utiliser les métriques globales (approx)
         if not trades_in_window:
-            m = result.metrics
             return {
                 "instrument": instrument,
                 "timeframe": interval,
+                "sub_bar": sub_bar_df is not None,
                 "bt_trades": 0,
                 "bt_wr": float("nan"),
                 "bt_exp": float("nan"),
@@ -152,6 +169,7 @@ def run_backtest_for_instrument(instrument: str, start: str, end: str) -> dict:
         return {
             "instrument": instrument,
             "timeframe": interval,
+            "sub_bar": sub_bar_df is not None,
             "bt_trades": n,
             "bt_wr": wr,
             "bt_exp": exp,
@@ -253,13 +271,14 @@ def main():
         rows.append({
             "Instrument": inst,
             "TF": bt["timeframe"],
+            "M1": "✓" if bt.get("sub_bar") else "~",
             "Live T": live["live_trades"],
             "Live WR": f"{live['live_wr']}%" if live["live_trades"] > 0 else "-",
             "Live Exp": f"{live['live_exp']:+.3f}R" if live["live_trades"] > 0 else "-",
             "Live ΣR": f"{live['live_total_r']:+.1f}R",
             "BT T": bt["bt_trades"],
-            "BT WR": f"{bt['bt_wr']:.0f}%",
-            "BT Exp": f"{bt['bt_exp']:+.3f}R",
+            "BT WR": f"{bt['bt_wr']:.0f}%" if not pd.isna(bt["bt_wr"]) else "-",
+            "BT Exp": f"{bt['bt_exp']:+.3f}R" if not pd.isna(bt["bt_exp"]) else "-",
             "BT ΣR": f"{bt['bt_total_r']:+.1f}R",
             "Δ WR": f"{delta_wr:+.0f}pp" if not pd.isna(delta_wr) else "-",
             "Δ Exp": f"{delta_exp:+.3f}R" if not pd.isna(delta_exp) else "-",
