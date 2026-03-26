@@ -100,7 +100,6 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 
 ### Immédiat
 - [ ] Corriger notifications Telegram (bot token invalide, ntfy OK)
-- [ ] Exécuter comparaison live vs backtest : `python tmp/compare_live_vs_backtest.py`
 - [ ] Augmenter risk à 0.80% une fois compte stabilisé
 
 ### Court terme
@@ -140,5 +139,34 @@ python -m arabesque walkforward --strategy extension --universe crypto
 python -m arabesque run --strategy glissade --mode backtest XAUUSD BTCUSD
 
 # Comparaison live vs backtest (~1×/semaine)
-python tmp/compare_live_vs_backtest.py --last 7
+python scripts/compare_live_vs_backtest.py --last 7
+python scripts/compare_live_vs_backtest.py --period this_week
+
+# Fetch manuel (si parquets en retard)
+python -m arabesque.data.fetch --start $(date -d "4 days ago" +%Y-%m-%d) --end $(date +%Y-%m-%d) --derive 1h 4h
+```
+
+---
+
+## Service systemd — fetch OHLC quotidien
+
+Mise à jour automatique des parquets chaque jour à 06:30 UTC.
+Fichiers sources dans `deploy/systemd/`.
+
+### Réinstaller (nouvelle machine ou après `git clone`)
+
+```bash
+bash scripts/install_service.sh
+
+# Pour que le timer tourne hors session active (sudo requis) :
+sudo loginctl enable-linger "$USER"
+```
+
+### Vérifier / opérer
+
+```bash
+systemctl --user list-timers arabesque-fetch.timer   # prochaine exécution
+systemctl --user start arabesque-fetch.service        # lancer maintenant
+journalctl --user -u arabesque-fetch.service -f       # logs en direct
+systemctl --user status arabesque-fetch.timer         # état
 ```

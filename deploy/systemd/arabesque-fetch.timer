@@ -1,0 +1,12 @@
+[Unit]
+Description=Arabesque — timer fetch OHLC quotidien
+
+[Timer]
+# 06:30 UTC tous les jours (marchés crypto ouverts 24h, forex fermé weekend)
+OnCalendar=*-*-* 06:30:00 UTC
+# Si la machine était éteinte à l'heure prévue, lancer dès le démarrage
+Persistent=true
+RandomizedDelaySec=5min
+
+[Install]
+WantedBy=timers.target

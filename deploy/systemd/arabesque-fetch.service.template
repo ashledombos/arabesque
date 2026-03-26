@@ -1,0 +1,10 @@
+[Unit]
+Description=Arabesque — mise à jour incrémentale des données OHLC
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory={{REPO_DIR}}
+ExecStart={{REPO_DIR}}/scripts/fetch_incremental.sh
+StandardOutput=journal
+StandardError=journal
