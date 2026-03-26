@@ -717,6 +717,7 @@ class OrderDispatcher:
         broker_min_vol = 0.01
         broker_max_vol = 10000.0
         broker_step = 0.01
+        broker_pip_size = None
         try:
             sym_info = await broker.get_symbol_info(sym)
             if sym_info and sym_info.lot_size > 0:
@@ -724,8 +725,20 @@ class OrderDispatcher:
                 broker_min_vol = sym_info.min_volume
                 broker_max_vol = sym_info.max_volume
                 broker_step = sym_info.volume_step
+                # Utiliser le pip_size du broker s'il diffère du yaml
+                # (ex: GFT XAUUSD pip_size=0.0001 vs yaml 0.01)
+                if sym_info.pip_size > 0:
+                    broker_pip_size = sym_info.pip_size
         except Exception as e:
             logger.debug(f"[Dispatcher] get_symbol_info failed for {sym}: {e}")
+
+        # pip_size du broker prioritaire — les conventions diffèrent entre brokers
+        if broker_pip_size and broker_pip_size != pip_size:
+            logger.info(
+                f"[Dispatcher] {broker_id} {sym}: pip_size broker={broker_pip_size} "
+                f"!= yaml={pip_size}, using broker value"
+            )
+            pip_size = broker_pip_size
 
         pip_value = None
         conversion = "direct"

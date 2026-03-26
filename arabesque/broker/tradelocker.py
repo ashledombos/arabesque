@@ -294,8 +294,18 @@ class TradeLockerBroker(BaseBroker):
                     order_id = str(result.get('orderId', result.get('id', 'unknown')))
                 else:
                     order_id = str(result)
-                print(f"[TradeLocker] ✅ Order placed: {order_id}")
-                return OrderResult(success=True, order_id=order_id,
+                # Résoudre le position_id réel (order_id ≠ position_id sur TL)
+                position_id = order_id
+                try:
+                    pos_id = self._api.get_position_id_from_order_id(int(order_id))
+                    if pos_id is not None:
+                        position_id = str(pos_id)
+                        print(f"[TradeLocker] ✅ Order {order_id} → position {position_id}")
+                    else:
+                        print(f"[TradeLocker] ✅ Order placed: {order_id} (position_id not yet resolved)")
+                except Exception as e:
+                    print(f"[TradeLocker] ✅ Order placed: {order_id} (position_id lookup failed: {e})")
+                return OrderResult(success=True, order_id=position_id,
                                    message="Order placed successfully", broker_response=result)
             else:
                 return OrderResult(success=False, message="Order creation returned None")
@@ -415,17 +425,31 @@ class TradeLockerBroker(BaseBroker):
         if not self._api:
             return OrderResult(success=False, message="Not connected")
         try:
-            result = self._api.set_position_protection(
-                position_id=int(position_id),
-                stop_loss=stop_loss,
-                take_profit=take_profit
-            )
+            params: Dict[str, Any] = {}
+            if stop_loss is not None:
+                params["stopLoss"] = stop_loss
+                params["stopLossType"] = "absolute"
+            if take_profit is not None:
+                params["takeProfit"] = take_profit
+                params["takeProfitType"] = "absolute"
+            if not params:
+                return OrderResult(success=False, message="No modification params")
+            result = self._api.modify_position(int(position_id), params)
             if result:
                 return OrderResult(success=True, message="Position modified")
             else:
                 return OrderResult(success=False, message="Failed to modify position")
         except Exception as e:
             return OrderResult(success=False, message=str(e))
+
+    async def amend_position_sltp(
+        self,
+        position_id: str,
+        stop_loss: Optional[float] = None,
+        take_profit: Optional[float] = None,
+    ) -> OrderResult:
+        """Modify SL/TP — delegates to modify_position."""
+        return await self.modify_position(position_id, stop_loss, take_profit)
 
 
 # =============================================================================
@@ -483,4 +507,17 @@ class TradeLockerBrokerSync(TradeLockerBroker):
     ) -> OrderResult:
         return self._get_loop().run_until_complete(
             super().modify_position(position_id, stop_loss, take_profit)
+        )
+
+    def amend_position_sltp(
+        self,
+        position_id: str,
+        stop_loss: Optional[float] = None,
+        take_profit: Optional[float] = None,
+    ) -> OrderResult:
+        # Appel direct à TradeLockerBroker.modify_position (async) pour
+        # éviter la boucle sync→async→sync quand amend_position_sltp
+        # async délègue à self.modify_position (qui est sync ici).
+        return self._get_loop().run_until_complete(
+            TradeLockerBroker.modify_position(self, position_id, stop_loss, take_profit)
         )
