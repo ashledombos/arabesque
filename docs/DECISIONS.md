@@ -2207,3 +2207,40 @@ autres. Race condition au démarrage multi-comptes.
 access_token, refresh_token. Chaque broker référence via `oauth: ctrader_oauth`.
 `_resolve_secret_refs()` dans `config.py` fusionne au chargement.
 `update_broker_tokens()` détecte la référence et écrit dans la section partagée.
+
+## Décision 2026-03-26 — 3 bugs critiques TradeLocker/GFT
+
+### Bug 1 : order_id ≠ position_id
+
+**Symptôme** : Positions ouvertes sur GFT sans SL/TP, détectées comme orphelines.
+L'engine cherchait la position par `order_id` retourné par `create_order()`, mais
+TradeLocker utilise un `position_id` distinct. Résultat : position "not found" →
+enregistrée avec valeurs estimées → retirée après 6 min → position réelle orpheline.
+
+**Fix** : `place_order()` appelle `get_position_id_from_order_id()` après placement
+pour résoudre le vrai `position_id` et le retourner dans `OrderResult.order_id`.
+
+### Bug 2 : amend_position_sltp manquant
+
+**Symptôme** : position_monitor ne pouvait pas modifier le SL/TP sur TradeLocker
+(méthode `set_position_protection` inexistante dans TLAPI).
+
+**Fix** : Implémente `modify_position()` avec `TLAPI.modify_position(id, params_dict)`
+(format `{"stopLoss": x, "stopLossType": "absolute"}`) et `amend_position_sltp()`
+qui y délègue. Sync wrapper utilise `TradeLockerBroker.modify_position` explicitement
+pour éviter la boucle sync→async→sync.
+
+### Bug 3 : sizing XAUUSD 0.01L au lieu de 0.08L
+
+**Symptôme** : Volume 100× trop petit sur GFT pour XAUUSD. Le dispatcher calculait
+`pip_value = lot_size × pip_size` avec `pip_size` de instruments.yaml (0.01), mais
+GFT retourne `pip_size=0.0001` (convention 4 décimales pour les métaux).
+
+**Fix** : `_compute_lots_for_broker()` utilise `sym_info.pip_size` du broker quand
+`get_symbol_info()` retourne une valeur positive, avec log du remplacement.
+
+### Leçon
+
+Les conventions diffèrent entre brokers (contractSize, pip_size, order_id vs
+position_id). Toujours vérifier les positions orphelines dans les logs après
+activation d'un nouveau broker.

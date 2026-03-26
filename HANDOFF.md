@@ -93,6 +93,8 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - **Anti-lookahead strict** : signal bougie i → fill open bougie i+1 ; si SL+TP même bougie → SL
 - **Reversals ICT/SMC non viables** : Renversé testé (142 trades), WR 73% mais Exp +0.006R = breakeven
 - **Challenges FTMO = démo cTrader** : `is_demo: true` obligatoire, sinon CANT_ROUTE_REQUEST
+- **TradeLocker order_id ≠ position_id** : `create_order` retourne un order_id, il faut `get_position_id_from_order_id()` pour le lier à la position réelle
+- **pip_size varie entre brokers** : GFT XAUUSD = 0.0001, cTrader = 0.01. Toujours utiliser `sym_info.pip_size` du broker
 
 ---
 
@@ -110,6 +112,11 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 ### Bugs connus
 - Telegram notifications KO (bot token invalide, ntfy fonctionne)
 - Compte 46570880 et 46738849 encore visibles via API cTrader (anciens tests, ne pas utiliser)
+
+### Bugs corrigés (2026-03-26)
+- [x] TradeLocker order_id ≠ position_id → positions orphelines sans SL/TP
+- [x] TradeLocker `amend_position_sltp` manquant (`set_position_protection` n'existe pas dans TLAPI)
+- [x] Sizing XAUUSD GFT 0.01L au lieu de 0.08L (pip_size broker vs yaml)
 
 ---
 
