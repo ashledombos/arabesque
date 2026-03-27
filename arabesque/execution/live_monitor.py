@@ -551,56 +551,177 @@ class LiveMonitor:
             )
 
     async def _close_unprotected_positions(self, reason: str) -> None:
-        """Ferme les positions qui n'ont PAS de breakeven actif.
+        """Gestion intelligente des positions non protégées en DANGER/EMERGENCY.
 
-        En DANGER, on garde les positions protégées (BE set ou trailing actif)
-        et on coupe celles qui sont encore exposées au SL initial.
+        Trie chaque position par son P&L non réalisé en R et applique
+        l'action la plus adaptée pour préserver le capital :
+
+        | P&L courant     | Action                                      |
+        |-----------------|---------------------------------------------|
+        | Protégée (BE/trail) | Laisser (déjà safe)                     |
+        | > 0R            | BE immédiat (SL → entry + 0.10R)            |
+        | 0R à -0.5R      | SL serré à -0.3R (dernière chance)          |
+        | -0.5R à -0.7R   | Fermer (sauver 0.3-0.5R de perte restante)  |
+        | < -0.7R         | Laisser (trop proche du SL, rien à gagner)  |
         """
         if not self._position_monitor:
             return
 
         closed = 0
+        amended = 0
+        kept = 0
+
+        # Fetch les positions broker une seule fois pour avoir les prix courants
+        broker_positions: dict[str, dict[str, float]] = {}  # broker_id → {pos_id → current_price}
+        for broker_id, broker in self._brokers.items():
+            try:
+                positions = await broker.get_positions()
+                broker_positions[broker_id] = {
+                    str(p.position_id): p.current_price or 0
+                    for p in positions
+                }
+            except Exception as e:
+                logger.warning(f"[LiveMonitor] get_positions {broker_id}: {e}")
+
         for pos in self._position_monitor.open_positions:
-            # Garder les positions protégées
+            # 1. Déjà protégée → laisser
             if pos.breakeven_set or pos.trailing_active:
                 logger.info(
                     f"[LiveMonitor] ✅ Gardée: {pos.symbol} "
                     f"(BE={'✓' if pos.breakeven_set else '✗'} "
                     f"trail={pos.trailing_tier} MFE={pos.mfe_r:.1f}R)"
                 )
+                kept += 1
                 continue
 
-            # Fermer la position non protégée
             broker = self._brokers.get(pos.broker_id)
             if not broker:
                 continue
 
+            # Calculer le P&L courant en R (prix réel du broker)
+            current_price = broker_positions.get(pos.broker_id, {}).get(
+                str(pos.position_id), 0
+            )
+            current_pnl_r = self._compute_pnl_r(pos, current_price)
+
+            # 2. Légèrement positive (> 0R) → BE immédiat
+            if current_pnl_r > 0:
+                be_offset = 0.10  # Plus serré que le BE normal (0.20R)
+                if pos.side == Side.LONG:
+                    new_sl = pos.entry + be_offset * pos.R
+                else:
+                    new_sl = pos.entry - be_offset * pos.R
+                new_sl = round(new_sl, pos.digits)
+                ok = await self._try_amend_sl(broker, pos, new_sl)
+                if ok:
+                    pos.sl = new_sl
+                    pos.breakeven_set = True
+                    amended += 1
+                    logger.warning(
+                        f"[LiveMonitor] 🛡️ BE forcé: {pos.symbol} "
+                        f"P&L={current_pnl_r:+.2f}R → SL={new_sl:.{pos.digits}f} "
+                        f"(+{be_offset}R) — {reason}"
+                    )
+                continue
+
+            # 3. Juste entrée en négatif (0 à -0.5R) → SL serré à -0.3R
+            if current_pnl_r > -0.5:
+                tight_sl_r = -0.3  # SL serré : -0.3R au lieu de -1.0R
+                if pos.side == Side.LONG:
+                    new_sl = pos.entry + tight_sl_r * pos.R
+                else:
+                    new_sl = pos.entry - tight_sl_r * pos.R
+                new_sl = round(new_sl, pos.digits)
+                # Vérifier que le nouveau SL est plus serré que l'actuel
+                sl_improves = (
+                    (pos.side == Side.LONG and new_sl > pos.sl) or
+                    (pos.side == Side.SHORT and new_sl < pos.sl)
+                )
+                if sl_improves:
+                    ok = await self._try_amend_sl(broker, pos, new_sl)
+                    if ok:
+                        pos.sl = new_sl
+                        amended += 1
+                        logger.warning(
+                            f"[LiveMonitor] 🛡️ SL serré: {pos.symbol} "
+                            f"P&L={current_pnl_r:+.2f}R → SL={new_sl:.{pos.digits}f} "
+                            f"(-0.3R, dernière chance) — {reason}"
+                        )
+                else:
+                    logger.info(
+                        f"[LiveMonitor] ⏸ {pos.symbol} P&L={current_pnl_r:+.2f}R "
+                        f"SL déjà serré — laissé"
+                    )
+                    kept += 1
+                continue
+
+            # 4. Très proche du SL (< -0.7R) → laisser courir
+            if current_pnl_r < -0.7:
+                logger.info(
+                    f"[LiveMonitor] ⏸ Laissée: {pos.symbol} "
+                    f"P&L={current_pnl_r:+.2f}R (trop proche SL, rien à gagner) "
+                    f"— {reason}"
+                )
+                kept += 1
+                continue
+
+            # 5. Zone intermédiaire (-0.5R à -0.7R) → fermer
             try:
                 result = await broker.close_position(pos.position_id)
                 if result.success:
                     closed += 1
                     logger.warning(
-                        f"[LiveMonitor] 🔒 DANGER close: {pos.symbol} "
-                        f"(no BE, MFE={pos.mfe_r:.1f}R) — {reason}"
+                        f"[LiveMonitor] 🔒 Fermée: {pos.symbol} "
+                        f"P&L={current_pnl_r:+.2f}R (sauve ~{abs(1+current_pnl_r):.1f}R) "
+                        f"— {reason}"
                     )
                 else:
                     logger.error(
-                        f"[LiveMonitor] ❌ DANGER close failed: "
+                        f"[LiveMonitor] ❌ Close failed: "
                         f"{pos.symbol} — {result.message}"
                     )
             except Exception as e:
                 logger.error(
-                    f"[LiveMonitor] ❌ DANGER close exception: "
+                    f"[LiveMonitor] ❌ Close exception: "
                     f"{pos.symbol} — {e}"
                 )
 
-        if closed > 0:
-            self._append_journal({
-                "event": "danger_close_unprotected",
-                "ts": datetime.now(timezone.utc).isoformat(),
-                "reason": reason,
-                "closed": closed,
-            })
+        summary = (
+            f"fermées={closed} SL_serrés={amended} conservées={kept}"
+        )
+        logger.info(f"[LiveMonitor] 📊 Protection résumé: {summary}")
+
+        self._append_journal({
+            "event": "smart_protection",
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "reason": reason,
+            "closed": closed,
+            "amended": amended,
+            "kept": kept,
+        })
+
+    @staticmethod
+    def _compute_pnl_r(pos, current_price: float) -> float:
+        """Calcule le P&L courant en R depuis un prix broker."""
+        from arabesque.core.models import Side
+        if pos.R == 0 or current_price <= 0:
+            return 0.0
+        if pos.side == Side.LONG:
+            return (current_price - pos.entry) / pos.R
+        return (pos.entry - current_price) / pos.R
+
+    async def _try_amend_sl(self, broker, pos, new_sl: float) -> bool:
+        """Tente de modifier le SL d'une position."""
+        try:
+            result = await broker.amend_position_sltp(
+                pos.position_id, stop_loss=new_sl
+            )
+            return result.success
+        except Exception as e:
+            logger.error(
+                f"[LiveMonitor] ❌ Amend SL failed: {pos.symbol} → {e}"
+            )
+            return False
 
     # ------------------------------------------------------------------
     # Notifications

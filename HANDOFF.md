@@ -100,7 +100,7 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - **pip_size varie entre brokers** : GFT XAUUSD = 0.0001, cTrader = 0.01. Toujours utiliser `sym_info.pip_size` du broker
 - **DD tracking doit être persistant** : `start_balance` depuis accounts.yaml, `daily_start_balance` persistant entre refreshes, rollover UTC à minuit. Sinon floating P&L = faux DD → faux EMERGENCY
 - **Position monitor state persisté** : `save_state()` sur SIGTERM, `load_state()` au restart. Sans ça, MFE/BE/trailing perdus → positions à MFE 0.5R repartent sans BE
-- **EMERGENCY = lot minimum, pas close all** : fermer toutes les positions en urgence réalise les pertes. Mieux : réduire à ×0.10 et fermer uniquement les positions non protégées (sans BE)
+- **EMERGENCY = protection intelligente** : pas de close all (réalise les pertes). Triage par P&L courant : positive → BE immédiat, 0/-0.5R → SL serré -0.3R, -0.5/-0.7R → fermer, < -0.7R → laisser (trop proche SL)
 
 ---
 

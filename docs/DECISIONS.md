@@ -2343,15 +2343,24 @@ les dérives live vs backtest automatiquement.
 **Fichiers** : `scripts/daily_report.py`, `scripts/compare_live_vs_backtest.py`,
 `deploy/systemd/arabesque-report-*.{service.template,timer}`
 
-### EMERGENCY → lot minimum (plus de close all)
+### EMERGENCY → protection intelligente (plus de close all)
 
 **Problème** : en EMERGENCY, le système fermait toutes les positions et gelait
 le trading. Ça réalise les pertes latentes, potentiellement aggravant le DD.
 
-**Décision** : EMERGENCY réduit le risque à ×0.10 (lot minimum) au lieu de
-tout fermer. Seules les positions non protégées (sans BE) sont fermées.
-Les positions avec BE ou trailing sont conservées (elles sont déjà protégées).
-Le trading n'est plus gelé — les signaux passent toujours avec un sizing minimal.
+**Décision** : EMERGENCY réduit le risque à ×0.10 (lot minimum) + triage
+intelligent des positions non protégées basé sur le P&L courant (prix broker) :
+
+| P&L courant  | Action                              | Logique                           |
+|--------------|-------------------------------------|-----------------------------------|
+| Protégée     | Laisser                             | Déjà safe (BE/trailing actif)     |
+| > 0R         | BE immédiat (SL → entry + 0.10R)   | Verrouiller le gain               |
+| 0 à -0.5R   | SL serré à -0.3R                   | Dernière chance, limiter la perte |
+| -0.5R à -0.7R| Fermer                             | Sauver 0.3-0.5R de perte         |
+| < -0.7R      | Laisser                            | Trop proche du SL, rien à gagner |
+
+Le P&L courant est calculé depuis `broker.get_positions().current_price`,
+pas depuis le MFE (qui est une borne supérieure, pas le prix actuel).
 
 **Fichier** : `arabesque/execution/live_monitor.py`
 
