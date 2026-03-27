@@ -1,0 +1,20 @@
+[Unit]
+Description=Arabesque — moteur de trading live
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory={{REPO_DIR}}
+ExecStart={{REPO_DIR}}/.venv/bin/python -m arabesque.live.engine
+Restart=on-failure
+RestartSec=30
+# Délai avant kill (laisser le temps de fermer proprement les connexions)
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+# Variables d'environnement (le venv est dans ExecStart, pas besoin de PATH)
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target

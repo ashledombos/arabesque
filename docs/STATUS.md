@@ -14,8 +14,8 @@ Dernière mise à jour : 2026-03-27 (session Opus 4.6)
 | Paramètre | Valeur |
 |---|---|
 | **Statut** | ✅ En marche |
-| **Commande** | `nohup .venv/bin/python -m arabesque.live.engine > /tmp/arabesque_live.log 2>&1 &` |
-| **Log** | `/tmp/arabesque_live.log` |
+| **Commande** | `systemctl --user start arabesque-live` (service systemd, auto-restart) |
+| **Log** | `journalctl --user -u arabesque-live -f` |
 | **Compte actif** | `ftmo_challenge` (account_id: 45667282) |
 | **Type** | Challenge Phase 1 (2-step, 100k USD) |
 | **Environnement cTrader** | **Démo** (`is_demo: true` — les challenges FTMO utilisent l'endpoint démo) |

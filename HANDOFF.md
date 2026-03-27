@@ -139,12 +139,16 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 ## Commandes essentielles
 
 ```bash
-# Lancer le moteur live
-nohup .venv/bin/python -m arabesque.live.engine > /tmp/arabesque_live.log 2>&1 &
+# Moteur live (service systemd — auto-restart, journald)
+systemctl --user start arabesque-live
+systemctl --user stop arabesque-live
+systemctl --user restart arabesque-live
+systemctl --user status arabesque-live
 
 # Surveiller
-tail -f /tmp/arabesque_live.log
-grep "💰\|🔒\|🛡️\|🚨\|⚠️" /tmp/arabesque_live.log | tail -20
+journalctl --user -u arabesque-live -f
+journalctl --user -u arabesque-live --since '1 hour ago'
+journalctl --user -u arabesque-live | grep '💰\|🔒\|🛡️\|🚨\|⚠️' | tail -20
 
 # Backtest
 python -m arabesque run --strategy extension --mode backtest XAUUSD BTCUSD
@@ -161,10 +165,14 @@ python -m arabesque.data.fetch --start $(date -d "4 days ago" +%Y-%m-%d) --end $
 
 ---
 
-## Service systemd — fetch OHLC quotidien
+## Services systemd
 
-Mise à jour automatique des parquets chaque jour à 06:30 UTC.
-Fichiers sources dans `deploy/systemd/`.
+Fichiers sources dans `deploy/systemd/`. Installés via `bash scripts/install_service.sh`.
+
+| Service | Type | Rôle |
+|---|---|---|
+| `arabesque-live` | persistent (auto-restart) | Moteur de trading live |
+| `arabesque-fetch.timer` | timer quotidien 06:30 UTC | Mise à jour des parquets |
 
 ### Réinstaller (nouvelle machine ou après `git clone`)
 
