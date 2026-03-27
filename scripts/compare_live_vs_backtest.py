@@ -189,6 +189,8 @@ def main():
                                  "prev_month", "3m", "12m"],
                         help="Preset temporel (équivalent filtres cTrader)")
     parser.add_argument("--journal", type=str, default="logs/trade_journal.jsonl")
+    parser.add_argument("--notify", action="store_true",
+                        help="Envoyer le résultat via notifications (Telegram/ntfy)")
     args = parser.parse_args()
 
     # Résoudre la période
@@ -304,6 +306,44 @@ def main():
             live = live_stats[inst]
             if isinstance(live["live_exp"], float) and live["live_exp"] < -0.1 and live["live_trades"] >= 5:
                 print(f"  🔴 {inst} : Exp live {live['live_exp']:+.3f}R < -0.10R sur {live['live_trades']} trades — surveiller")
+
+    # --- Notification ---
+    if args.notify:
+        lines = [f"📊 DRIFT LIVE vs BACKTEST [{period_label}]", ""]
+        if len(journal) > 0:
+            total_r = journal["result_r"].sum()
+            total_wr = (journal["result_r"] > 0).mean() * 100
+            lines.append(f"Live: {len(journal)}t WR={total_wr:.0f}% ΣR={total_r:+.1f}R")
+            lines.append("")
+            # Flag instruments with drift
+            drifts = []
+            for inst in instruments:
+                live = live_stats[inst]
+                if isinstance(live["live_exp"], float) and live["live_exp"] < -0.1 and live["live_trades"] >= 5:
+                    drifts.append(f"  🔴 {inst}: Exp={live['live_exp']:+.3f}R ({live['live_trades']}t)")
+            if drifts:
+                lines.append("Dérives détectées:")
+                lines.extend(drifts)
+            else:
+                lines.append("✅ Pas de dérive significative")
+        else:
+            lines.append("Aucun trade live sur la période.")
+        report = "\n".join(lines)
+        print(f"\n--- Notification ---\n{report}")
+        try:
+            import asyncio, yaml, apprise
+            secrets_path = Path(__file__).resolve().parent.parent / "config" / "secrets.yaml"
+            secrets = yaml.safe_load(secrets_path.read_text()) or {}
+            channels = secrets.get("notifications", {}).get("channels", [])
+            if channels:
+                ap = apprise.Apprise()
+                for ch in channels:
+                    if isinstance(ch, str):
+                        ap.add(ch)
+                ok = asyncio.run(ap.async_notify(body=report, title="Arabesque Drift"))
+                print(f"Notification: {'✅' if ok else '❌'}")
+        except Exception as e:
+            print(f"Notification error: {e}")
 
     print()
 

@@ -16,6 +16,7 @@ Live actif (compte ftmo_challenge, account_id 45667282, démo cTrader) :
   Glissade H1   → XAUUSD, BTCUSD (LIVE — WF 3/3 PASS, WR 83%, Exp +0.147R)
 
 Balance FTMO : ~94 473$ (DD -5.5%) — protection CAUTION active, risk réduit 50%
+Rodage Glissade : risk × 0.50 (config/settings.yaml → rodage.strategies)
 Balance GFT  : ~142 684$ (DD -4.9%) — activé 2026-03-23, 36 instruments mappés, idle (pas de signaux crypto)
 
 WF validé, non déployé :
@@ -70,8 +71,10 @@ IC99       : +0.084R > 0 ✅
 | `max_daily_dd_pct` | 3.0% | accounts.yaml (FTMO limite 5%, GFT 4%) |
 | `max_total_dd_pct` | 8.0% | accounts.yaml (FTMO limite 10%) |
 | BE trigger / offset | 0.3R / 0.20R | position_manager.py |
-| Protection active | LiveMonitor 4 paliers | execution/live_monitor.py |
+| Protection active | LiveMonitor 4 paliers (EMERGENCY = lot min, pas close all) | execution/live_monitor.py |
 | Per-TF risk multiplier | H4 → ×1.22 | settings.yaml (risk_multiplier_by_timeframe) |
+| Rodage | Glissade ×0.50 | settings.yaml (rodage.strategies) |
+| Corrélation | même catégorie ×0.70/0.50/0.35 | order_dispatcher.py |
 | Environnement cTrader | **Démo** (is_demo: true) | settings.yaml + accounts.yaml |
 
 ### Architecture credentials
@@ -96,6 +99,8 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - **TradeLocker order_id ≠ position_id** : `create_order` retourne un order_id, il faut `get_position_id_from_order_id()` pour le lier à la position réelle
 - **pip_size varie entre brokers** : GFT XAUUSD = 0.0001, cTrader = 0.01. Toujours utiliser `sym_info.pip_size` du broker
 - **DD tracking doit être persistant** : `start_balance` depuis accounts.yaml, `daily_start_balance` persistant entre refreshes, rollover UTC à minuit. Sinon floating P&L = faux DD → faux EMERGENCY
+- **Position monitor state persisté** : `save_state()` sur SIGTERM, `load_state()` au restart. Sans ça, MFE/BE/trailing perdus → positions à MFE 0.5R repartent sans BE
+- **EMERGENCY = lot minimum, pas close all** : fermer toutes les positions en urgence réalise les pertes. Mieux : réduire à ×0.10 et fermer uniquement les positions non protégées (sans BE)
 
 ---
 
@@ -106,8 +111,10 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - [ ] Augmenter risk à 0.80% une fois compte stabilisé
 
 ### Court terme
-- [ ] Corrélation inter-positions : facteur par catégorie pour le guard open_risk
+- [x] ~~Corrélation inter-positions~~ (fait 2026-03-27 — discount 0.70/0.50/0.35 par catégorie dans order_dispatcher)
 - [x] ~~Activer GFT compte1~~ (fait 2026-03-23 — enabled, protected: false, 36 instruments mappés)
+- [x] ~~Graceful SIGTERM~~ (fait 2026-03-27 — save_state/load_state position_monitor, MFE+BE+trailing persistés)
+- [x] ~~Rapports automatisés~~ (fait 2026-03-27 — daily 21h UTC + weekly dim 20h UTC via systemd timers)
 - [ ] Ajouter support `--session` CLI pour Fouetté (passer london/ny/tokyo)
 
 ### Bugs connus
@@ -173,6 +180,8 @@ Fichiers sources dans `deploy/systemd/`. Installés via `bash scripts/install_se
 |---|---|---|
 | `arabesque-live` | persistent (auto-restart) | Moteur de trading live |
 | `arabesque-fetch.timer` | timer quotidien 06:30 UTC | Mise à jour des parquets |
+| `arabesque-report-daily.timer` | timer quotidien 21:00 UTC | Rapport quotidien (Telegram + ntfy) |
+| `arabesque-report-weekly.timer` | timer dimanche 20:00 UTC | Rapport hebdomadaire |
 
 ### Réinstaller (nouvelle machine ou après `git clone`)
 

@@ -145,6 +145,7 @@ class OrderDispatcher:
         on_order_result: Optional[Callable] = None,
         risk_multiplier_fn: Optional[Callable] = None,
         risk_multiplier_by_tf: Optional[Dict[str, float]] = None,
+        rodage_config: Optional[Dict] = None,
     ):
         self.brokers = brokers
         self.instruments_cfg = instruments_cfg
@@ -157,6 +158,18 @@ class OrderDispatcher:
         self.on_order_result = on_order_result
         self._risk_multiplier_fn = risk_multiplier_fn
         self._risk_multiplier_by_tf = risk_multiplier_by_tf or {}
+
+        # Rodage: risk multiplier for strategies in break-in period
+        self._rodage_strategies: set = set()
+        self._rodage_multiplier: float = 1.0
+        if rodage_config and rodage_config.get("enabled", False):
+            self._rodage_strategies = set(rodage_config.get("strategies", []))
+            self._rodage_multiplier = rodage_config.get("risk_multiplier", 0.5)
+            if self._rodage_strategies:
+                logger.info(
+                    f"[Dispatcher] 🔬 Rodage actif: {self._rodage_strategies} "
+                    f"× {self._rodage_multiplier}"
+                )
 
         # Signaux en attente, indexés par symbole
         self._pending: Dict[str, List[PendingSignal]] = {}
@@ -244,6 +257,27 @@ class OrderDispatcher:
             logger.info(
                 f"[Dispatcher] 📊 TF risk adjust: {original:.0f}$ × "
                 f"{tf_mult:.2f} ({tf_key}) = {sizing['risk_cash']:.0f}$"
+            )
+
+        # Rodage: risk réduit pour les stratégies en période de rodage
+        strat_name = getattr(signal, "strategy_type", "")
+        if strat_name in self._rodage_strategies:
+            original = sizing["risk_cash"]
+            sizing["risk_cash"] = round(original * self._rodage_multiplier, 2)
+            logger.info(
+                f"[Dispatcher] 🔬 Rodage: {strat_name} {original:.0f}$ × "
+                f"{self._rodage_multiplier} = {sizing['risk_cash']:.0f}$"
+            )
+
+        # Correlation discount: reduce risk for same-category positions
+        corr_mult = self._correlation_discount(signal.instrument)
+        if corr_mult < 1.0:
+            original = sizing["risk_cash"]
+            sizing["risk_cash"] = round(original * corr_mult, 2)
+            logger.info(
+                f"[Dispatcher] 🔗 Corrélation: {original:.0f}$ × "
+                f"{corr_mult:.2f} = {sizing['risk_cash']:.0f}$ "
+                f"(même catégorie déjà ouverte)"
             )
 
         # Apply live monitor risk multiplier (protection tiers)
@@ -646,6 +680,43 @@ class OrderDispatcher:
                 return OrderType.STOP if signal.close < signal.sl else OrderType.LIMIT
             else:
                 return OrderType.STOP if signal.close > signal.sl else OrderType.LIMIT
+
+    # ------------------------------------------------------------------
+    # Corrélation inter-positions
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _instrument_category(instrument: str) -> str:
+        """Catégorise un instrument pour le calcul de corrélation."""
+        from arabesque.data.store import _categorize
+        return _categorize(instrument)
+
+    def _correlation_discount(self, instrument: str) -> float:
+        """Calcule un facteur de réduction du risk pour les positions corrélées.
+
+        Positions déjà ouvertes dans la même catégorie réduisent le risk :
+          - 0 positions même catégorie → 1.0 (pas de réduction)
+          - 1 position même catégorie → 0.70
+          - 2 positions → 0.50
+          - 3+ positions → 0.35
+        Les positions cross-catégorie ne sont pas affectées.
+        """
+        cat = self._instrument_category(instrument)
+        # Compter les positions ouvertes dans la même catégorie
+        same_cat_count = 0
+        for sym in self._account_state.open_instruments:
+            if sym != instrument and self._instrument_category(sym) == cat:
+                same_cat_count += 1
+
+        # Facteurs de corrélation par palier
+        if same_cat_count == 0:
+            return 1.0
+        elif same_cat_count == 1:
+            return 0.70
+        elif same_cat_count == 2:
+            return 0.50
+        else:
+            return 0.35
 
     def _compute_lots(
         self,

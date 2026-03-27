@@ -1,0 +1,9 @@
+[Unit]
+Description=Arabesque — rapport hebdomadaire (dimanche 20h UTC)
+
+[Timer]
+OnCalendar=Sun *-*-* 20:00:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

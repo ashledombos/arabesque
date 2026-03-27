@@ -33,6 +33,17 @@ execution:
     max_ms: 3000
 
 # -----------------------------------------------------------------------------
+# RODAGE — Prudence renforcée pour les stratégies non validées en live
+# Multiplicateur appliqué au risk_cash pour les stratégies listées.
+# Retirer une stratégie de la liste une fois son rodage terminé.
+# -----------------------------------------------------------------------------
+rodage:
+  enabled: true
+  risk_multiplier: 0.50          # ×0.50 = moitié du risque normal
+  strategies:
+    - glissade                   # Activé live 2026-03-22, pas encore validé en live
+
+# -----------------------------------------------------------------------------
 # STRATÉGIE (v3.3 validé: trend-only)
 # -----------------------------------------------------------------------------
 strategy:

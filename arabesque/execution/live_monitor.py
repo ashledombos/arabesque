@@ -102,6 +102,7 @@ class MonitorConfig:
     risk_multiplier_normal: float = 1.0
     risk_multiplier_caution: float = 0.50
     risk_multiplier_danger: float = 0.25
+    risk_multiplier_emergency: float = 0.10   # lot minimum, pas de fermeture
 
     # Best Day consistency guard (FTMO)
     # Alert if today's profit exceeds this % of total positive-day profits
@@ -286,9 +287,10 @@ class LiveMonitor:
         """Multiplicateur de risque selon le palier de protection.
 
         Appelé par les guards/dispatcher pour réduire le sizing.
+        EMERGENCY = lot minimum (×0.10) au lieu de fermer tout.
         """
-        if self._frozen:
-            return 0.0
+        if self._protection_level == ProtectionLevel.EMERGENCY:
+            return self._cfg.risk_multiplier_emergency
         if self._protection_level == ProtectionLevel.DANGER:
             return self._cfg.risk_multiplier_danger
         if self._protection_level == ProtectionLevel.CAUTION:
@@ -299,6 +301,8 @@ class LiveMonitor:
         """Vérifie si le monitor autorise un nouveau signal.
 
         Appelé par le dispatcher avant d'accepter un signal.
+        EMERGENCY laisse passer (risk_multiplier ×0.10), le freeze
+        n'est plus utilisé que par manual_freeze().
         Retourne (ok, reason).
         """
         if self._frozen:
@@ -425,19 +429,21 @@ class LiveMonitor:
         if new == ProtectionLevel.EMERGENCY:
             logger.critical(
                 f"[LiveMonitor] 🚨 EMERGENCY — {context} — "
-                f"FERMETURE DE TOUTES LES POSITIONS"
+                f"RISQUE RÉDUIT AU MINIMUM ({self._cfg.risk_multiplier_emergency:.0%})"
             )
             await self._notify_ntfy(
                 f"EMERGENCY ARABESQUE\n{context}\n"
-                f"Fermeture de toutes les positions. Intervention requise."
+                f"Risque réduit à {self._cfg.risk_multiplier_emergency:.0%} (lot minimum).\n"
+                f"Positions existantes conservées. Intervention recommandée."
             )
             await self._notify_telegram(
                 f"🚨 EMERGENCY\n{context}\n"
-                f"Toutes les positions sont fermées.\n"
-                f"Le trading est GELÉ. Intervention humaine requise.\n"
-                f"Pour dégeler: manual_unfreeze() ou redémarrer le moteur."
+                f"Risque réduit à {self._cfg.risk_multiplier_emergency:.0%} (lot minimum).\n"
+                f"Positions existantes conservées (pas de fermeture).\n"
+                f"Fermeture des positions sans BE..."
             )
-            await self._emergency_close_all(f"EMERGENCY: {context}")
+            # Fermer seulement les positions non protégées, pas TOUTES
+            await self._close_unprotected_positions(f"EMERGENCY: {context}")
 
         elif new == ProtectionLevel.DANGER:
             logger.warning(

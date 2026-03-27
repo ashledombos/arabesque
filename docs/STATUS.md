@@ -172,7 +172,7 @@ grep "💰\|🔒\|🛡️\|🚨\|⚠️" /tmp/arabesque_live.log | tail -20
 | NORMAL | > -2.5% | > -5% | Rien |
 | CAUTION | ≤ -2.5% | ≤ -5% | Risk × 0.5 |
 | DANGER | ≤ -3.0% | ≤ -6.5% | Risk × 0.25 + ferme positions sans BE |
-| EMERGENCY | ≤ -3.5% | ≤ -8.0% | **Stop total + freeze** |
+| EMERGENCY | ≤ -3.5% | ≤ -8.0% | Risk × 0.10 (lot min) + ferme positions sans BE |
 
 ---
 

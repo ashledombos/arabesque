@@ -1,0 +1,13 @@
+[Unit]
+Description=Arabesque — rapport quotidien + drift check
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory={{REPO_DIR}}
+ExecStart={{REPO_DIR}}/.venv/bin/python scripts/daily_report.py --period daily
+ExecStartPost={{REPO_DIR}}/.venv/bin/python scripts/compare_live_vs_backtest.py --last 1 --notify
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1

@@ -134,6 +134,8 @@ class LiveEngine:
         if self._position_monitor:
             # 6b. Réconciliation au démarrage : enregistrer les positions déjà ouvertes
             await self._reconcile_existing_positions()
+            # 6c. Restaurer l'état sauvegardé (MFE, BE, trailing)
+            self._position_monitor.load_state()
             self._reconcile_task = asyncio.create_task(
                 self._reconcile_loop()
             )
@@ -150,6 +152,12 @@ class LiveEngine:
 
     async def stop(self) -> None:
         self._running = False
+        # Sauvegarder l'état du position monitor AVANT de déconnecter
+        if self._position_monitor:
+            try:
+                self._position_monitor.save_state()
+            except Exception as e:
+                logger.error(f"[Engine] Erreur sauvegarde état positions: {e}")
         if self._account_refresh_task:
             self._account_refresh_task.cancel()
         if self._reconcile_task:
@@ -295,6 +303,9 @@ class LiveEngine:
         if tf_risk:
             logger.info(f"[Engine] Risk multipliers by TF: {tf_risk}")
 
+        # Rodage config (risk réduit pour stratégies non validées en live)
+        rodage_cfg = self.settings.get("rodage", {})
+
         dispatcher = OrderDispatcher(
             brokers=self._brokers,
             instruments_cfg=self.instruments,
@@ -304,6 +315,7 @@ class LiveEngine:
             on_order_result=self._on_order_result,
             risk_multiplier_fn=self._get_risk_multiplier,
             risk_multiplier_by_tf=tf_risk,
+            rodage_config=rodage_cfg,
         )
         dispatcher._price_feed = None
         return dispatcher

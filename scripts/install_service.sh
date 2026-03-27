@@ -7,6 +7,7 @@
 #   bash scripts/install_service.sh          # installe tout
 #   bash scripts/install_service.sh fetch    # fetch uniquement
 #   bash scripts/install_service.sh live     # live uniquement
+#   bash scripts/install_service.sh reports  # rapports quotidien + hebdo
 #
 # Prérequis :
 #   sudo loginctl enable-linger "$USER"   # pour que les services tournent hors session
@@ -58,6 +59,26 @@ if [[ "$WHAT" == "all" || "$WHAT" == "live" ]]; then
     echo "  systemctl --user status arabesque-live    # statut"
     echo "  journalctl --user -u arabesque-live -f    # logs en direct"
     echo "  journalctl --user -u arabesque-live --since '1 hour ago'  # dernière heure"
+fi
+
+# --- Report timers ---
+if [[ "$WHAT" == "all" || "$WHAT" == "reports" ]]; then
+    for typ in daily weekly; do
+        sed "s|{{REPO_DIR}}|$REPO_DIR|g" \
+            "$REPO_DIR/deploy/systemd/arabesque-report-${typ}.service.template" \
+            > "$SYSTEMD_USER_DIR/arabesque-report-${typ}.service"
+
+        cp "$REPO_DIR/deploy/systemd/arabesque-report-${typ}.timer" \
+           "$SYSTEMD_USER_DIR/arabesque-report-${typ}.timer"
+    done
+
+    systemctl --user daemon-reload
+    systemctl --user enable arabesque-report-daily.timer arabesque-report-weekly.timer
+    systemctl --user start  arabesque-report-daily.timer arabesque-report-weekly.timer
+
+    echo ""
+    echo "✅ Report timers installés et démarrés."
+    systemctl --user list-timers 'arabesque-report-*'
 fi
 
 echo ""

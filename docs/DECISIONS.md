@@ -2294,3 +2294,95 @@ déploiement immédiat. À réévaluer si davantage d'instruments passent le WF.
 
 **Cause** : URL Apprise `tgram://AAFX...YiQ/CHATID` manquait le préfixe
 numérique du bot ID. Corrigé en `tgram://8427362376:AAFX...YiQ/CHATID`.
+
+### Corrélation inter-positions (risk discount)
+
+**Problème** : ouvrir 3 positions crypto simultanées = exposition corrélée ×3.
+Le guard `max_open_risk_pct` ne distingue pas les catégories d'instruments.
+
+**Décision** : discount multiplicatif dans `order_dispatcher.receive_signal()`,
+appliqué au `risk_cash` entre le TF multiplier et le protection multiplier :
+- 0 positions même catégorie → ×1.0
+- 1 position → ×0.70
+- 2 positions → ×0.50
+- 3+ positions → ×0.35
+
+Catégories via `_categorize()` de `data/store.py` (crypto, forex_cross, metal, index).
+Le discount n'affecte pas le guard `max_open_risk_pct` lui-même, seulement le sizing.
+
+**Fichier** : `arabesque/execution/order_dispatcher.py`
+
+### Graceful SIGTERM — persistance état position_monitor
+
+**Problème** : un restart de l'engine perdait l'état MFE/BE/trailing des
+positions ouvertes. La réconciliation retrouvait les positions mais repartait
+de zéro pour le tracking → un trade à MFE 0.5R avec BE actif repartait sans BE.
+
+**Décision** : `save_state()` / `load_state()` dans `LivePositionMonitor`.
+- `stop()` appelle `save_state()` → JSON dans `logs/position_monitor_state.json`
+- `start()` appelle `load_state()` après `_reconcile_existing_positions()`
+- Le fichier est supprimé après restauration (one-shot)
+- Le SL restauré est le plus protecteur entre broker et état sauvegardé
+
+**Fichiers** : `arabesque/execution/position_monitor.py`, `arabesque/execution/live.py`
+
+### Rapports automatisés (daily + weekly)
+
+**Décision** : script `scripts/daily_report.py` qui lit `trade_journal.jsonl`
+et `equity_snapshots.jsonl`, calcule WR/Exp/TotalR et envoie via Apprise.
+
+Deux timers systemd :
+- `arabesque-report-daily.timer` → 21h UTC chaque jour (rodage)
+- `arabesque-report-weekly.timer` → dimanche 20h UTC
+
+Le rapport quotidien sera désactivé post-rodage (`systemctl --user disable`).
+
+Chaque timer chaîne aussi `compare_live_vs_backtest.py --notify` pour détecter
+les dérives live vs backtest automatiquement.
+
+**Fichiers** : `scripts/daily_report.py`, `scripts/compare_live_vs_backtest.py`,
+`deploy/systemd/arabesque-report-*.{service.template,timer}`
+
+### EMERGENCY → lot minimum (plus de close all)
+
+**Problème** : en EMERGENCY, le système fermait toutes les positions et gelait
+le trading. Ça réalise les pertes latentes, potentiellement aggravant le DD.
+
+**Décision** : EMERGENCY réduit le risque à ×0.10 (lot minimum) au lieu de
+tout fermer. Seules les positions non protégées (sans BE) sont fermées.
+Les positions avec BE ou trailing sont conservées (elles sont déjà protégées).
+Le trading n'est plus gelé — les signaux passent toujours avec un sizing minimal.
+
+**Fichier** : `arabesque/execution/live_monitor.py`
+
+### Rodage — risk réduit pour stratégies non validées en live
+
+**Problème** : Glissade est activée en live (WF PASS 3/3) mais n'a pas encore
+prouvé son edge en conditions réelles. Risquer autant qu'Extension (20 mois
+de live) est imprudent.
+
+**Décision** : section `rodage` dans `settings.yaml` :
+```yaml
+rodage:
+  enabled: true
+  risk_multiplier: 0.50
+  strategies:
+    - glissade
+```
+Le multiplicateur est appliqué dans `order_dispatcher.receive_signal()` après
+le TF multiplier et avant la corrélation. Retirer une stratégie de la liste
+une fois le rodage terminé (> 100 trades live, WR et Exp cohérents).
+
+**Fichiers** : `config/settings.yaml`, `arabesque/execution/order_dispatcher.py`,
+`arabesque/execution/live.py`
+
+### Drift detection automatisée
+
+**Décision** : `compare_live_vs_backtest.py --notify` est chaîné dans les
+timers systemd (daily et weekly). Le script relance un backtest sur la même
+période que le live et envoie une alerte Telegram si une dérive est détectée
+(Exp live < -0.10R sur ≥ 5 trades par instrument).
+
+**Fichier** : `scripts/compare_live_vs_backtest.py`
+
+**Fichiers** : `scripts/daily_report.py`, `deploy/systemd/arabesque-report-*.{service.template,timer}`

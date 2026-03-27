@@ -18,12 +18,16 @@ APPEL:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 from arabesque.core.models import Side
+
+STATE_FILE = Path("logs/position_monitor_state.json")
 
 logger = logging.getLogger("arabesque.live.position_monitor")
 
@@ -132,6 +136,89 @@ class LivePositionMonitor:
     @property
     def open_positions(self) -> List[TrackedPosition]:
         return list(self._positions.values())
+
+    def save_state(self) -> None:
+        """Persiste l'état des positions trackées (MFE, BE, trailing) sur disque.
+
+        Appelé lors d'un arrêt gracieux (SIGTERM) pour reprendre le monitoring
+        au redémarrage sans perdre l'info MFE/BE/trailing.
+        """
+        if not self._positions:
+            # Supprimer le fichier si aucune position
+            STATE_FILE.unlink(missing_ok=True)
+            return
+
+        state = {}
+        for key, pos in self._positions.items():
+            state[key] = {
+                "broker_id": pos.broker_id,
+                "position_id": pos.position_id,
+                "symbol": pos.symbol,
+                "side": pos.side.value,
+                "entry": pos.entry,
+                "sl": pos.sl,
+                "sl_initial": pos.sl_initial,
+                "tp": pos.tp,
+                "volume": pos.volume,
+                "digits": pos.digits,
+                "max_favorable_price": pos.max_favorable_price,
+                "breakeven_set": pos.breakeven_set,
+                "trailing_active": pos.trailing_active,
+                "trailing_tier": pos.trailing_tier,
+                "registered_at": pos.registered_at,
+            }
+
+        STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        STATE_FILE.write_text(json.dumps(state, indent=2))
+        logger.info(
+            f"[Monitor] 💾 État sauvegardé: {len(state)} position(s) → {STATE_FILE}"
+        )
+
+    def load_state(self) -> int:
+        """Restaure l'état sauvegardé (MFE, BE, trailing) pour les positions encore ouvertes.
+
+        Appelé après _reconcile_existing_positions() pour enrichir les positions
+        réconciliées avec l'état précédent (MFE, BE, trailing tier).
+
+        Returns: nombre de positions restaurées.
+        """
+        if not STATE_FILE.exists():
+            return 0
+
+        try:
+            state = json.loads(STATE_FILE.read_text())
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"[Monitor] ⚠️ Impossible de lire {STATE_FILE}: {e}")
+            return 0
+
+        restored = 0
+        for key, saved in state.items():
+            if key not in self._positions:
+                continue  # Position fermée entre-temps
+            pos = self._positions[key]
+            # Restaurer l'état de tracking
+            pos.max_favorable_price = saved.get("max_favorable_price", pos.max_favorable_price)
+            pos.breakeven_set = saved.get("breakeven_set", False)
+            pos.trailing_active = saved.get("trailing_active", False)
+            pos.trailing_tier = saved.get("trailing_tier", 0)
+            # Garder le SL le plus protecteur (broker peut avoir bougé)
+            saved_sl = saved.get("sl", 0)
+            if saved_sl and pos.side == Side.LONG and saved_sl > pos.sl:
+                pos.sl = saved_sl
+            elif saved_sl and pos.side == Side.SHORT and 0 < saved_sl < pos.sl:
+                pos.sl = saved_sl
+            restored += 1
+            logger.info(
+                f"[Monitor] 🔄 État restauré: {pos.symbol} "
+                f"MFE={pos.mfe_r:.2f}R BE={'✓' if pos.breakeven_set else '✗'} "
+                f"trail={pos.trailing_tier}"
+            )
+
+        # Nettoyer le fichier après restauration
+        STATE_FILE.unlink(missing_ok=True)
+        if restored:
+            logger.info(f"[Monitor] ✅ {restored} position(s) restaurée(s) depuis état précédent")
+        return restored
 
     def register_position(
         self,
@@ -560,7 +647,7 @@ class LivePositionMonitor:
             return pos.sl  # Current (trailed) SL
         return pos.sl
 
-
+    def get_stats(self) -> dict:
         """Statistiques du monitor."""
         return {
             "tracked_positions": len(self._positions),
