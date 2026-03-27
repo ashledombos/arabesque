@@ -122,22 +122,24 @@ from arabesque.strategies.extension.signal import ExtensionSignalGenerator
 
 ## 6. Documentation
 
-Cinq documents, pas plus :
+Documents principaux :
 
 | Document | Rôle | Mise à jour |
 |---|---|---|
-| `docs/START_HERE.md` | Porte d'entrée unique | Rarement |
-| `HANDOFF.md` | État courant + plan | Chaque fin de session |
-| `docs/DECISIONS.md` | Décisions + historique | À chaque décision importante |
+| `CLAUDE.md` | Instructions pour Claude Code | Quand les règles changent |
+| `HANDOFF.md` | Reprise de session + état courant | **Chaque fin de session** |
+| `docs/STATUS.md` | Snapshot opérationnel live | **Chaque changement de config/compte** |
+| `docs/DECISIONS.md` | Décisions techniques + historique | À chaque décision importante |
+| `docs/EXPERIMENT_LOG.md` | Paramètres testés + résultats | **Chaque expérimentation** |
 | `docs/HYGIENE.md` | Ce document | Quand les règles changent |
-| `docs/ARCHITECTURE.md` | Architecture technique | Quand la structure change |
 
-Les autres documents (ROADMAP, TECH_DEBT) sont dans `docs/` mais ne sont
-plus des portes d'entrée.
+Chaque stratégie a aussi son `STRATEGY.md` dans `arabesque/strategies/*/`.
 
 **Fin de session** — obligatoire :
-1. `HANDOFF.md` : état actuel, bugs ouverts, plan P0→P8
+1. `HANDOFF.md` : état actuel, bugs ouverts, prochaines étapes
 2. `docs/DECISIONS.md` : toute nouvelle décision technique
+3. `docs/STATUS.md` : si la config live, les balances ou les notifications ont changé
+4. `docs/EXPERIMENT_LOG.md` : si des paramètres ou stratégies ont été testés
 
 ---
 

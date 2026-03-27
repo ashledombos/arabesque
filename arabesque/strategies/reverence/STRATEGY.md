@@ -119,8 +119,17 @@ Les deux capturent la compression → expansion mais à des échelles différent
 ### Diagnostic
 
 Edge réel mais mince sur crypto H4 (DOGEUSD WF PASS). ~1.5 trades/mois par instrument.
-Overlap potentiel avec Extension H4 crypto (BB squeeze vs NR7 = deux détections de compression).
-À vérifier avant déploiement.
+
+### Overlap avec Extension (vérifié 2026-03-27)
+
+Analyse sur DOGEUSD H4 (2024-01 → 2026-03) :
+- Extension : 286 signaux, 116 jours uniques
+- Révérence : 460 signaux, 367 jours uniques
+- **Overlap : 50 jours en commun = 14% des signaux Révérence**
+
+**Conclusion** : overlap faible (14%), très différent de Cabriole (73-95%). Révérence capte
+des mouvements que Extension ne voit pas. Complémentaire en théorie, mais edge trop mince
+pour déploiement immédiat. À réévaluer si l'edge se confirme sur plus d'instruments.
 
 ---
 
@@ -133,6 +142,6 @@ Overlap potentiel avec Extension H4 crypto (BB squeeze vs NR7 = deux détections
 | Ablation | ✅ H1 breakeven, H4 edge mince |
 | Backtest | ✅ 4/10 instruments positifs sur H4 |
 | Walk-forward | ✅ DOGEUSD PASS, SOLUSD/ETHUSD marginal |
-| Overlap check | ❌ À faire vs Extension H4 |
+| Overlap check | ✅ 14% overlap = complémentaire (vérifié 2026-03-27) |
 | Shadow live | ❌ |
 | Live | ❌ |

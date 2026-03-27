@@ -176,10 +176,13 @@ Accumuler ≥ 100 trades avant décision. Activer si WR↑ ET Exp↑.
 
 ## Fin de session
 
-Toujours mettre à jour :
-1. `HANDOFF.md` — état courant, bugs ouverts
-2. `docs/DECISIONS.md` — toute nouvelle décision technique
-3. `git push`
+Toujours mettre à jour (si applicable) :
+1. `HANDOFF.md` — état courant, bugs ouverts, prochaines étapes **(obligatoire)**
+2. `docs/DECISIONS.md` — toute nouvelle décision technique **(si décision prise)**
+3. `docs/STATUS.md` — si la config live, les balances ou les notifications ont changé
+4. `docs/EXPERIMENT_LOG.md` — si des paramètres ou stratégies ont été testés
+5. `arabesque/strategies/*/STRATEGY.md` — si les résultats ou le statut d'une stratégie changent
+6. `git push`
 
 ## Documents de référence
 

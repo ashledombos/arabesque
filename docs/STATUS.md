@@ -5,7 +5,7 @@
 > ce fichier est la référence rapide pour savoir ce qui tourne, sur quel compte, avec quel paramétrage.
 > **Mettre à jour à chaque changement de compte ou de configuration live.**
 
-Dernière mise à jour : 2026-03-23 (session Opus 4.6)
+Dernière mise à jour : 2026-03-27 (session Opus 4.6)
 
 ---
 
@@ -19,9 +19,9 @@ Dernière mise à jour : 2026-03-23 (session Opus 4.6)
 | **Compte actif** | `ftmo_challenge` (account_id: 45667282) |
 | **Type** | Challenge Phase 1 (2-step, 100k USD) |
 | **Environnement cTrader** | **Démo** (`is_demo: true` — les challenges FTMO utilisent l'endpoint démo) |
-| **Balance** | ~$94 989 (DD -5.01%) |
-| **Protection active** | LiveMonitor NORMAL (risk linéaire réduit ~×0.33 vu le DD) |
-| **Notifications** | ntfy ✅, Telegram ❌ (bot token invalide) |
+| **Balance** | ~$94 473 (DD -5.5%) |
+| **Protection active** | LiveMonitor **CAUTION** (risk × 0.5) |
+| **Notifications** | ntfy ✅, Telegram ✅ (corrigé 2026-03-27) |
 
 ---
 
@@ -186,7 +186,7 @@ notifications:
     - "ntfys://arabesque_alertes_7x9k2m"  # ntfy — push urgent
 ```
 
-**Statut 2026-03-23** : ntfy ✅ fonctionne, Telegram ❌ échec (bot token invalide).
+**Statut 2026-03-27** : ntfy ✅, Telegram ✅ (token corrigé — manquait le préfixe numérique du bot ID).
 
 ### Tester les notifications
 ```bash
@@ -239,7 +239,7 @@ python tmp/compare_live_vs_backtest.py --last 7       # derniers 7 jours
 
 ## Prochaines étapes immédiates
 
-- [ ] Corriger notifications Telegram (bot token invalide, ntfy OK)
+- [x] ~~Corriger notifications Telegram~~ (fait 2026-03-27)
 - [ ] Exécuter `python tmp/compare_live_vs_backtest.py` (~1×/semaine)
 - [ ] Augmenter le risk à 0.80% une fois le compte stabilisé
 
@@ -264,7 +264,7 @@ WF validé, non encore déployé :
 
 Testé, edge insuffisant :
   Renversé H1  → sweep + FVG retrace (WR 73%, Exp +0.006R = breakeven)
-  Révérence H4 → NR7 expansion (DOGEUSD PASS WR83%, edge mince +0.059R)
+  Révérence H4 → NR7 expansion (DOGEUSD PASS WR83%, overlap 14% = complémentaire, edge mince)
 
 Non viable :
   Pas de Deux  → pairs trading (mean-reversion, incompatible boussole)
