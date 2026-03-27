@@ -111,7 +111,7 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - [ ] Ajouter support `--session` CLI pour Fouetté (passer london/ny/tokyo)
 
 ### Bugs connus
-- GFT compte idle : tous les signaux actuels sont crypto, non disponibles sur GFT. Ajouter forex/métaux aux assignments GFT.
+- GFT ne reçoit que les signaux H1 forex/métaux (XAUUSD, GBPJPY, AUDJPY, CHFJPY) — les crypto H4 ne sont pas disponibles chez GFT. Normal, pas un bug.
 - Compte 46570880 et 46738849 encore visibles via API cTrader (anciens tests, ne pas utiliser)
 
 ### Bugs corrigés (2026-03-27)

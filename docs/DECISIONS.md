@@ -2244,3 +2244,53 @@ GFT retourne `pip_size=0.0001` (convention 4 décimales pour les métaux).
 Les conventions diffèrent entre brokers (contractSize, pip_size, order_id vs
 position_id). Toujours vérifier les positions orphelines dans les logs après
 activation d'un nouveau broker.
+
+---
+
+## Décisions 2026-03-27
+
+### DD tracking persistant (fix faux EMERGENCY)
+
+**Problème** : `_refresh_account_state()` recréait `AccountState` avec
+`start_balance=info.balance` (balance courante) à chaque refresh de 2 min.
+Résultat : le DD était calculé comme `(equity - balance_courante) / balance_courante`
+= le floating P&L instantané, pas le vrai drawdown depuis la balance initiale.
+Un floating de -7.3% déclenchait un faux EMERGENCY alors que la perte réelle
+était de -0.5% ($516 sur 100k).
+
+**Décision** : trois variables d'instance persistantes dans `LiveEngine` :
+- `_initial_balance` : depuis `accounts.yaml`, ne change jamais
+- `_daily_start_balance` : balance broker au démarrage, reset à UTC midnight
+- `_daily_start_date` : date du jour pour détecter le rollover
+
+**Fichier** : `arabesque/execution/live.py` — méthodes `_init_dd_tracking()` et
+`_refresh_account_state()`.
+
+### Migration systemd (remplacement nohup)
+
+**Problème** : le moteur live tournait via `nohup ... > /tmp/arabesque_live.log &`.
+Risques : logs perdus au reboot (tmpfs), pas d'auto-restart si crash, fichier
+log qui grossit indéfiniment.
+
+**Décision** : service systemd user `arabesque-live.service` avec :
+- `Restart=on-failure` + `RestartSec=30` (auto-restart)
+- `StandardOutput=journal` (rotation automatique via journald)
+- `WantedBy=default.target` + `enable-linger` (démarre au boot)
+- Template dans `deploy/systemd/`, installé via `scripts/install_service.sh`
+
+**Testé** : arrêt du processus nohup + démarrage systemd → réconciliation OK
+(2 positions ouvertes retrouvées), Telegram OK, DD tracking correct.
+
+### Révérence — overlap 14% avec Extension
+
+**Analyse** : sur DOGEUSD H4 (2024-01 → 2026-03), 460 signaux Révérence vs
+286 signaux Extension, 50 jours en commun = **14% d'overlap** côté Révérence.
+
+**Décision** : Révérence est complémentaire (contrairement à Cabriole 73-95%),
+mais l'edge est trop mince (Exp +0.059R, seul DOGEUSD passe WF) pour un
+déploiement immédiat. À réévaluer si davantage d'instruments passent le WF.
+
+### Telegram — token corrigé
+
+**Cause** : URL Apprise `tgram://AAFX...YiQ/CHATID` manquait le préfixe
+numérique du bot ID. Corrigé en `tgram://8427362376:AAFX...YiQ/CHATID`.
