@@ -60,6 +60,11 @@ class LiveEngine:
         self._account_refresh_task: Optional[asyncio.Task] = None
         self._reconcile_task: Optional[asyncio.Task] = None
 
+        # DD tracking — persistent across refreshes
+        self._initial_balance: Optional[float] = None      # from accounts.yaml
+        self._daily_start_balance: Optional[float] = None   # balance at start of UTC day
+        self._daily_start_date: Optional[str] = None        # "YYYY-MM-DD" of current day
+
     @classmethod
     def from_config(
         cls,
@@ -118,7 +123,10 @@ class LiveEngine:
         # 5. Price feed branché sur bar_aggregator.on_tick
         await self._start_price_feed()
 
-        # 6. État initial des comptes
+        # 6. Initialiser les balances de référence pour le DD
+        await self._init_dd_tracking()
+
+        # 6b. État initial des comptes
         await self._refresh_account_state()
         self._account_refresh_task = asyncio.create_task(
             self._account_refresh_loop()
@@ -646,6 +654,55 @@ class LiveEngine:
     # État des comptes
     # ------------------------------------------------------------------
 
+    async def _init_dd_tracking(self) -> None:
+        """Initialise les balances de référence pour le calcul du DD.
+
+        - initial_balance : depuis accounts.yaml (ex: 100000 pour FTMO)
+        - daily_start_balance : balance réelle du broker au démarrage
+        """
+        from datetime import datetime, timezone
+        from pathlib import Path
+        import yaml
+
+        # 1. initial_balance depuis accounts.yaml
+        primary_id = list(self._brokers.keys())[0]
+        try:
+            path = Path("config/accounts.yaml")
+            if path.exists():
+                with open(path) as f:
+                    cfg = yaml.safe_load(f) or {}
+                acct = cfg.get("accounts", {}).get(primary_id, {})
+                self._initial_balance = float(acct.get("initial_balance", 0))
+        except Exception as e:
+            logger.warning(f"[Engine] Could not load initial_balance: {e}")
+
+        # 2. daily_start_balance = balance réelle du broker maintenant
+        try:
+            info = await self._brokers[primary_id].get_account_info()
+            if info:
+                if not self._initial_balance:
+                    self._initial_balance = info.balance
+                    logger.warning(
+                        f"[Engine] initial_balance not in accounts.yaml, "
+                        f"using broker balance: {info.balance:.2f}"
+                    )
+                self._daily_start_balance = info.balance
+                self._daily_start_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        except Exception as e:
+            logger.warning(f"[Engine] Could not fetch initial balance: {e}")
+
+        if not self._initial_balance:
+            self._initial_balance = 100_000.0
+            logger.warning("[Engine] Fallback initial_balance=100000")
+        if not self._daily_start_balance:
+            self._daily_start_balance = self._initial_balance
+
+        logger.info(
+            f"[Engine] DD tracking: initial_balance={self._initial_balance:.0f}, "
+            f"daily_start_balance={self._daily_start_balance:.0f}, "
+            f"date={self._daily_start_date}"
+        )
+
     async def _refresh_account_state(self) -> None:
         if not self._brokers or not self._dispatcher:
             return
@@ -672,12 +729,24 @@ class LiveEngine:
                         if pos.symbol not in open_instruments:
                             open_instruments.append(pos.symbol)
 
+                # Daily rollover: reset daily_start_balance at UTC midnight
+                from datetime import datetime, timezone
+                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                if self._daily_start_date and today != self._daily_start_date:
+                    old_daily = self._daily_start_balance
+                    self._daily_start_balance = info.balance
+                    self._daily_start_date = today
+                    logger.info(
+                        f"[Engine] 📅 New day {today}: daily_start_balance "
+                        f"{old_daily:.2f} → {info.balance:.2f}"
+                    )
+
                 from arabesque.core.guards import AccountState
                 state = AccountState(
                     balance=info.balance,
                     equity=info.equity,
-                    start_balance=info.balance,
-                    daily_start_balance=info.balance,
+                    start_balance=self._initial_balance or info.balance,
+                    daily_start_balance=self._daily_start_balance or info.balance,
                     open_positions=open_positions,
                     open_instruments=open_instruments,
                     open_risk_cash=open_risk_cash,

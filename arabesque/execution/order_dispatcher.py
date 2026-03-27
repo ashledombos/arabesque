@@ -263,16 +263,9 @@ class OrderDispatcher:
         risk_cash = sizing["risk_cash"]
         volume_lots = self._compute_lots(signal, risk_cash, risk_distance)
 
-        # Alerter si le lot semble sous-évalué (< 50% du risque attendu)
-        if volume_lots > 0 and risk_cash > 0 and risk_distance > 0:
-            pip_val = self.instruments_cfg.get(signal.instrument, {}).get("pip_value_per_lot", 10)
-            expected_risk = volume_lots * risk_distance * pip_val
-            if expected_risk < risk_cash * 0.5:
-                logger.warning(
-                    f"[Dispatcher] ⚠️ Lot sous-évalué {signal.instrument}: "
-                    f"vol={volume_lots:.3f}L risque_effectif≈{expected_risk:.0f}$ "
-                    f"vs demandé={risk_cash:.0f}$ (ratio={expected_risk/risk_cash:.1%})"
-                )
+        # Note: le volume préliminaire est recalculé per-broker dans _dispatch_to_broker
+        # avec le pip_size réel du broker (peut différer du YAML).
+        # La validation du sizing se fait au moment du dispatch, pas ici.
 
         # Déterminer le type d'ordre (LIMIT vs STOP)
         # Arabesque utilise les entrées LIMIT par défaut (mean-reversion)

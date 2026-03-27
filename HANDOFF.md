@@ -3,7 +3,7 @@
 > **Pour reprendre le développement dans un nouveau chat.**
 > État live courant → `docs/STATUS.md`. Décisions techniques → `docs/DECISIONS.md`.
 >
-> Dernière mise à jour : 2026-03-23
+> Dernière mise à jour : 2026-03-27
 
 ---
 
@@ -15,8 +15,8 @@ Live actif (compte ftmo_challenge, account_id 45667282, démo cTrader) :
   Extension H4  → 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…) (risk 0.55% via TF multiplier)
   Glissade H1   → XAUUSD, BTCUSD (LIVE — WF 3/3 PASS, WR 83%, Exp +0.147R)
 
-Balance FTMO : ~94 989$ (DD -5.01%) — mode conservatif, réduction linéaire active
-Balance GFT  : ~142 684$ (DD -4.9%) — activé 2026-03-23, 36 instruments mappés
+Balance FTMO : ~94 473$ (DD -5.5%) — protection CAUTION active, risk réduit 50%
+Balance GFT  : ~142 684$ (DD -4.9%) — activé 2026-03-23, 36 instruments mappés, idle (pas de signaux crypto)
 
 WF validé, non déployé :
   Fouetté M1    → XAUUSD London, US100 NY, BTCUSD NY (fréquence insuffisante)
@@ -26,7 +26,7 @@ Testé, edge insuffisant :
   Renversé H1   → sweep + FVG retrace (WR 73% mais Exp +0.006R = breakeven)
 
 WF en cours, non déployé :
-  Révérence H4  → NR7 contraction → expansion (DOGEUSD PASS WR83%, overlap Extension à vérifier)
+  Révérence H4  → NR7 contraction → expansion (DOGEUSD PASS WR83%, overlap 14% = complémentaire, edge mince)
 
 Concepts non viables :
   Pas de Deux   → pairs trading cointégration (mean-reversion, incompatible boussole)
@@ -95,13 +95,14 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - **Challenges FTMO = démo cTrader** : `is_demo: true` obligatoire, sinon CANT_ROUTE_REQUEST
 - **TradeLocker order_id ≠ position_id** : `create_order` retourne un order_id, il faut `get_position_id_from_order_id()` pour le lier à la position réelle
 - **pip_size varie entre brokers** : GFT XAUUSD = 0.0001, cTrader = 0.01. Toujours utiliser `sym_info.pip_size` du broker
+- **DD tracking doit être persistant** : `start_balance` depuis accounts.yaml, `daily_start_balance` persistant entre refreshes, rollover UTC à minuit. Sinon floating P&L = faux DD → faux EMERGENCY
 
 ---
 
 ## Prochaines étapes
 
 ### Immédiat
-- [ ] Corriger notifications Telegram (bot token invalide, ntfy OK)
+- [x] ~~Corriger notifications Telegram~~ (fait 2026-03-27 — token manquait préfixe numérique)
 - [ ] Augmenter risk à 0.80% une fois compte stabilisé
 
 ### Court terme
@@ -110,8 +111,13 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - [ ] Ajouter support `--session` CLI pour Fouetté (passer london/ny/tokyo)
 
 ### Bugs connus
-- Telegram notifications KO (bot token invalide, ntfy fonctionne)
+- GFT compte idle : tous les signaux actuels sont crypto, non disponibles sur GFT. Ajouter forex/métaux aux assignments GFT.
 - Compte 46570880 et 46738849 encore visibles via API cTrader (anciens tests, ne pas utiliser)
+
+### Bugs corrigés (2026-03-27)
+- [x] Telegram notifications — token Apprise manquait préfixe `8427362376:`
+- [x] Faux EMERGENCY DD -7.3% — DD calculé sur floating P&L au lieu de balance réelle (fix: persistent DD tracking)
+- [x] Warning "lot sous-évalué" faux positif — utilisait yaml pip_val au lieu de broker pip_val
 
 ### Bugs corrigés (2026-03-26)
 - [x] TradeLocker order_id ≠ position_id → positions orphelines sans SL/TP
