@@ -3,7 +3,7 @@
 > **Pour reprendre le développement dans un nouveau chat.**
 > État live courant → `docs/STATUS.md`. Décisions techniques → `docs/DECISIONS.md`.
 >
-> Dernière mise à jour : 2026-03-27
+> Dernière mise à jour : 2026-04-06
 
 ---
 
@@ -15,13 +15,13 @@ Live actif (compte ftmo_challenge, account_id 45667282, démo cTrader) :
   Extension H4  → 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…) (risk 0.55% via TF multiplier)
   Glissade H1   → XAUUSD, BTCUSD (LIVE — WF 3/3 PASS, WR 83%, Exp +0.147R)
 
-Balance FTMO : ~94 473$ (DD -5.5%) — protection CAUTION active, risk réduit 50%
+Balance FTMO : ~94 556$ (DD -5.5%) — risk réduit ~45% par DD linéaire (compute_sizing)
 Rodage Glissade : risk × 0.50 (config/settings.yaml → rodage.strategies)
-Balance GFT  : ~142 684$ (DD -4.9%) — activé 2026-03-23, 36 instruments mappés, idle (pas de signaux crypto)
+Balance GFT  : ~142 598$ (DD -4.9%) — risk réduit ~50% par DD linéaire
 
-WF validé, non déployé :
-  Fouetté M1    → XAUUSD London, US100 NY, BTCUSD NY (fréquence insuffisante)
-  Cabriole 4H   → crypto (73-95% overlap Extension, backup)
+Rodage (risk × 0.50, activé 2026-03-28) :
+  Fouetté M1    → XAUUSD London, BTCUSD NY (WF 4/4 PASS)
+  Cabriole 4H   → BTCUSD, ETHUSD, SOLUSD, DOGEUSD, LINKUSD, ADAUSD (WF 6/6 PASS, 73-95% overlap Extension)
 
 Testé, edge insuffisant :
   Renversé H1   → sweep + FVG retrace (WR 73% mais Exp +0.006R = breakeven)
@@ -73,13 +73,14 @@ IC99       : +0.084R > 0 ✅
 | BE trigger / offset | 0.3R / 0.20R | position_manager.py |
 | Protection active | LiveMonitor 4 paliers (EMERGENCY = lot min, pas close all) | execution/live_monitor.py |
 | Per-TF risk multiplier | H4 → ×1.22 | settings.yaml (risk_multiplier_by_timeframe) |
-| Rodage | Glissade ×0.50 | settings.yaml (rodage.strategies) |
+| Rodage | Glissade, Fouetté, Cabriole ×0.50 | settings.yaml (rodage.strategies) |
 | Corrélation | même catégorie ×0.70/0.50/0.35 | order_dispatcher.py |
 | Environnement cTrader | **Démo** (is_demo: true) | settings.yaml + accounts.yaml |
 
 ### Architecture credentials
 
 Tokens OAuth stockés UNE SEULE FOIS dans `secrets.yaml → ctrader_oauth`.
+App OpenAPI "arabesque" (client_id 23710), basculé 2026-03-28 (anciens tokens gardés dans `ctrader_oauth_old`).
 Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 `_resolve_secret_refs()` dans `config.py` résout les références au chargement.
 `update_broker_tokens()` sauvegarde dans la section partagée.
@@ -97,10 +98,14 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - **Reversals ICT/SMC non viables** : Renversé testé (142 trades), WR 73% mais Exp +0.006R = breakeven
 - **Challenges FTMO = démo cTrader** : `is_demo: true` obligatoire, sinon CANT_ROUTE_REQUEST
 - **TradeLocker order_id ≠ position_id** : `create_order` retourne un order_id, il faut `get_position_id_from_order_id()` pour le lier à la position réelle
-- **pip_size varie entre brokers** : GFT XAUUSD = 0.0001, cTrader = 0.01. Toujours utiliser `sym_info.pip_size` du broker
+- **pip_size varie entre brokers** : TradeLocker reporte en points (0.0001), cTrader en pips (0.01). `_compute_lots_for_broker` rescale automatiquement le `pip_value_per_lot` yaml par le ratio `broker_pip_size / yaml_pip_size` pour maintenir la cohérence cross/fallback
 - **DD tracking doit être persistant** : `start_balance` depuis accounts.yaml, `daily_start_balance` persistant entre refreshes, rollover UTC à minuit. Sinon floating P&L = faux DD → faux EMERGENCY
 - **Position monitor state persisté** : `save_state()` sur SIGTERM, `load_state()` au restart. Sans ça, MFE/BE/trailing perdus → positions à MFE 0.5R repartent sans BE
 - **EMERGENCY = protection intelligente** : pas de close all (réalise les pertes). Triage par P&L courant : positive → BE immédiat, 0/-0.5R → SL serré -0.3R, -0.5/-0.7R → fermer, < -0.7R → laisser (trop proche SL)
+- **Distribution bimodale des trades** : 68% BE wins (+0.20R), 19% SL losses (-1R), 9% runners (>+1R). Les runners génèrent 159% du P&L net — toute modification qui les empêche (TP fixe, ROI agressif) détruit l'edge. La zone +0.2R à +1R est quasi vide (4%)
+- **Cooldown 5 barres optimal** : testé cd5/cd2/cd0/dégressif — plus de trades sans cooldown (+27%) mais Exp chute de +0.093R à +0.043R. Les trades supplémentaires sont de mauvaise qualité
+- **Sorties MR incompatibles trend-following** : BB_RPB_TSL (MR, SL=-99%) uses RSI extreme / ROI court / momentum surextensif pour couper les profits. Avec SL réel -1R, ces mêmes mécanismes tuent les runners. Testé 11/13 éléments : tous NEUTRE ou REJETÉ (2026-03-28)
+- **Vol-targeting inadapté aux BB breakout** : haute vol = notre signal d'entrée → réduire le risk en haute vol tue l'edge. Testé 5 configs, toutes négatives (-10 à -12R). La normalisation ATR au sizing suffit (2026-03-28)
 
 ---
 
@@ -108,18 +113,48 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 
 ### Immédiat
 - [x] ~~Corriger notifications Telegram~~ (fait 2026-03-27 — token manquait préfixe numérique)
-- [ ] Augmenter risk à 0.80% une fois compte stabilisé
+- [x] ~~Fix double-comptage rapports~~ (fait 2026-04-06 — dédupliqué par trade_id dans daily_report, compare_live_vs_backtest, health_check, live_monitor._load_journal)
+- [x] ~~Fix exits manquants au redémarrage~~ (fait 2026-04-06 — _reconcile_missed_exits() dans live.py scanne le journal au démarrage)
+- [ ] Augmenter risk quand data suffisante (voir critères ci-dessous)
 
 ### Court terme
 - [x] ~~Corrélation inter-positions~~ (fait 2026-03-27 — discount 0.70/0.50/0.35 par catégorie dans order_dispatcher)
 - [x] ~~Activer GFT compte1~~ (fait 2026-03-23 — enabled, protected: false, 36 instruments mappés)
 - [x] ~~Graceful SIGTERM~~ (fait 2026-03-27 — save_state/load_state position_monitor, MFE+BE+trailing persistés)
 - [x] ~~Rapports automatisés~~ (fait 2026-03-27 — daily 21h UTC + weekly dim 20h UTC via systemd timers)
+- [x] ~~Feuille de route BB_RPB_TSL~~ (fait 2026-03-28 — 11/13 éléments testés, tous NEUTRE ou REJETÉ. Le système actuel est le bon profil. Voir `docs/EXPERIMENT_LOG.md` section 6)
 - [ ] Ajouter support `--session` CLI pour Fouetté (passer london/ny/tokyo)
+- [x] ~~Implémenter protection slippage entrée (H4)~~ (fait 2026-03-28 — `order_dispatcher.py` check ATR-normalized slippage at trigger, counterfactual + JSONL logging, seuil configurable `max_slippage_atr: 0.5`)
+- [x] ~~Explorer volatility targeting~~ (fait 2026-03-28 — REJETÉ, haute vol = notre signal d'entrée, réduire risk en haute vol tue l'edge. Voir `docs/EXPERIMENT_LOG.md` section 7)
+- [x] ~~Guard counterfactual tracking~~ (fait 2026-03-30 — backtest+WF logguent les counterfactuals par guard : cooldown, bb_squeeze, slippage, spread, duplicate_instrument. Affichage agrégé dans WF report et compare_live_vs_backtest)
+- [x] ~~Valider cooldown optimal~~ (fait 2026-03-30 — cd5 confirmé meilleur que cd2/cd0/dégressif. Voir `docs/EXPERIMENT_LOG.md` section 8)
+
+### Critères pour augmenter le risque (walk-forward live)
+
+```
+ÉTAT AU 2026-04-06 : 22 trades uniques loggés + 7 manquants = ~29 réels
+WR observé : 72.7% (16W/6L) — IC99 [45%, 90%] → INSUFFISANT
+Exp observée : -0.042R — IC99 inclut 0 → INSUFFISANT
+Rythme : ~10 trades/semaine
+```
+
+| Palier | Condition | Trades estimés | Date estimée | Action |
+|---|---|---|---|---|
+| **P0** | IC99 WR > 50% | ~50 | ~fin avril 2026 | Confirmation edge existe |
+| **P1** | IC99 WR > 60% + Exp IC95 > 0 | ~80 | ~mi-mai 2026 | Risk plancher à $100/trade min (anti-rounding) |
+| **P2** | IC99 WR > 65% + Exp IC99 > 0 | ~150 | ~juillet 2026 | Réduire agressivité DD linéaire (0.60 au lieu de 0.10 plancher) |
+| **P3** | 200+ trades, WR et Exp stables 3 mois | ~200 | ~août 2026 | Risk plein 0.40%, nouveau compte si disponible |
+
+**Règle anti-slippage** : ne jamais descendre sous $100/trade de risk.
+En-dessous, le lot rounding (±$5) mange >25% du gain moyen (+0.20R).
+Si DD linéaire donne <$100, appliquer un plancher à $100 ou skip le trade.
 
 ### Bugs connus
 - GFT ne reçoit que les signaux H1 forex/métaux (XAUUSD, GBPJPY, AUDJPY, CHFJPY) — les crypto H4 ne sont pas disponibles chez GFT. Normal, pas un bug.
 - Compte 46570880 et 46738849 encore visibles via API cTrader (anciens tests, ne pas utiliser)
+
+### Bugs corrigés (2026-03-28)
+- [x] Sizing cross pairs GFT (AUDJPY 0.010L au lieu de 0.320L) — TradeLocker pip_size en points (0.0001) vs yaml en pips (0.01) → yaml pip_value_per_lot non rescalé. Fix: ratio automatique `broker_pip_size / yaml_pip_size` sur pip_value dans les paths cross et fallback.
 
 ### Bugs corrigés (2026-03-27)
 - [x] Telegram notifications — token Apprise manquait préfixe `8427362376:`
@@ -180,8 +215,8 @@ Fichiers sources dans `deploy/systemd/`. Installés via `bash scripts/install_se
 |---|---|---|
 | `arabesque-live` | persistent (auto-restart) | Moteur de trading live |
 | `arabesque-fetch.timer` | timer quotidien 06:30 UTC | Mise à jour des parquets |
-| `arabesque-report-daily.timer` | timer quotidien 21:00 UTC | Rapport quotidien (Telegram + ntfy) |
-| `arabesque-report-weekly.timer` | timer dimanche 20:00 UTC | Rapport hebdomadaire |
+| `arabesque-report-daily.timer` | timer quotidien 21:00 UTC | Rapport quotidien + drift check multi-stratégie + health check (13 checks) |
+| `arabesque-report-weekly.timer` | timer dimanche 20:00 UTC | Rapport hebdomadaire + drift check |
 
 ### Réinstaller (nouvelle machine ou après `git clone`)
 

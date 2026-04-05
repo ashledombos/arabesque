@@ -38,9 +38,8 @@ import pandas as pd
 # Ajouter le repo au path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from arabesque.data.store import load_ohlc
+from arabesque.data.store import load_ohlc, _categorize
 from arabesque.execution.backtest import BacktestRunner, BacktestConfig, manager_config_for
-from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
 
 
 FOREX_METALS = {
@@ -48,6 +47,23 @@ FOREX_METALS = {
     "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "NZDUSD",
     "USDCAD", "USDCHF",
 }
+
+
+def _resolve_strategy(strategy: str):
+    """Retourne (signal_generator, timeframe, exec_config) pour une stratégie."""
+    if strategy == "fouette":
+        from arabesque.strategies.fouette.signal import FouetteSignalGenerator, FouetteConfig
+        from arabesque.core.guards import ExecConfig
+        return FouetteSignalGenerator(FouetteConfig()), "min1", ExecConfig(max_spread_atr=0.5, max_slippage_atr=0.5)
+    elif strategy == "cabriole":
+        from arabesque.strategies.cabriole.signal import CabrioleSignalGenerator, CabrioleConfig
+        return CabrioleSignalGenerator(CabrioleConfig()), "4h", None
+    elif strategy == "glissade":
+        from arabesque.strategies.glissade.signal import GlissadeRSIDivGenerator, GlissadeRSIDivConfig
+        return GlissadeRSIDivGenerator(GlissadeRSIDivConfig()), "1h", None
+    else:
+        from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
+        return ExtensionSignalGenerator(ExtensionConfig()), None, None  # None = auto-detect
 
 
 def resolve_period(period: str) -> tuple[datetime, datetime]:
@@ -86,10 +102,16 @@ def resolve_period(period: str) -> tuple[datetime, datetime]:
 def load_journal(path: str = "logs/trade_journal.jsonl") -> pd.DataFrame:
     """Charge le journal des trades live."""
     entries = []
+    seen_tids: dict[str, dict] = {}
     with open(path) as f:
         for line in f:
             entry = json.loads(line.strip())
             if entry.get("event") == "exit":
+                tid = entry.get("trade_id", "")
+                if tid and tid in seen_tids:
+                    continue  # même trade sur un autre broker
+                if tid:
+                    seen_tids[tid] = entry
                 entries.append(entry)
     if not entries:
         print("❌ Aucun trade 'exit' dans le journal.")
@@ -99,14 +121,22 @@ def load_journal(path: str = "logs/trade_journal.jsonl") -> pd.DataFrame:
     return df
 
 
-def run_backtest_for_instrument(instrument: str, start: str, end: str) -> dict:
-    """Lance un backtest Extension pour un instrument sur la période donnée.
+def run_backtest_for_instrument(instrument: str, start: str, end: str,
+                                strategy: str = "extension") -> dict:
+    """Lance un backtest pour un instrument sur la période donnée.
 
     Charge 90 jours de contexte avant start pour le warmup des indicateurs,
     puis filtre les trades pour ne garder que ceux dans [start, end].
+    Supporte toutes les stratégies : extension, glissade, fouette, cabriole.
     """
     try:
-        interval = "1h" if instrument in FOREX_METALS else "4h"
+        sig_gen, forced_tf, exec_cfg = _resolve_strategy(strategy)
+
+        # Timeframe : forcé par la stratégie ou auto-détecté
+        if forced_tf:
+            interval = forced_tf
+        else:
+            interval = "1h" if instrument in FOREX_METALS else "4h"
 
         # Warmup : 90 jours avant start pour les indicateurs (BB, etc.)
         start_dt = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
@@ -114,21 +144,21 @@ def run_backtest_for_instrument(instrument: str, start: str, end: str) -> dict:
 
         df = load_ohlc(instrument, interval=interval, start=warmup_start, end=end)
         if df is None or len(df) < 50:
-            return {"instrument": instrument, "error": f"Pas assez de données ({interval})"}
+            return {"instrument": instrument, "strategy": strategy, "error": f"Pas assez de données ({interval})"}
 
         # Sub-bar M1 pour résolution intra-barre (BE trigger, trailing, ordre SL/TP)
         # Même comportement que le moteur live — repli silencieux sur H/L si indispo.
         sub_bar_df = None
-        try:
-            df_m1 = load_ohlc(instrument, interval="min1", start=warmup_start, end=end)
-            if df_m1 is not None and len(df_m1) > 0:
-                if "close" in df_m1.columns and "Close" not in df_m1.columns:
-                    df_m1.columns = [c.capitalize() for c in df_m1.columns]
-                sub_bar_df = df_m1
-        except Exception:
-            pass
+        if interval not in ("min1", "1m", "M1"):
+            try:
+                df_m1 = load_ohlc(instrument, interval="min1", start=warmup_start, end=end)
+                if df_m1 is not None and len(df_m1) > 0:
+                    if "close" in df_m1.columns and "Close" not in df_m1.columns:
+                        df_m1.columns = [c.capitalize() for c in df_m1.columns]
+                    sub_bar_df = df_m1
+            except Exception:
+                pass
 
-        sig_gen = ExtensionSignalGenerator(ExtensionConfig())
         df_prepared = sig_gen.prepare(df)
 
         mgr_cfg = manager_config_for(instrument, interval)
@@ -151,6 +181,7 @@ def run_backtest_for_instrument(instrument: str, start: str, end: str) -> dict:
         if not trades_in_window:
             return {
                 "instrument": instrument,
+                "strategy": strategy,
                 "timeframe": interval,
                 "sub_bar": sub_bar_df is not None,
                 "bt_trades": 0,
@@ -168,15 +199,17 @@ def run_backtest_for_instrument(instrument: str, start: str, end: str) -> dict:
 
         return {
             "instrument": instrument,
+            "strategy": strategy,
             "timeframe": interval,
             "sub_bar": sub_bar_df is not None,
             "bt_trades": n,
             "bt_wr": wr,
             "bt_exp": exp,
             "bt_total_r": total_r,
+            "guard_cf": result.metrics.guard_cf,
         }
     except Exception as e:
-        return {"instrument": instrument, "error": str(e)}
+        return {"instrument": instrument, "strategy": strategy, "error": str(e)}
 
 
 def main():
@@ -228,34 +261,62 @@ def main():
     if len(journal) == 0:
         print("Aucun trade live sur cette période.")
         print("Le backtest est lancé sur les instruments du journal global.\n")
-        instruments = journal_all["instrument"].unique()
+        source = journal_all
     else:
-        instruments = journal["instrument"].unique()
+        source = journal
 
-    # Stats live par instrument (sur la période filtrée)
+    # Grouper par (stratégie, instrument) pour le drift check multi-stratégie
+    # Le champ "strategy" dans le journal identifie la stratégie source
+    # Note: Extension historiquement enregistre "trend" dans le journal
+    STRATEGY_ALIASES = {"trend": "extension"}
+    strat_col = "strategy" if "strategy" in source.columns else None
+    if strat_col and len(source) > 0:
+        source = source.copy()
+        source[strat_col] = source[strat_col].map(lambda s: STRATEGY_ALIASES.get(s, s))
+        if len(journal) > 0:
+            journal = journal.copy()
+            journal[strat_col] = journal[strat_col].map(lambda s: STRATEGY_ALIASES.get(s, s))
+
+    # Construire les paires (stratégie, instrument) à comparer
+    pairs = []
+    if strat_col and len(source) > 0:
+        for _, row in source.drop_duplicates(subset=[strat_col, "instrument"]).iterrows():
+            pairs.append((row[strat_col], row["instrument"]))
+    else:
+        # Fallback : extension pour tout
+        for inst in source["instrument"].unique():
+            pairs.append(("extension", inst))
+
+    # Stats live par (stratégie, instrument)
     live_stats = {}
-    for inst in instruments:
-        trades = journal[journal["instrument"] == inst] if len(journal) > 0 else pd.DataFrame()
+    for strat, inst in pairs:
+        if strat_col and len(journal) > 0:
+            trades = journal[(journal[strat_col] == strat) & (journal["instrument"] == inst)]
+        else:
+            trades = journal[journal["instrument"] == inst] if len(journal) > 0 else pd.DataFrame()
         n = len(trades)
         wr = (trades["result_r"] > 0).mean() * 100 if n > 0 else float("nan")
         exp = trades["result_r"].mean() if n > 0 else float("nan")
         total_r = trades["result_r"].sum() if n > 0 else 0.0
-        live_stats[inst] = {
+        live_stats[(strat, inst)] = {
             "live_trades": n,
             "live_wr": round(wr, 1) if n > 0 else "-",
             "live_exp": round(exp, 3) if n > 0 else "-",
             "live_total_r": round(total_r, 1),
         }
 
-    # Backtest pour chaque instrument
+    # Backtest pour chaque paire (stratégie, instrument)
     print("Backtests en cours...\n")
     rows = []
-    for inst in sorted(instruments):
-        bt = run_backtest_for_instrument(inst, start_str, end_str)
-        live = live_stats[inst]
+    bt_results = []
+    for strat, inst in sorted(pairs):
+        bt = run_backtest_for_instrument(inst, start_str, end_str, strategy=strat)
+        bt_results.append(bt)
+        live = live_stats[(strat, inst)]
 
         if "error" in bt:
             rows.append({
+                "Strategy": strat,
                 "Instrument": inst,
                 "Live T": live["live_trades"],
                 "Live WR": f"{live['live_wr']}%",
@@ -271,6 +332,7 @@ def main():
         delta_exp = (live["live_exp"] - bt["bt_exp"]) if (live["live_trades"] > 0 and bt["bt_trades"] > 0) else float("nan")
 
         rows.append({
+            "Strategy": strat,
             "Instrument": inst,
             "TF": bt["timeframe"],
             "M1": "✓" if bt.get("sub_bar") else "~",
@@ -289,12 +351,40 @@ def main():
     df_result = pd.DataFrame(rows)
     print(df_result.to_string(index=False))
 
-    # Totaux live
+    # Guard counterfactual résumé (agrégé par reason)
+    from collections import defaultdict as _dd
+    agg_cf = _dd(lambda: {"count": 0, "would_win": 0, "would_lose": 0, "sum_r": 0.0})
+    for bt in bt_results:
+        for reason, g in bt.get("guard_cf", {}).items():
+            agg_cf[reason]["count"] += g["count"]
+            agg_cf[reason]["would_win"] += g["would_win"]
+            agg_cf[reason]["would_lose"] += g["would_lose"]
+            agg_cf[reason]["sum_r"] += g["avg_r"] * g["count"]
+    if agg_cf:
+        print(f"\n  🛡️ Guard counterfactuals :")
+        for reason in sorted(agg_cf.keys()):
+            g = agg_cf[reason]
+            avg_r = g["sum_r"] / g["count"] if g["count"] > 0 else 0
+            verdict = "BENEFICIAL" if avg_r < -0.05 else ("HARMFUL" if avg_r > 0.05 else "NEUTRAL")
+            print(f"    {reason:25s}: {g['count']:3d} bloqués  "
+                  f"W:{g['would_win']} L:{g['would_lose']}  "
+                  f"avgR:{avg_r:+.3f}  → {verdict}")
+
+    # Totaux live par stratégie
     if len(journal) > 0:
         total_r = journal["result_r"].sum()
         total_wr = (journal["result_r"] > 0).mean() * 100
         print(f"\n{'─'*70}")
         print(f"  LIVE total : {len(journal)} trades, WR {total_wr:.0f}%, ΣR {total_r:+.1f}R")
+
+        if strat_col:
+            for strat in sorted(journal[strat_col].unique()):
+                st = journal[journal[strat_col] == strat]
+                sw = (st["result_r"] > 0).mean() * 100
+                se = st["result_r"].mean()
+                sr = st["result_r"].sum()
+                print(f"    {strat:12s}: {len(st)}t WR={sw:.0f}% Exp={se:+.3f}R ΣR={sr:+.1f}R")
+
         print(f"{'─'*70}")
 
         if len(journal) < 30:
@@ -302,10 +392,10 @@ def main():
         else:
             print("\n  ✅ Échantillon suffisant pour une première analyse.")
 
-        for inst in instruments:
-            live = live_stats[inst]
+        for strat, inst in pairs:
+            live = live_stats[(strat, inst)]
             if isinstance(live["live_exp"], float) and live["live_exp"] < -0.1 and live["live_trades"] >= 5:
-                print(f"  🔴 {inst} : Exp live {live['live_exp']:+.3f}R < -0.10R sur {live['live_trades']} trades — surveiller")
+                print(f"  🔴 {strat}/{inst} : Exp live {live['live_exp']:+.3f}R < -0.10R sur {live['live_trades']} trades — surveiller")
 
     # --- Notification ---
     if args.notify:
@@ -314,13 +404,21 @@ def main():
             total_r = journal["result_r"].sum()
             total_wr = (journal["result_r"] > 0).mean() * 100
             lines.append(f"Live: {len(journal)}t WR={total_wr:.0f}% ΣR={total_r:+.1f}R")
+
+            if strat_col:
+                for strat in sorted(journal[strat_col].unique()):
+                    st = journal[journal[strat_col] == strat]
+                    sw = (st["result_r"] > 0).mean() * 100
+                    se = st["result_r"].mean()
+                    lines.append(f"  {strat}: {len(st)}t WR={sw:.0f}% Exp={se:+.3f}R")
+
             lines.append("")
             # Flag instruments with drift
             drifts = []
-            for inst in instruments:
-                live = live_stats[inst]
+            for strat, inst in pairs:
+                live = live_stats[(strat, inst)]
                 if isinstance(live["live_exp"], float) and live["live_exp"] < -0.1 and live["live_trades"] >= 5:
-                    drifts.append(f"  🔴 {inst}: Exp={live['live_exp']:+.3f}R ({live['live_trades']}t)")
+                    drifts.append(f"  🔴 {strat}/{inst}: Exp={live['live_exp']:+.3f}R ({live['live_trades']}t)")
             if drifts:
                 lines.append("Dérives détectées:")
                 lines.extend(drifts)

@@ -11,15 +11,18 @@ Surveillance temps réel + actions automatiques :
 
 PROTECTION ACTIVE :
   7. Risk reduction    — réduction progressive du risque par palier DD
-  8. Close worst       — ferme les positions les plus perdantes si marge critique
-  9. Emergency freeze  — coupe TOUT et attend intervention humaine
-  10. Notifications    — Telegram (détaillé) + ntfy (urgent)
+  8. Notifications     — Telegram (détaillé) + ntfy (urgent)
+
+Note: les positions existantes ne sont JAMAIS modifiées par la protection.
+Backtest A/B (2026-04-04, 667 trades) : fermer/resserrer des positions
+existantes détruit de la valeur (-3.5R à -12.6R). Seule la réduction
+du risk sur les NOUVELLES positions est efficace.
 
 PALIERS DE PROTECTION :
   NORMAL   → risque plein, notifications Telegram info
   CAUTION  → risque réduit 50%, Telegram warning
-  DANGER   → risque réduit 75%, ferme positions sans BE, ntfy urgent
-  EMERGENCY → ferme TOUT, freeze trading, ntfy + Telegram urgent
+  DANGER   → risque réduit 75%, ntfy urgent
+  EMERGENCY → risque lot minimum (×0.10), ntfy + Telegram urgent
 
 FLUX :
   _on_order_result() → record_entry()
@@ -53,8 +56,8 @@ EQUITY_SNAPSHOT_PATH = Path("logs/equity_snapshots.jsonl")
 class ProtectionLevel(str, Enum):
     NORMAL = "normal"        # Risque plein
     CAUTION = "caution"      # Risque réduit 50%
-    DANGER = "danger"        # Risque réduit 75%, close unprotected positions
-    EMERGENCY = "emergency"  # Close ALL, freeze trading, attente humaine
+    DANGER = "danger"        # Risque réduit 75%
+    EMERGENCY = "emergency"  # Risque lot minimum (×0.10)
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -218,7 +221,7 @@ class LiveMonitor:
         self._perf_by_inst: dict[str, StrategyPerf] = {}
 
         # Equity
-        self._last_equity_snapshot: float = 0.0
+        self._last_equity_snapshot: dict[str, float] = {}  # per-broker throttle
         self._equity_history: list[dict] = []
         self._max_equity_history = 1000
 
@@ -227,6 +230,7 @@ class LiveMonitor:
 
         # Protection state
         self._protection_level: ProtectionLevel = ProtectionLevel.NORMAL
+        self._protection_per_broker: dict[str, ProtectionLevel] = {}
         self._frozen: bool = False  # EMERGENCY: no new trades, awaiting human
         self._frozen_reason: str = ""
 
@@ -284,16 +288,37 @@ class LiveMonitor:
 
     @property
     def risk_multiplier(self) -> float:
-        """Multiplicateur de risque selon le palier de protection.
+        """Multiplicateur de risque selon le palier de protection le plus sévère.
 
-        Appelé par les guards/dispatcher pour réduire le sizing.
+        Prend le PIRE niveau entre tous les brokers pour protéger tous les comptes.
         EMERGENCY = lot minimum (×0.10) au lieu de fermer tout.
         """
-        if self._protection_level == ProtectionLevel.EMERGENCY:
+        level = self._protection_level
+        # Si un broker secondaire est plus sévère, utiliser son niveau
+        for broker_level in self._protection_per_broker.values():
+            if broker_level.value > level.value if hasattr(broker_level, 'value') else False:
+                pass  # ProtectionLevel is not orderable by .value string
+        # Use worst level across all brokers
+        level = self._worst_protection_level()
+        return self._multiplier_for_level(level)
+
+    def _worst_protection_level(self) -> ProtectionLevel:
+        """Retourne le niveau de protection le plus sévère parmi tous les brokers."""
+        order = [ProtectionLevel.NORMAL, ProtectionLevel.CAUTION,
+                 ProtectionLevel.DANGER, ProtectionLevel.EMERGENCY]
+        worst = order.index(self._protection_level)
+        for level in self._protection_per_broker.values():
+            idx = order.index(level)
+            if idx > worst:
+                worst = idx
+        return order[worst]
+
+    def _multiplier_for_level(self, level: ProtectionLevel) -> float:
+        if level == ProtectionLevel.EMERGENCY:
             return self._cfg.risk_multiplier_emergency
-        if self._protection_level == ProtectionLevel.DANGER:
+        if level == ProtectionLevel.DANGER:
             return self._cfg.risk_multiplier_danger
-        if self._protection_level == ProtectionLevel.CAUTION:
+        if level == ProtectionLevel.CAUTION:
             return self._cfg.risk_multiplier_caution
         return self._cfg.risk_multiplier_normal
 
@@ -337,24 +362,37 @@ class LiveMonitor:
         total_dd_pct: float,
         equity: float,
         free_margin: float,
+        broker_id: str = "",
     ) -> None:
         """Évalue le niveau de protection et prend des actions si nécessaire.
 
         Appelé toutes les 2 minutes par le refresh loop du LiveEngine.
+        Quand broker_id est fourni, tracked séparément par broker.
         """
         if self._frozen:
             return  # Already frozen, nothing more to do
 
-        old_level = self._protection_level
         new_level = self._evaluate_protection_level(
             daily_dd_pct, total_dd_pct, equity, free_margin
         )
 
-        if new_level != old_level:
-            self._protection_level = new_level
-            await self._on_level_change(old_level, new_level,
-                                        daily_dd_pct, total_dd_pct,
-                                        equity, free_margin)
+        if broker_id:
+            old_level = self._protection_per_broker.get(
+                broker_id, ProtectionLevel.NORMAL
+            )
+            if new_level != old_level:
+                self._protection_per_broker[broker_id] = new_level
+                await self._on_level_change(old_level, new_level,
+                                            daily_dd_pct, total_dd_pct,
+                                            equity, free_margin,
+                                            broker_id=broker_id)
+        else:
+            old_level = self._protection_level
+            if new_level != old_level:
+                self._protection_level = new_level
+                await self._on_level_change(old_level, new_level,
+                                            daily_dd_pct, total_dd_pct,
+                                            equity, free_margin)
 
     def _evaluate_protection_level(
         self,
@@ -406,11 +444,14 @@ class LiveMonitor:
         total_dd_pct: float,
         equity: float,
         free_margin: float,
+        broker_id: str = "",
     ) -> None:
         """Actions déclenchées par un changement de niveau de protection."""
         margin_pct = (free_margin / equity * 100) if equity > 0 else 100
 
+        broker_tag = f"[{broker_id}] " if broker_id else ""
         context = (
+            f"{broker_tag}"
             f"daily_dd={daily_dd_pct:.1f}% total_dd={total_dd_pct:.1f}% "
             f"equity={equity:.0f} margin={margin_pct:.0f}%"
         )
@@ -418,6 +459,7 @@ class LiveMonitor:
         self._append_journal({
             "event": "protection_level_change",
             "ts": datetime.now(timezone.utc).isoformat(),
+            "broker_id": broker_id or "global",
             "old": old.value,
             "new": new.value,
             "daily_dd_pct": round(daily_dd_pct, 2),
@@ -434,35 +476,28 @@ class LiveMonitor:
             await self._notify_ntfy(
                 f"EMERGENCY ARABESQUE\n{context}\n"
                 f"Risque réduit à {self._cfg.risk_multiplier_emergency:.0%} (lot minimum).\n"
-                f"Positions existantes conservées. Intervention recommandée."
+                f"Positions existantes conservées."
             )
             await self._notify_telegram(
                 f"🚨 EMERGENCY\n{context}\n"
                 f"Risque réduit à {self._cfg.risk_multiplier_emergency:.0%} (lot minimum).\n"
-                f"Positions existantes conservées (pas de fermeture).\n"
-                f"Fermeture des positions sans BE..."
+                f"Positions existantes conservées (backtest: intervenir détruit de la valeur)."
             )
-            # Fermer seulement les positions non protégées, pas TOUTES
-            await self._close_unprotected_positions(f"EMERGENCY: {context}")
 
         elif new == ProtectionLevel.DANGER:
             logger.warning(
                 f"[LiveMonitor] 🔴 DANGER — {context} — "
-                f"risque réduit à {self._cfg.risk_multiplier_danger:.0%}, "
-                f"fermeture des positions non protégées"
+                f"risque réduit à {self._cfg.risk_multiplier_danger:.0%}"
             )
             await self._notify_ntfy(
                 f"DANGER Arabesque\n{context}\n"
                 f"Risque réduit à {self._cfg.risk_multiplier_danger:.0%}. "
-                f"Positions sans BE fermées."
+                f"Positions existantes conservées."
             )
             await self._notify_telegram(
                 f"🔴 DANGER (was {old.value})\n{context}\n"
                 f"Risque réduit à {self._cfg.risk_multiplier_danger:.0%}\n"
-                f"Fermeture des positions sans breakeven..."
-            )
-            await self._close_unprotected_positions(
-                f"DANGER: {context}"
+                f"Positions existantes conservées."
             )
 
         elif new == ProtectionLevel.CAUTION:
@@ -484,248 +519,40 @@ class LiveMonitor:
             )
 
     # ------------------------------------------------------------------
-    # Active protection: close positions
+    # Active protection (historique — désactivé 2026-04-04)
     # ------------------------------------------------------------------
-
-    async def _emergency_close_all(self, reason: str) -> None:
-        """NUCLEAR: ferme TOUTES les positions sur TOUS les brokers.
-
-        Freeze le trading jusqu'à intervention humaine.
-        """
-        self._frozen = True
-        self._frozen_reason = reason
-
-        closed = 0
-        errors = 0
-        for broker_id, broker in self._brokers.items():
-            try:
-                positions = await broker.get_positions()
-                if not positions:
-                    continue
-                for pos in positions:
-                    try:
-                        result = await broker.close_position(
-                            str(pos.position_id)
-                        )
-                        if result.success:
-                            closed += 1
-                            logger.info(
-                                f"[LiveMonitor] 🔒 EMERGENCY close: "
-                                f"{pos.symbol} {broker_id}:{pos.position_id}"
-                            )
-                        else:
-                            errors += 1
-                            logger.error(
-                                f"[LiveMonitor] ❌ EMERGENCY close failed: "
-                                f"{pos.symbol} — {result.message}"
-                            )
-                    except Exception as e:
-                        errors += 1
-                        logger.error(
-                            f"[LiveMonitor] ❌ EMERGENCY close exception: "
-                            f"{pos.symbol} — {e}"
-                        )
-            except Exception as e:
-                logger.error(
-                    f"[LiveMonitor] ❌ EMERGENCY get_positions failed: "
-                    f"{broker_id} — {e}"
-                )
-
-        self._append_journal({
-            "event": "emergency_close_all",
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "reason": reason,
-            "closed": closed,
-            "errors": errors,
-        })
-
-        logger.critical(
-            f"[LiveMonitor] 🔒 EMERGENCY COMPLETE: {closed} fermées, "
-            f"{errors} erreurs — TRADING GELÉ"
-        )
-
-        if errors > 0:
-            await self._notify_ntfy(
-                f"ERREUR EMERGENCY: {errors} positions non fermées! "
-                f"Vérifier manuellement."
-            )
-
-    async def _close_unprotected_positions(self, reason: str) -> None:
-        """Gestion intelligente des positions non protégées en DANGER/EMERGENCY.
-
-        Trie chaque position par son P&L non réalisé en R et applique
-        l'action la plus adaptée pour préserver le capital :
-
-        | P&L courant     | Action                                      |
-        |-----------------|---------------------------------------------|
-        | Protégée (BE/trail) | Laisser (déjà safe)                     |
-        | > 0R            | BE immédiat (SL → entry + 0.10R)            |
-        | 0R à -0.5R      | SL serré à -0.3R (dernière chance)          |
-        | -0.5R à -0.7R   | Fermer (sauver 0.3-0.5R de perte restante)  |
-        | < -0.7R         | Laisser (trop proche du SL, rien à gagner)  |
-        """
-        if not self._position_monitor:
-            return
-
-        closed = 0
-        amended = 0
-        kept = 0
-
-        # Fetch les positions broker une seule fois pour avoir les prix courants
-        broker_positions: dict[str, dict[str, float]] = {}  # broker_id → {pos_id → current_price}
-        for broker_id, broker in self._brokers.items():
-            try:
-                positions = await broker.get_positions()
-                broker_positions[broker_id] = {
-                    str(p.position_id): p.current_price or 0
-                    for p in positions
-                }
-            except Exception as e:
-                logger.warning(f"[LiveMonitor] get_positions {broker_id}: {e}")
-
-        for pos in self._position_monitor.open_positions:
-            # 1. Déjà protégée → laisser
-            if pos.breakeven_set or pos.trailing_active:
-                logger.info(
-                    f"[LiveMonitor] ✅ Gardée: {pos.symbol} "
-                    f"(BE={'✓' if pos.breakeven_set else '✗'} "
-                    f"trail={pos.trailing_tier} MFE={pos.mfe_r:.1f}R)"
-                )
-                kept += 1
-                continue
-
-            broker = self._brokers.get(pos.broker_id)
-            if not broker:
-                continue
-
-            # Calculer le P&L courant en R (prix réel du broker)
-            current_price = broker_positions.get(pos.broker_id, {}).get(
-                str(pos.position_id), 0
-            )
-            current_pnl_r = self._compute_pnl_r(pos, current_price)
-
-            # 2. Légèrement positive (> 0R) → BE immédiat
-            if current_pnl_r > 0:
-                be_offset = 0.10  # Plus serré que le BE normal (0.20R)
-                if pos.side == Side.LONG:
-                    new_sl = pos.entry + be_offset * pos.R
-                else:
-                    new_sl = pos.entry - be_offset * pos.R
-                new_sl = round(new_sl, pos.digits)
-                ok = await self._try_amend_sl(broker, pos, new_sl)
-                if ok:
-                    pos.sl = new_sl
-                    pos.breakeven_set = True
-                    amended += 1
-                    logger.warning(
-                        f"[LiveMonitor] 🛡️ BE forcé: {pos.symbol} "
-                        f"P&L={current_pnl_r:+.2f}R → SL={new_sl:.{pos.digits}f} "
-                        f"(+{be_offset}R) — {reason}"
-                    )
-                continue
-
-            # 3. Juste entrée en négatif (0 à -0.5R) → SL serré à -0.3R
-            if current_pnl_r > -0.5:
-                tight_sl_r = -0.3  # SL serré : -0.3R au lieu de -1.0R
-                if pos.side == Side.LONG:
-                    new_sl = pos.entry + tight_sl_r * pos.R
-                else:
-                    new_sl = pos.entry - tight_sl_r * pos.R
-                new_sl = round(new_sl, pos.digits)
-                # Vérifier que le nouveau SL est plus serré que l'actuel
-                sl_improves = (
-                    (pos.side == Side.LONG and new_sl > pos.sl) or
-                    (pos.side == Side.SHORT and new_sl < pos.sl)
-                )
-                if sl_improves:
-                    ok = await self._try_amend_sl(broker, pos, new_sl)
-                    if ok:
-                        pos.sl = new_sl
-                        amended += 1
-                        logger.warning(
-                            f"[LiveMonitor] 🛡️ SL serré: {pos.symbol} "
-                            f"P&L={current_pnl_r:+.2f}R → SL={new_sl:.{pos.digits}f} "
-                            f"(-0.3R, dernière chance) — {reason}"
-                        )
-                else:
-                    logger.info(
-                        f"[LiveMonitor] ⏸ {pos.symbol} P&L={current_pnl_r:+.2f}R "
-                        f"SL déjà serré — laissé"
-                    )
-                    kept += 1
-                continue
-
-            # 4. Très proche du SL (< -0.7R) → laisser courir
-            if current_pnl_r < -0.7:
-                logger.info(
-                    f"[LiveMonitor] ⏸ Laissée: {pos.symbol} "
-                    f"P&L={current_pnl_r:+.2f}R (trop proche SL, rien à gagner) "
-                    f"— {reason}"
-                )
-                kept += 1
-                continue
-
-            # 5. Zone intermédiaire (-0.5R à -0.7R) → fermer
-            try:
-                result = await broker.close_position(pos.position_id)
-                if result.success:
-                    closed += 1
-                    logger.warning(
-                        f"[LiveMonitor] 🔒 Fermée: {pos.symbol} "
-                        f"P&L={current_pnl_r:+.2f}R (sauve ~{abs(1+current_pnl_r):.1f}R) "
-                        f"— {reason}"
-                    )
-                else:
-                    logger.error(
-                        f"[LiveMonitor] ❌ Close failed: "
-                        f"{pos.symbol} — {result.message}"
-                    )
-            except Exception as e:
-                logger.error(
-                    f"[LiveMonitor] ❌ Close exception: "
-                    f"{pos.symbol} — {e}"
-                )
-
-        summary = (
-            f"fermées={closed} SL_serrés={amended} conservées={kept}"
-        )
-        logger.info(f"[LiveMonitor] 📊 Protection résumé: {summary}")
-
-        self._append_journal({
-            "event": "smart_protection",
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "reason": reason,
-            "closed": closed,
-            "amended": amended,
-            "kept": kept,
-        })
-
-    @staticmethod
-    def _compute_pnl_r(pos, current_price: float) -> float:
-        """Calcule le P&L courant en R depuis un prix broker."""
-        from arabesque.core.models import Side
-        if pos.R == 0 or current_price <= 0:
-            return 0.0
-        if pos.side == Side.LONG:
-            return (current_price - pos.entry) / pos.R
-        return (pos.entry - current_price) / pos.R
-
-    async def _try_amend_sl(self, broker, pos, new_sl: float) -> bool:
-        """Tente de modifier le SL d'une position."""
-        try:
-            result = await broker.amend_position_sltp(
-                pos.position_id, stop_loss=new_sl
-            )
-            return result.success
-        except Exception as e:
-            logger.error(
-                f"[LiveMonitor] ❌ Amend SL failed: {pos.symbol} → {e}"
-            )
-            return False
+    # _emergency_close_all et _close_unprotected_positions supprimées.
+    # Backtest A/B (667 trades, 18 instruments) : fermer/resserrer les
+    # positions existantes en DD détruit systématiquement de la valeur
+    # (-3.5R à -12.6R). La protection ne contrôle que le risk des
+    # NOUVELLES positions via les multiplicateurs par palier.
 
     # ------------------------------------------------------------------
     # Notifications
     # ------------------------------------------------------------------
+
+    async def notify_startup(self, broker_states: dict[str, dict]) -> None:
+        """Envoie un résumé Telegram de tous les comptes au démarrage.
+
+        broker_states: {broker_id: {balance, equity, daily_dd_pct, total_dd_pct,
+                                     open_positions, protection}}
+        """
+        lines = ["🚀 Arabesque (re)démarré\n"]
+        for bid, s in broker_states.items():
+            level = self._protection_per_broker.get(bid, ProtectionLevel.NORMAL)
+            icon = {"normal": "🟢", "caution": "🟡", "danger": "🟠",
+                    "emergency": "🔴"}.get(level.value, "⚪")
+            lines.append(
+                f"{icon} {bid}: bal={s['balance']:.0f} eq={s['equity']:.0f} "
+                f"dd_day={s['daily_dd_pct']:.1f}% dd_tot={s['total_dd_pct']:.1f}% "
+                f"pos={s['open_positions']} [{level.value.upper()}]"
+            )
+        lines.append(f"\nRisk mult: ×{self.risk_multiplier:.2f}")
+        msg = "\n".join(lines)
+        logger.info(f"[LiveMonitor] {msg}")
+        # Bypass rate limit — startup notification must always go through
+        self._last_notification_time = 0
+        await self._notify_telegram(msg)
 
     async def _notify_telegram(self, message: str) -> None:
         """Envoie une notification Telegram (détaillée, non-urgente)."""
@@ -931,15 +758,18 @@ class LiveMonitor:
         open_positions: int = 0,
         daily_dd_pct: float = 0.0,
         total_dd_pct: float = 0.0,
+        broker_id: str = "",
     ) -> None:
         """Enregistre un snapshot de l'état du compte."""
         now = time.time()
-        if now - self._last_equity_snapshot < self._cfg.equity_snapshot_interval_s:
+        last = self._last_equity_snapshot.get(broker_id, 0.0)
+        if now - last < self._cfg.equity_snapshot_interval_s:
             return
-        self._last_equity_snapshot = now
+        self._last_equity_snapshot[broker_id] = now
 
         snapshot = {
             "ts": datetime.now(timezone.utc).isoformat(),
+            "broker_id": broker_id,
             "balance": round(balance, 2),
             "equity": round(equity, 2),
             "free_margin": round(free_margin, 2),
@@ -947,7 +777,9 @@ class LiveMonitor:
             "daily_dd_pct": round(daily_dd_pct, 2),
             "total_dd_pct": round(total_dd_pct, 2),
             "open_trades": len(self._open_trades),
-            "protection_level": self._protection_level.value,
+            "protection_level": self._protection_per_broker.get(
+                broker_id, self._protection_level
+            ).value if broker_id else self._protection_level.value,
         }
 
         self._equity_history.append(snapshot)
@@ -1200,6 +1032,7 @@ class LiveMonitor:
             return
 
         try:
+            seen_exit_tids: set[str] = set()
             with open(TRADE_JOURNAL_PATH) as f:
                 for line in f:
                     line = line.strip()
@@ -1212,6 +1045,13 @@ class LiveMonitor:
 
                     event = entry.get("event")
                     if event == "exit":
+                        # Dédupliquer par trade_id (multi-broker)
+                        tid = entry.get("trade_id", "")
+                        if tid:
+                            if tid in seen_exit_tids:
+                                continue
+                            seen_exit_tids.add(tid)
+
                         strat = entry.get("strategy", "unknown")
                         if strat not in self._perf:
                             self._perf[strat] = StrategyPerf(strategy=strat)

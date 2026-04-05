@@ -60,10 +60,15 @@ class LiveEngine:
         self._account_refresh_task: Optional[asyncio.Task] = None
         self._reconcile_task: Optional[asyncio.Task] = None
 
-        # DD tracking — persistent across refreshes
-        self._initial_balance: Optional[float] = None      # from accounts.yaml
-        self._daily_start_balance: Optional[float] = None   # balance at start of UTC day
+        # DD tracking — persistent across refreshes, per-broker
+        self._initial_balance: Optional[float] = None      # primary, from accounts.yaml
+        self._daily_start_balance: Optional[float] = None   # primary, balance at start of UTC day
         self._daily_start_date: Optional[str] = None        # "YYYY-MM-DD" of current day
+        self._accounts_config: dict = {}                    # per-account config cache
+        # Per-broker DD tracking (secondary brokers)
+        self._broker_initial_balance: dict[str, float] = {}
+        self._broker_daily_start_balance: dict[str, float] = {}
+        self._broker_daily_start_date: dict[str, str] = {}
 
     @classmethod
     def from_config(
@@ -126,8 +131,10 @@ class LiveEngine:
         # 6. Initialiser les balances de référence pour le DD
         await self._init_dd_tracking()
 
-        # 6b. État initial des comptes
+        # 6b. État initial des comptes (peut déclencher CAUTION/DANGER)
         await self._refresh_account_state()
+        # 6b-bis. Notification de démarrage (résumé tous comptes)
+        await self._notify_startup_state()
         self._account_refresh_task = asyncio.create_task(
             self._account_refresh_loop()
         )
@@ -136,6 +143,8 @@ class LiveEngine:
             await self._reconcile_existing_positions()
             # 6c. Restaurer l'état sauvegardé (MFE, BE, trailing)
             self._position_monitor.load_state()
+            # 6d. Détecter les trades fermés pendant le downtime
+            await self._reconcile_missed_exits()
             self._reconcile_task = asyncio.create_task(
                 self._reconcile_loop()
             )
@@ -306,6 +315,9 @@ class LiveEngine:
         # Rodage config (risk réduit pour stratégies non validées en live)
         rodage_cfg = self.settings.get("rodage", {})
 
+        # Slippage guard config
+        max_slippage_atr = self.settings.get("max_slippage_atr", 0.5)
+
         dispatcher = OrderDispatcher(
             brokers=self._brokers,
             instruments_cfg=self.instruments,
@@ -313,9 +325,11 @@ class LiveEngine:
             delay_ms=delay_ms,
             dry_run=self.dry_run,
             on_order_result=self._on_order_result,
+            on_slippage_reject=self._on_slippage_reject,
             risk_multiplier_fn=self._get_risk_multiplier,
             risk_multiplier_by_tf=tf_risk,
             rodage_config=rodage_cfg,
+            max_slippage_atr=max_slippage_atr,
         )
         dispatcher._price_feed = None
         return dispatcher
@@ -489,6 +503,130 @@ class LiveEngine:
             )
         else:
             logger.info("[Engine] 📋 Réconciliation: aucune position ouverte")
+
+    async def _reconcile_missed_exits(self) -> None:
+        """Détecte les trades entrés avant le dernier arrêt mais fermés pendant le downtime.
+
+        Lit le journal pour trouver les entry sans exit correspondant,
+        vérifie si la position existe encore chez le broker, et logue
+        l'exit manquant si la position a disparu.
+        """
+        import json
+        from pathlib import Path
+
+        journal_path = Path("logs/trade_journal.jsonl")
+        if not journal_path.exists():
+            return
+
+        # Collecter les entries et exits du journal (par clé broker:position)
+        entries_by_key: dict[str, dict] = {}
+        exits_keys: set[str] = set()
+
+        with open(journal_path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                event = record.get("event")
+                broker_id = record.get("broker_id", "")
+                position_id = record.get("position_id", "")
+                if not broker_id or not position_id:
+                    continue
+                key = f"{broker_id}:{position_id}"
+                if event == "entry":
+                    entries_by_key[key] = record
+                elif event == "exit":
+                    exits_keys.add(key)
+
+        # Trades orphelins : entry sans exit
+        orphans = {
+            k: v for k, v in entries_by_key.items()
+            if k not in exits_keys
+        }
+        if not orphans:
+            return
+
+        # Collecter les positions ouvertes chez chaque broker
+        broker_open_ids: dict[str, set[str]] = {}
+        for broker_id, broker in self._brokers.items():
+            try:
+                positions = await broker.get_positions()
+                broker_open_ids[broker_id] = {
+                    str(p.position_id) for p in (positions or [])
+                }
+            except Exception as e:
+                logger.warning(
+                    f"[Engine] Réconciliation exits: erreur {broker_id}: {e}"
+                )
+                broker_open_ids[broker_id] = set()
+
+        reconciled = 0
+        for key, entry_record in orphans.items():
+            broker_id = entry_record["broker_id"]
+            position_id = entry_record["position_id"]
+
+            # Si toujours ouvert, pas d'exit à créer
+            if position_id in broker_open_ids.get(broker_id, set()):
+                continue
+
+            # La position a disparu → fermée pendant le downtime
+            entry_price = entry_record.get("entry_price", 0.0)
+            sl = entry_record.get("sl", 0.0)
+
+            # Estimer le prix et la raison de sortie
+            # Sans données tick, on ne peut que supposer SL touché
+            exit_price = sl
+            exit_reason = "reconciled_stop_loss"
+
+            if self._live_monitor:
+                # record_exit attend que le trade soit dans _open_trades,
+                # donc on doit d'abord l'y ajouter
+                lm_key = f"{broker_id}:{position_id}"
+                if lm_key not in self._live_monitor._open_trades:
+                    from arabesque.execution.live_monitor import LiveTrade
+                    trade = LiveTrade(
+                        trade_id=entry_record.get("trade_id", ""),
+                        signal_id="",
+                        instrument=entry_record.get("instrument", ""),
+                        strategy=entry_record.get("strategy", "unknown"),
+                        side=entry_record.get("side", ""),
+                        entry_price=entry_price,
+                        sl=sl,
+                        tp=entry_record.get("tp", 0.0),
+                        volume=entry_record.get("volume", 0.0),
+                        risk_cash=entry_record.get("risk_cash", 0.0),
+                        broker_id=broker_id,
+                        position_id=position_id,
+                        ts_entry=entry_record.get("ts", ""),
+                    )
+                    self._live_monitor._open_trades[lm_key] = trade
+
+                self._live_monitor.record_exit(
+                    broker_id=broker_id,
+                    position_id=position_id,
+                    exit_price=exit_price,
+                    exit_reason=exit_reason,
+                    mfe_r=0.0,
+                    be_set=False,
+                    trailing_tier=0,
+                )
+
+            reconciled += 1
+            logger.warning(
+                f"[Engine] 🔄 Exit manquant réconcilié: "
+                f"{entry_record.get('instrument')} {entry_record.get('side')} "
+                f"entry={entry_price} exit≈{exit_price} "
+                f"reason={exit_reason} ({broker_id}:{position_id})"
+            )
+
+        if reconciled:
+            logger.info(
+                f"[Engine] 🔄 Réconciliation: {reconciled} exit(s) manquant(s) récupéré(s)"
+            )
 
     # ------------------------------------------------------------------
     # BarAggregator
@@ -671,103 +809,139 @@ class LiveEngine:
 
         - initial_balance : depuis accounts.yaml (ex: 100000 pour FTMO)
         - daily_start_balance : balance réelle du broker au démarrage
+        - Per-broker : même logique pour chaque broker connecté
         """
         from datetime import datetime, timezone
         from pathlib import Path
         import yaml
 
-        # 1. initial_balance depuis accounts.yaml
-        primary_id = list(self._brokers.keys())[0]
+        # 1. Charger accounts.yaml
         try:
             path = Path("config/accounts.yaml")
             if path.exists():
                 with open(path) as f:
                     cfg = yaml.safe_load(f) or {}
-                acct = cfg.get("accounts", {}).get(primary_id, {})
-                self._initial_balance = float(acct.get("initial_balance", 0))
+                self._accounts_config = cfg.get("accounts", {})
         except Exception as e:
-            logger.warning(f"[Engine] Could not load initial_balance: {e}")
+            logger.warning(f"[Engine] Could not load accounts.yaml: {e}")
 
-        # 2. daily_start_balance = balance réelle du broker maintenant
-        try:
-            info = await self._brokers[primary_id].get_account_info()
-            if info:
-                if not self._initial_balance:
-                    self._initial_balance = info.balance
-                    logger.warning(
-                        f"[Engine] initial_balance not in accounts.yaml, "
-                        f"using broker balance: {info.balance:.2f}"
-                    )
-                self._daily_start_balance = info.balance
-                self._daily_start_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        except Exception as e:
-            logger.warning(f"[Engine] Could not fetch initial balance: {e}")
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-        if not self._initial_balance:
-            self._initial_balance = 100_000.0
-            logger.warning("[Engine] Fallback initial_balance=100000")
-        if not self._daily_start_balance:
-            self._daily_start_balance = self._initial_balance
+        # 2. Initialiser DD tracking pour CHAQUE broker
+        for broker_id, broker in self._brokers.items():
+            acct = self._accounts_config.get(broker_id, {})
+            initial = float(acct.get("initial_balance", 0))
 
-        logger.info(
-            f"[Engine] DD tracking: initial_balance={self._initial_balance:.0f}, "
-            f"daily_start_balance={self._daily_start_balance:.0f}, "
-            f"date={self._daily_start_date}"
-        )
+            try:
+                info = await broker.get_account_info()
+                if info:
+                    if not initial:
+                        initial = info.balance
+                        logger.warning(
+                            f"[Engine] {broker_id}: initial_balance not in "
+                            f"accounts.yaml, using broker balance: {info.balance:.2f}"
+                        )
+                    daily_start = info.balance
+                else:
+                    daily_start = initial or 100_000.0
+            except Exception as e:
+                logger.warning(f"[Engine] {broker_id}: could not fetch balance: {e}")
+                daily_start = initial or 100_000.0
+
+            if not initial:
+                initial = 100_000.0
+                logger.warning(f"[Engine] {broker_id}: fallback initial_balance=100000")
+
+            self._broker_initial_balance[broker_id] = initial
+            self._broker_daily_start_balance[broker_id] = daily_start
+            self._broker_daily_start_date[broker_id] = today
+
+            logger.info(
+                f"[Engine] DD tracking {broker_id}: "
+                f"initial={initial:.0f}, daily_start={daily_start:.0f}, "
+                f"date={today}"
+            )
+
+        # Rétro-compat : primary broker → champs legacy
+        primary_id = list(self._brokers.keys())[0]
+        self._initial_balance = self._broker_initial_balance.get(primary_id)
+        self._daily_start_balance = self._broker_daily_start_balance.get(primary_id)
+        self._daily_start_date = self._broker_daily_start_date.get(primary_id)
 
     async def _refresh_account_state(self) -> None:
         if not self._brokers or not self._dispatcher:
             return
         primary_id = list(self._brokers.keys())[0]
-        try:
-            # Reconcile positions FIRST so equity computation has fresh data
-            open_instruments = []
-            open_positions = 0
-            open_risk_cash = 0.0
-            try:
-                positions = await self._brokers[primary_id].get_positions()
-                open_positions = len(positions)
-                open_instruments = [p.symbol for p in positions]
-                open_risk_cash = open_positions * 400.0
-            except Exception:
-                pass
+        from datetime import datetime, timezone
+        from arabesque.core.guards import AccountState
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-            info = await self._brokers[primary_id].get_account_info()
-            if info:
+        for broker_id, broker in self._brokers.items():
+            try:
+                # Positions ouvertes
+                open_instruments = []
+                open_positions = 0
+                open_risk_cash = 0.0
+                try:
+                    positions = await broker.get_positions()
+                    open_positions = len(positions)
+                    open_instruments = [p.symbol for p in positions]
+                    open_risk_cash = open_positions * 400.0
+                except Exception:
+                    pass
+
+                info = await broker.get_account_info()
+                if not info:
+                    continue
 
                 # Compléter avec les positions du monitor si disponible
                 if self._position_monitor:
                     for pos in self._position_monitor.open_positions:
-                        if pos.symbol not in open_instruments:
+                        if pos.broker_id == broker_id and pos.symbol not in open_instruments:
                             open_instruments.append(pos.symbol)
 
                 # Daily rollover: reset daily_start_balance at UTC midnight
-                from datetime import datetime, timezone
-                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-                if self._daily_start_date and today != self._daily_start_date:
-                    old_daily = self._daily_start_balance
-                    self._daily_start_balance = info.balance
-                    self._daily_start_date = today
+                broker_daily_date = self._broker_daily_start_date.get(broker_id)
+                if broker_daily_date and today != broker_daily_date:
+                    old_daily = self._broker_daily_start_balance.get(broker_id, info.balance)
+                    self._broker_daily_start_balance[broker_id] = info.balance
+                    self._broker_daily_start_date[broker_id] = today
                     logger.info(
-                        f"[Engine] 📅 New day {today}: daily_start_balance "
-                        f"{old_daily:.2f} → {info.balance:.2f}"
+                        f"[Engine] 📅 New day {today} {broker_id}: "
+                        f"daily_start_balance {old_daily:.2f} → {info.balance:.2f}"
                     )
+                    # Rétro-compat primary
+                    if broker_id == primary_id:
+                        self._daily_start_balance = info.balance
+                        self._daily_start_date = today
 
-                from arabesque.core.guards import AccountState
+                initial_bal = self._broker_initial_balance.get(
+                    broker_id, info.balance
+                )
+                daily_start_bal = self._broker_daily_start_balance.get(
+                    broker_id, info.balance
+                )
+
                 state = AccountState(
                     balance=info.balance,
                     equity=info.equity,
-                    start_balance=self._initial_balance or info.balance,
-                    daily_start_balance=self._daily_start_balance or info.balance,
+                    start_balance=initial_bal,
+                    daily_start_balance=daily_start_bal,
                     open_positions=open_positions,
                     open_instruments=open_instruments,
                     open_risk_cash=open_risk_cash,
                 )
-                self._dispatcher.update_account_state(state)
+
+                # Primary broker → guards/dispatcher
+                if broker_id == primary_id:
+                    self._dispatcher.update_account_state(state)
+
                 logger.debug(
-                    f"[Engine] 💰 {primary_id}: "
-                    f"balance={info.balance:.2f} equity={info.equity:.2f} {info.currency} "
-                    f"| {open_positions} position(s) ouvertes: {open_instruments}"
+                    f"[Engine] 💰 {broker_id}: "
+                    f"balance={info.balance:.2f} equity={info.equity:.2f} "
+                    f"{info.currency} | {open_positions} pos | "
+                    f"daily_dd={state.daily_dd_pct:.1f}% "
+                    f"total_dd={state.total_dd_pct:.1f}%"
                 )
 
                 # Live monitor: equity snapshot + protection check
@@ -780,16 +954,25 @@ class LiveEngine:
                         open_positions=open_positions,
                         daily_dd_pct=state.daily_dd_pct,
                         total_dd_pct=state.total_dd_pct,
+                        broker_id=broker_id,
                     )
-                    # Active protection check
                     await self._live_monitor.check_protection(
                         daily_dd_pct=state.daily_dd_pct,
                         total_dd_pct=state.total_dd_pct,
                         equity=info.equity,
                         free_margin=free_margin,
+                        broker_id=broker_id,
                     )
-        except Exception as e:
-            logger.warning(f"[Engine] _refresh_account_state: {e}")
+
+            except Exception as e:
+                logger.warning(f"[Engine] {broker_id} refresh: {e}")
+                # Alerte Telegram si un broker est injoignable
+                if self._live_monitor:
+                    asyncio.ensure_future(
+                        self._live_monitor._notify_telegram(
+                            f"⚠️ {broker_id} injoignable: {e}"
+                        )
+                    )
 
     async def _account_refresh_loop(self) -> None:
         while self._running:
@@ -799,6 +982,47 @@ class LiveEngine:
                 # Health report périodique
                 if self._live_monitor and self._live_monitor.should_emit_health_report():
                     self._live_monitor.emit_health_report()
+
+    async def _notify_startup_state(self) -> None:
+        """Envoie un résumé Telegram de l'état de chaque broker au démarrage."""
+        if not self._live_monitor:
+            return
+        from arabesque.core.guards import AccountState
+        broker_states = {}
+        for broker_id, broker in self._brokers.items():
+            try:
+                info = await broker.get_account_info()
+                if not info:
+                    continue
+                positions = []
+                try:
+                    positions = await broker.get_positions()
+                except Exception:
+                    pass
+                initial_bal = self._broker_initial_balance.get(broker_id, info.balance)
+                daily_start = self._broker_daily_start_balance.get(broker_id, info.balance)
+                state = AccountState(
+                    balance=info.balance,
+                    equity=info.equity,
+                    start_balance=initial_bal,
+                    daily_start_balance=daily_start,
+                    open_positions=len(positions),
+                    open_instruments=[p.symbol for p in positions],
+                )
+                broker_states[broker_id] = {
+                    "balance": info.balance,
+                    "equity": info.equity,
+                    "daily_dd_pct": state.daily_dd_pct,
+                    "total_dd_pct": state.total_dd_pct,
+                    "open_positions": len(positions),
+                    "protection": self._live_monitor._protection_per_broker.get(
+                        broker_id, "normal"
+                    ),
+                }
+            except Exception as e:
+                logger.warning(f"[Engine] startup state {broker_id}: {e}")
+        if broker_states:
+            await self._live_monitor.notify_startup(broker_states)
 
     # ------------------------------------------------------------------
     # Callback ordre
@@ -836,6 +1060,63 @@ class LiveEngine:
             )
         # TODO: notification via channels (Telegram/ntfy)
         await self._notify_order(broker_id, signal, result)
+
+    def _on_slippage_reject(self, signal, trigger_price: float, slippage_atr: float) -> None:
+        """Callback quand un signal est rejeté pour slippage excessif.
+
+        Crée un counterfactual pour mesurer l'impact du guard :
+        le trade aurait-il été profitable malgré le slippage ?
+        """
+        import json
+        from datetime import datetime, timezone
+        from pathlib import Path
+        from arabesque.core.models import Counterfactual, DecisionType
+
+        cf = Counterfactual(
+            signal_id=signal.signal_id,
+            decision_type=DecisionType.SIGNAL_REJECTED,
+            instrument=signal.instrument,
+            side=signal.side,
+            hypothetical_entry=trigger_price,
+            hypothetical_sl=signal.sl,
+            hypothetical_tp=signal.tp_indicative,
+            ts_decision=datetime.now(timezone.utc),
+            price_at_decision=trigger_price,
+            mfe_after=trigger_price,
+            mae_after=trigger_price,
+        )
+
+        # Stocker dans le position_monitor pour tracking continu
+        if self._position_monitor and hasattr(self._position_monitor, 'manager'):
+            self._position_monitor.manager.counterfactuals.append(cf)
+            logger.info(
+                f"[Engine] 📊 Counterfactual créé: {signal.instrument} "
+                f"{signal.side.value} slip={slippage_atr:.2f} ATR "
+                f"entry={trigger_price:.5f} SL={signal.sl:.5f}"
+            )
+
+        # Log JSONL pour analyse post-hoc
+        try:
+            log_path = Path("logs/slippage_rejects.jsonl")
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            entry = {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "instrument": signal.instrument,
+                "side": signal.side.value,
+                "signal_close": signal.close,
+                "trigger_price": trigger_price,
+                "slippage_atr": round(slippage_atr, 4),
+                "atr": signal.atr,
+                "sl": signal.sl,
+                "tp": signal.tp_indicative,
+                "regime": signal.regime,
+                "strategy": signal.strategy_type,
+                "cf_id": cf.cf_id,
+            }
+            with open(log_path, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except Exception as e:
+            logger.debug(f"[Engine] slippage log error: {e}")
 
     async def _register_position_in_monitor(self, broker_id, signal, result):
         """Enregistre une position fraîchement ouverte dans le position monitor.

@@ -2236,14 +2236,27 @@ pour éviter la boucle sync→async→sync.
 `pip_value = lot_size × pip_size` avec `pip_size` de instruments.yaml (0.01), mais
 GFT retourne `pip_size=0.0001` (convention 4 décimales pour les métaux).
 
-**Fix** : `_compute_lots_for_broker()` utilise `sym_info.pip_size` du broker quand
+**Fix initial** : `_compute_lots_for_broker()` utilise `sym_info.pip_size` du broker quand
 `get_symbol_info()` retourne une valeur positive, avec log du remplacement.
+
+**Bug résiduel (2026-03-28)** : le fix initial ne résolvait que le cas USD-quoted (XAUUSD)
+où `pip_value = lot_size × pip_size` s'auto-corrige. Pour les **cross pairs** (AUDJPY,
+GBPJPY, CHFJPY...) et le fallback, `pip_value_per_lot` vient du yaml et est calibré
+pour le yaml `pip_size`. Quand le broker override pip_size par un facteur 100× (0.0001
+vs 0.01 pour JPY), le produit `pips × pip_value` est 100× trop grand → volume 100× trop
+petit (AUDJPY : 0.010L au lieu de 0.320L).
+
+**Fix définitif** : `_compute_lots_for_broker()` stocke `yaml_pip_size` avant override,
+puis rescale `pip_value_per_lot` par `pip_ratio = broker_pip_size / yaml_pip_size` dans
+les branches cross et fallback. Le log indique le facteur appliqué (ex: `yaml-cross(×0)`
+→ `yaml-cross(×100)` serait un signal d'anomalie).
 
 ### Leçon
 
 Les conventions diffèrent entre brokers (contractSize, pip_size, order_id vs
 position_id). Toujours vérifier les positions orphelines dans les logs après
-activation d'un nouveau broker.
+activation d'un nouveau broker. **pip_size et pip_value doivent toujours être
+cohérents** — si l'un vient du broker et l'autre du yaml, il faut rescaler.
 
 ---
 
@@ -2395,3 +2408,117 @@ période que le live et envoie une alerte Telegram si une dérive est détectée
 **Fichier** : `scripts/compare_live_vs_backtest.py`
 
 **Fichiers** : `scripts/daily_report.py`, `deploy/systemd/arabesque-report-*.{service.template,timer}`
+
+### Éléments BB_RPB_TSL — audit complet (2026-03-28)
+
+**Décision** : 11 éléments de la stratégie BB_RPB_TSL (Freqtrade, MR crypto, 90.8% WR)
+ont été systématiquement testés pour transplantation dans Arabesque Extension.
+Résultat : **aucun élément adopté**. Tous sont NEUTRE ou REJETÉ.
+
+**Pourquoi** :
+- BB_RPB_TSL est mean-reversion sans SL réel (-99%). Ses sorties (RSI extrême, ROI court,
+  momentum surextensif) *coupent les profits* dans un contexte où les pertes sont illimitées.
+- Arabesque Extension est trend-following avec SL réel (-1R). Couper les profits = tuer les
+  runners qui compensent les pertes fixes. L'incompatibilité est fondamentale.
+- Le système actuel (BE 0.3R/0.20R + trailing paliers + giveback + deadfish + filtres d'entrée
+  régime/squeeze/EMA200) capture déjà l'essentiel de ce que les mécanismes BB_RPB_TSL tentent.
+
+**Éléments testés** : M2 (TP fixe), H7 (giveback agressif), H1 (EMA200 exit), H2 (RSI extrême),
+M3 (régime invalidation), H3 (momentum surextensif), H5 (BB 3σ filtre), M1 (trailing continu),
+H6 (trailing Dow Theory), H8 (split position), M4 (multi-TF momentum).
+
+**Non testés** : H4 (slippage live-only), L1-L5 (indicateurs basse priorité).
+
+**Fichier** : `docs/EXPERIMENT_LOG.md` section 6, `arabesque/analysis/ablation.py` (variantes),
+`tmp/test_bb3sigma.py`, `tmp/test_split_position.py`, `tmp/test_multitf_momentum.py`
+
+### Revue littérature — gestion de position et indicateurs (2026-03-28)
+
+**Décision** : Revue de deux documents de recherche intensive (LLM) couvrant la
+littérature académique 2016-2026 sur la gestion de position en prop firms et les
+indicateurs techniques.
+
+**Conclusions** :
+1. Architecture à deux couches (contrainte + style) = confirmée comme recommandation
+   consensus. Arabesque l'implémente déjà (guards/live_monitor + BE/trailing/giveback).
+2. **Volatility targeting** = seule technique avec consensus académique fort. Arabesque
+   normalise déjà via ATR (SL proportionnel → volume s'adapte), mais un vol-targeting
+   explicite (risk% = f(vol récente)) pourrait lisser la courbe d'équité.
+   Piste à explorer à moyen terme.
+3. Aucun nouvel indicateur technique consensuel sur 2016-2026. Les indicateurs à consensus
+   fort (OFI, rugosité de vol) nécessitent des données HF/carnet d'ordres — non applicable
+   sur H1/H4.
+4. Confirms L1-L5 (volume, EMA slope, multi-RSI) comme basse priorité — ce sont des
+   "recombinaisons de prix passés", catégorie la moins prometteuse.
+
+**Fichiers** : `resources/gestion_trading_prop_firms.txt`, `resources/indicateurs.txt`
+
+### Volatility targeting — REJETÉ (2026-03-28)
+
+**Décision** : Simulation post-hoc du vol-targeting sur 1049 trades H1 (12 instruments)
+et 213 trades H4 crypto. Toutes les configurations testées (vol_window 20/50,
+cap_high 1.5/2.0) sont **négatives** : -10 à -12R de perte et +2-3% de drawdown
+supplémentaire vs baseline.
+
+**Pourquoi ça ne marche pas** :
+- Extension entre en trade sur BB squeeze → breakout = moment de haute volatilité.
+  Vol-targeting réduit le risk en haute vol = réduit le sizing exactement quand
+  le signal est le plus fort.
+- En basse vol, vol-targeting augmente le risk, mais il n'y a pas de signal Extension
+  (pas de squeeze → pas d'extension). Les trades en basse vol sont rares et de faible qualité.
+- La normalisation ATR au sizing (SL proportionnel → volume s'adapte) fait déjà
+  le travail d'adaptation à la volatilité de manière structurelle.
+
+**Note** : le consensus académique sur le vol-targeting concerne les stratégies
+momentum long-only / CTA (long horizon, diversified, pas de BE). Non applicable
+aux stratégies BB breakout avec BE 0.3R.
+
+**Fichiers** : `docs/EXPERIMENT_LOG.md` section 7, `tmp/test_vol_targeting.py`
+
+### Réduction linéaire du risque — GARDER + PLANCHER $100 (2026-04-06)
+
+**Décision** : Garder la réduction linéaire dans `compute_sizing()` (guards.py)
+qui diminue le risk proportionnellement au DD total. Mais ajouter un plancher
+minimum de $100/trade, en-dessous duquel le trade est skipé.
+
+**Contexte** :
+- Comptes irremplaçables (pas de possibilité de racheter), pas de limite de temps.
+- DD actuel ~5% → risk réduit de ~50% → trades à $30-80 de risque.
+- À ce niveau, le lot rounding (±$5) représente 30-80% du gain moyen (+0.20R).
+- Les données live sont insuffisantes (22 exits loggés, IC99 n'exclut pas WR <50%).
+
+**Pourquoi garder la réduction** :
+- Protège contre le breach (10% max DD). Sans réduction à -5%, 12 SL = breach.
+- Les comptes servent de walk-forward live, pas de source de profit à court terme.
+- La vitesse de récupération est secondaire tant qu'on n'a pas validé l'edge.
+
+**Pourquoi un plancher à $100** :
+- En-dessous de $100 de risk, le gain moyen ($20 à +0.20R) est du même ordre que
+  l'erreur de rounding du sizing ($5). Le R mesuré diverge du R théorique.
+- Les données collectées à $30 de risk sont statistiquement moins fiables.
+
+**Critères de progression** : voir HANDOFF.md section "Critères pour augmenter le risque".
+4 paliers P0→P3 basés sur Wilson IC99 du WR et IC de l'expectancy.
+
+**Fichiers** : `arabesque/core/guards.py` (compute_sizing), `HANDOFF.md`
+
+### Fix double-comptage rapports + exits manquants (2026-04-06)
+
+**Problème 1** : le même trade exécuté sur 2 brokers (ftmo + gft) produisait
+2 events "exit" dans trade_journal.jsonl. Tous les rapports (daily, weekly,
+health check, drift, live_monitor) comptaient chaque exit séparément.
+Le rapport hebdomadaire disait "13 trades" au lieu de 8 réels.
+
+**Problème 2** : quand le moteur redémarrait, les trades fermés pendant le
+downtime n'avaient jamais leur exit loggé. 7 trades au total ont des entries
+sans exit dans le journal (4 semaine du 26 mars, 3 semaine du 2 avril).
+
+**Fix 1** : déduplication par `trade_id` dans `daily_report.py`, `compare_live_vs_backtest.py`,
+`health_check.py`, et `live_monitor._load_journal()`.
+
+**Fix 2** : nouvelle méthode `_reconcile_missed_exits()` dans `live.py`, appelée
+au démarrage après la réconciliation des positions ouvertes. Scanne le journal
+pour les entries sans exit, vérifie chez le broker, et logue les exits manquants.
+
+**Fichiers** : `arabesque/execution/live.py`, `arabesque/execution/live_monitor.py`,
+`scripts/daily_report.py`, `scripts/compare_live_vs_backtest.py`, `scripts/health_check.py`

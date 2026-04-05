@@ -86,8 +86,18 @@ def compute_stats(trades: list[dict]) -> dict:
         return {"n_trades": 0}
 
     # Filtrer seulement les exits (ont un exit_reason)
-    exits = [t for t in trades if t.get("type") == "exit" or t.get("exit_reason")]
+    exits_raw = [t for t in trades if t.get("type") == "exit" or t.get("exit_reason")]
     entries = [t for t in trades if t.get("type") == "entry" or (not t.get("exit_reason") and t.get("instrument"))]
+
+    # Dédupliquer par trade_id (même trade exécuté sur plusieurs brokers)
+    seen_tids: dict[str, dict] = {}
+    for t in exits_raw:
+        tid = t.get("trade_id", "")
+        if tid and tid in seen_tids:
+            continue  # déjà compté
+        if tid:
+            seen_tids[tid] = t
+    exits = list(seen_tids.values()) if seen_tids else exits_raw
 
     if not exits:
         return {"n_trades": 0, "n_entries": len(entries)}
@@ -184,19 +194,29 @@ def format_report(stats: dict, equity_snaps: list[dict], period: str) -> str:
                     f"Exp={ss['exp']:+.3f}R Total={ss['total_r']:+.2f}R"
                 )
 
-    # Equity
+    # Equity — ventilé par broker
     if equity_snaps:
-        first = equity_snaps[0]
-        last = equity_snaps[-1]
-        bal_start = first.get("balance") or first.get("bal", 0)
-        bal_end = last.get("balance") or last.get("bal", 0)
-        eq_end = last.get("equity") or last.get("eq", bal_end)
-        if bal_start and bal_end:
-            delta = bal_end - bal_start
-            pct = delta / bal_start * 100 if bal_start else 0
-            lines.append("")
-            lines.append(f"💰 Balance : ${bal_end:,.0f} ({pct:+.2f}%)")
-            lines.append(f"💰 Equity  : ${eq_end:,.0f}")
+        # Group snapshots by broker_id (empty = legacy/primary)
+        from collections import defaultdict as _dd
+        by_broker = _dd(list)
+        for s in equity_snaps:
+            bid = s.get("broker_id", "")
+            by_broker[bid].append(s)
+
+        lines.append("")
+        for bid in sorted(by_broker.keys()):
+            snaps_b = by_broker[bid]
+            first = snaps_b[0]
+            last = snaps_b[-1]
+            bal_start = first.get("balance") or first.get("bal", 0)
+            bal_end = last.get("balance") or last.get("bal", 0)
+            eq_end = last.get("equity") or last.get("eq", bal_end)
+            dd_total = last.get("total_dd_pct", 0)
+            label = bid if bid else "primary"
+            if bal_start and bal_end:
+                delta = bal_end - bal_start
+                pct = delta / bal_start * 100 if bal_start else 0
+                lines.append(f"💰 {label}: ${bal_end:,.0f} ({pct:+.2f}%) eq=${eq_end:,.0f} DD={dd_total:.1f}%")
 
         # Protection level
         level = last.get("protection_level") or last.get("level", "")
