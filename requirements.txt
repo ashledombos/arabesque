@@ -1,0 +1,29 @@
+# ============================================================
+# Arabesque — dépendances complètes
+# Ne pas installer directement avec `pip install -r requirements.txt`
+# → Utiliser install.sh qui gère l'ordre pour le conflit ctrader/tradelocker
+# ============================================================
+
+# --- Core (via pyproject.toml) ---
+pandas>=2.0
+numpy>=1.24
+pyarrow>=14.0
+pyyaml>=6.0
+twisted>=23.0
+aiohttp>=3.9
+requests>=2.31
+python-telegram-bot>=20.0
+ctrader-open-api
+
+# --- TradeLocker (ÉTAPE SPÉCIALE — voir install.sh)
+# 1. pip install --no-deps tradelocker
+# 2. pip install PyJWT>=2.8.0 joblib>=1.4.2 python-dotenv>=1.0.0
+#
+# Raison : tradelocker pin requests==2.32.2, ctrader-open-api pin requests==2.32.3
+# On installe tradelocker sans deps, puis ses deps non-conflictuelles manuellement.
+# requests>=2.31 (déjà satisfait par ctrader) couvre tradelocker en pratique.
+
+# --- Optionnel ---
+ccxt
+yfinance
+apprise

@@ -38,6 +38,9 @@ results/
 # Temporaire — dossier pour scripts one-off
 tmp/
 
+# Ressources externes (recherches, transcriptions, docs partagés)
+resources/
+
 # OS
 .DS_Store
 Thumbs.db

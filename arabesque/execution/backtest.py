@@ -38,7 +38,7 @@ from typing import Callable
 import numpy as np
 import pandas as pd
 
-from arabesque.core.models import Signal, Position, Decision, DecisionType, Side
+from arabesque.core.models import Signal, Position, Decision, DecisionType, Side, Counterfactual, RejectReason
 from arabesque.core.guards import Guards, PropConfig, ExecConfig, AccountState
 from arabesque.modules.position_manager import PositionManager, ManagerConfig
 from arabesque.strategies.extension.signal import ExtensionSignalGenerator as BacktestSignalGenerator, ExtensionConfig as SignalGenConfig
@@ -191,6 +191,9 @@ class BacktestRunner:
                 "cmf": row.get("cmf", 0),
                 "bb_width": row.get("bb_width", 0.01),
                 "ema200": row.get("ema_slow", 0),
+                "regime": row.get("regime", ""),
+                "last_swing_low": row.get("last_swing_low", 0),
+                "last_swing_high": row.get("last_swing_high", 0),
             }
 
             # ── Position update : sub-bar replay ou H/L agrégé ──
@@ -244,6 +247,25 @@ class BacktestRunner:
                 if i - last_bar < self.bt_cfg.signal_cooldown_bars:
                     n_rejected += 1
                     rejection_reasons["cooldown"] = rejection_reasons.get("cooldown", 0) + 1
+                    # Counterfactual cooldown — fill hypothétique à l'open suivante
+                    next_bar = df.iloc[i + 1]
+                    next_bar_ts = df.index[i + 1]
+                    cd_fill = next_bar["Open"]
+                    cf = Counterfactual(
+                        signal_id=signal.signal_id,
+                        decision_type=DecisionType.SIGNAL_REJECTED,
+                        reject_reason="cooldown",
+                        instrument=instrument,
+                        side=signal.side,
+                        hypothetical_entry=cd_fill,
+                        hypothetical_sl=signal.sl,
+                        hypothetical_tp=signal.tp_indicative if signal.tp_indicative else 0,
+                        ts_decision=bar_date.to_pydatetime() if hasattr(bar_date, 'to_pydatetime') else bar_date,
+                        price_at_decision=cd_fill,
+                        mfe_after=cd_fill,
+                        mae_after=cd_fill,
+                    )
+                    self.manager.counterfactuals.append(cf)
                     continue
 
                 next_bar = df.iloc[i + 1]
@@ -279,6 +301,29 @@ class BacktestRunner:
                     rejection_reasons[reason] = rejection_reasons.get(reason, 0) + 1
                     if self.bt_cfg.verbose:
                         print(f"  [{bar_date}] REJECTED: {reason}")
+                    # Counterfactual pour les guards tunables
+                    _CF_TRACKED_GUARDS = {
+                        RejectReason.DUPLICATE_INSTRUMENT,
+                        RejectReason.BB_SQUEEZE,
+                        RejectReason.SLIPPAGE_TOO_HIGH,
+                        RejectReason.SPREAD_TOO_WIDE,
+                    }
+                    if decision.reject_reason in _CF_TRACKED_GUARDS:
+                        cf = Counterfactual(
+                            signal_id=signal.signal_id,
+                            decision_type=DecisionType.SIGNAL_REJECTED,
+                            reject_reason=reason,
+                            instrument=instrument,
+                            side=signal.side,
+                            hypothetical_entry=fill_price,
+                            hypothetical_sl=signal.sl,
+                            hypothetical_tp=signal.tp_indicative if signal.tp_indicative else 0,
+                            ts_decision=bar_date.to_pydatetime() if hasattr(bar_date, 'to_pydatetime') else bar_date,
+                            price_at_decision=fill_price,
+                            mfe_after=fill_price,
+                            mae_after=fill_price,
+                        )
+                        self.manager.counterfactuals.append(cf)
                     continue
 
                 sizing = self.guards.compute_sizing(signal, self.account)
@@ -341,6 +386,35 @@ class BacktestRunner:
         metrics.n_signals_generated = n_signals
         metrics.n_signals_rejected = n_rejected
         metrics.rejection_reasons = rejection_reasons
+
+        # Counterfactual guard tracking — par guard
+        all_cfs = [cf for cf in self.manager.counterfactuals
+                   if cf.decision_type == DecisionType.SIGNAL_REJECTED and cf.resolved]
+        if all_cfs:
+            from collections import defaultdict as _dd
+            by_reason = _dd(list)
+            for cf in all_cfs:
+                by_reason[cf.reject_reason or "unknown"].append(cf)
+
+            for reason, cfs in by_reason.items():
+                n = len(cfs)
+                wins = sum(1 for cf in cfs if cf.hypothetical_result_r > 0)
+                losses = n - wins
+                avg_r = sum(cf.hypothetical_result_r for cf in cfs) / n
+                verdict = "BENEFICIAL" if avg_r < -0.05 else ("HARMFUL" if avg_r > 0.05 else "NEUTRAL")
+                metrics.guard_cf[reason] = {
+                    "count": n, "would_win": wins, "would_lose": losses,
+                    "avg_r": round(avg_r, 3), "verdict": verdict,
+                }
+
+            # Rétro-compat : agrégé duplicate_instrument
+            dup = metrics.guard_cf.get("duplicate_instrument", {})
+            if dup:
+                metrics.guard_cf_count = dup["count"]
+                metrics.guard_cf_would_win = dup["would_win"]
+                metrics.guard_cf_would_lose = dup["would_lose"]
+                metrics.guard_cf_avg_r = dup["avg_r"]
+                metrics.guard_cf_verdict = dup["verdict"]
 
         results_r = [p.result_r for p in closed if p.result_r is not None]
         if results_r:
@@ -493,6 +567,7 @@ def _write_run_jsonl(
         "rejection_reasons": metrics.rejection_reasons,
         "slippage_r": config.slippage_r, "spread_pct": config.spread_pct,
         "risk_pct": config.risk_per_trade_pct, "max_open_risk_pct": config.max_open_risk_pct,
+        "guard_cf": metrics.guard_cf,
     }
     with open(BACKTEST_RUNS_LOG, "a") as f:
         f.write(json.dumps(entry, default=str) + "\n")
@@ -873,6 +948,26 @@ def _format_wf_report(
         f"  Dégradation:  IS→OOS WR {wr_deg:+.1%}   Exp {exp_deg:+.3f}R",
         "",
     ]
+
+    # Guard counterfactual agrégé par reason
+    from collections import defaultdict as _dd
+    agg_cf = _dd(lambda: {"count": 0, "would_win": 0, "would_lose": 0, "sum_r": 0.0})
+    for w in windows:
+        for reason, g in w.oos_metrics.guard_cf.items():
+            agg_cf[reason]["count"] += g["count"]
+            agg_cf[reason]["would_win"] += g["would_win"]
+            agg_cf[reason]["would_lose"] += g["would_lose"]
+            agg_cf[reason]["sum_r"] += g["avg_r"] * g["count"]
+    if agg_cf:
+        lines.append("  Guard counterfactuals (OOS agrégé) :")
+        for reason in sorted(agg_cf.keys()):
+            g = agg_cf[reason]
+            avg_r = g["sum_r"] / g["count"] if g["count"] > 0 else 0
+            verdict = "BENEFICIAL" if avg_r < -0.05 else ("HARMFUL" if avg_r > 0.05 else "NEUTRAL")
+            lines.append(f"    {reason:25s}: {g['count']:3d} bloqués  "
+                         f"W:{g['would_win']} L:{g['would_lose']}  "
+                         f"avgR:{avg_r:+.3f}  → {verdict}")
+        lines.append("")
 
     # Verdict
     passed = agg_exp > 0 and agg_wr >= 0.50

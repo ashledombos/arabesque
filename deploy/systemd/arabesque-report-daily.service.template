@@ -1,5 +1,5 @@
 [Unit]
-Description=Arabesque — rapport quotidien + drift check
+Description=Arabesque — rapport quotidien + drift check + health check
 After=network-online.target
 Wants=network-online.target
 
@@ -8,6 +8,7 @@ Type=oneshot
 WorkingDirectory={{REPO_DIR}}
 ExecStart={{REPO_DIR}}/.venv/bin/python scripts/daily_report.py --period daily
 ExecStartPost={{REPO_DIR}}/.venv/bin/python scripts/compare_live_vs_backtest.py --last 1 --notify
+ExecStartPost={{REPO_DIR}}/.venv/bin/python scripts/health_check.py --notify --warn-only
 StandardOutput=journal
 StandardError=journal
 Environment=PYTHONUNBUFFERED=1

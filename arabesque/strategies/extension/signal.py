@@ -143,6 +143,12 @@ class ExtensionSignalGenerator:
         df["swing_low"]  = df["Low"].rolling(10, center=False).min()
         df["swing_high"] = df["High"].rolling(10, center=False).max()
 
+        # Swing levels basés sur pivots confirmés (pour trailing Dow Theory)
+        from arabesque.modules.indicators import compute_swing_levels
+        swings = compute_swing_levels(df, pivot_window=5)
+        df["last_swing_low"] = swings["last_swing_low"]
+        df["last_swing_high"] = swings["last_swing_high"]
+
         df = compute_htf_regime(
             df,
             ema_fast=self.cfg.htf_ema_fast,

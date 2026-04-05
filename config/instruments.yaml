@@ -750,3 +750,455 @@ XTZUSD:
   session_model: "24x7"
   timeframe: "H4"
 
+# -----------------------------------------------------------------------------
+# INDICES US — CFDs (pip_size=1 = 1 index point, pip_value_per_lot=1$/point/lot)
+# Données Dukascopy disponibles dans instruments.csv
+# -----------------------------------------------------------------------------
+US100:
+  ftmo_swing_test: "US100.cash"
+  ftmo_challenge: "US100.cash"
+  gft_compte1: "NAS100.X"
+  follow: false  # à backtester
+  pip_size: 1
+  pip_value_per_lot: 1
+
+US500:
+  ftmo_swing_test: "US500.cash"
+  ftmo_challenge: "US500.cash"
+  gft_compte1: "SPX500.X"
+  follow: false
+  pip_size: 0.1
+  pip_value_per_lot: 1
+
+US30:
+  ftmo_swing_test: "US30.cash"
+  ftmo_challenge: "US30.cash"
+  gft_compte1: "US30.X"
+  follow: false
+  pip_size: 1
+  pip_value_per_lot: 1
+
+US2000:
+  ftmo_swing_test: "US2000.cash"
+  ftmo_challenge: "US2000.cash"
+  follow: false
+  pip_size: 0.1
+  pip_value_per_lot: 1
+
+DXY:
+  ftmo_swing_test: "DXY.cash"
+  ftmo_challenge: "DXY.cash"
+  follow: false
+  pip_size: 0.001
+  pip_value_per_lot: 10
+
+# -----------------------------------------------------------------------------
+# INDICES EU — CFDs (cotés en devise locale → pip_value_per_lot en USD approx)
+# Taux approx : EURUSD ≈ 1.08, GBPUSD ≈ 1.27
+# -----------------------------------------------------------------------------
+GER40:
+  ftmo_swing_test: "GER40.cash"
+  ftmo_challenge: "GER40.cash"
+  gft_compte1: "GER40.X"
+  follow: false
+  pip_size: 1
+  pip_value_per_lot: 1.08
+
+UK100:
+  ftmo_swing_test: "UK100.cash"
+  ftmo_challenge: "UK100.cash"
+  gft_compte1: "UK100.X"
+  follow: false
+  pip_size: 1
+  pip_value_per_lot: 1.27
+
+FRA40:
+  ftmo_swing_test: "FRA40.cash"
+  ftmo_challenge: "FRA40.cash"
+  follow: false
+  pip_size: 1
+  pip_value_per_lot: 1.08
+
+EU50:
+  ftmo_swing_test: "EU50.cash"
+  ftmo_challenge: "EU50.cash"
+  follow: false
+  pip_size: 1
+  pip_value_per_lot: 1.08
+
+SPN35:
+  ftmo_swing_test: "SPN35.cash"
+  ftmo_challenge: "SPN35.cash"
+  follow: false
+  pip_size: 1
+  pip_value_per_lot: 1.08
+
+N25:
+  ftmo_swing_test: "N25.cash"
+  ftmo_challenge: "N25.cash"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 1.08
+
+# -----------------------------------------------------------------------------
+# INDICES ASIE/PACIFIQUE — CFDs
+# Taux approx : USDJPY ≈ 155 (→ 1/155 ≈ 0.0065), AUDUSD ≈ 0.65, HKDUSD ≈ 0.13
+# -----------------------------------------------------------------------------
+JP225:
+  ftmo_swing_test: "JP225.cash"
+  ftmo_challenge: "JP225.cash"
+  gft_compte1: "JAP225.X"
+  follow: false
+  pip_size: 1
+  pip_value_per_lot: 0.0065
+
+HK50:
+  ftmo_swing_test: "HK50.cash"
+  ftmo_challenge: "HK50.cash"
+  follow: false
+  pip_size: 1
+  pip_value_per_lot: 0.13
+
+AUS200:
+  ftmo_swing_test: "AUS200.cash"
+  ftmo_challenge: "AUS200.cash"
+  gft_compte1: "AUS200.X"
+  follow: false
+  pip_size: 1
+  pip_value_per_lot: 0.65
+
+# -----------------------------------------------------------------------------
+# ÉNERGIE — CFDs (cotés en USD)
+# USOIL/UKOIL : 1 lot = 100 barils, pip_size=0.01 → pip_value = 100×0.01 = 1$/pip
+# NATGAS : 1 lot = 10000 MMBtu, pip_size=0.001 → pip_value = 10000×0.001 = 10$/pip
+# HEATOIL : 1 lot = 42000 gal, pip_size=0.0001 → pip_value = 42000×0.0001 = 4.2$/pip
+# -----------------------------------------------------------------------------
+USOIL:
+  ftmo_swing_test: "USOIL.cash"
+  ftmo_challenge: "USOIL.cash"
+  gft_compte1: "WTI.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 1
+  contract_size: 100
+
+UKOIL:
+  ftmo_swing_test: "UKOIL.cash"
+  ftmo_challenge: "UKOIL.cash"
+  gft_compte1: "BRENT.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 1
+  contract_size: 100
+
+NATGAS:
+  ftmo_swing_test: "NATGAS.cash"
+  ftmo_challenge: "NATGAS.cash"
+  follow: false
+  pip_size: 0.001
+  pip_value_per_lot: 10
+  contract_size: 10000
+
+HEATOIL:
+  ftmo_swing_test: "HEATOIL.c"
+  ftmo_challenge: "HEATOIL.c"
+  follow: false
+  pip_size: 0.0001
+  pip_value_per_lot: 4.2
+  contract_size: 42000
+
+# -----------------------------------------------------------------------------
+# AGRICULTURE — CFDs (cotés en USD, FTMO uniquement)
+# Spécifications cTrader CFD standard
+# -----------------------------------------------------------------------------
+COCOA:
+  ftmo_swing_test: "COCOA.c"
+  ftmo_challenge: "COCOA.c"
+  follow: false
+  pip_size: 1
+  pip_value_per_lot: 1
+
+COFFEE:
+  ftmo_swing_test: "COFFEE.c"
+  ftmo_challenge: "COFFEE.c"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 1
+
+CORN:
+  ftmo_swing_test: "CORN.c"
+  ftmo_challenge: "CORN.c"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 1
+
+COTTON:
+  ftmo_swing_test: "COTTON.c"
+  ftmo_challenge: "COTTON.c"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 1
+
+SOYBEAN:
+  ftmo_swing_test: "SOYBEAN.c"
+  ftmo_challenge: "SOYBEAN.c"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 1
+
+WHEAT:
+  ftmo_swing_test: "WHEAT.c"
+  ftmo_challenge: "WHEAT.c"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 1
+
+# -----------------------------------------------------------------------------
+# MÉTAUX SUPPLÉMENTAIRES (cotés en USD)
+# XCUUSD (cuivre) : 1 lot = 25000 lbs, pip_size=0.0001 → pip_value = 2.5$/pip
+# XPDUSD (palladium) : 1 lot = 100 oz, pip_size=0.01 → pip_value = 1$/pip
+# XPTUSD (platine) : 1 lot = 100 oz, pip_size=0.01 → pip_value = 1$/pip
+# -----------------------------------------------------------------------------
+XCUUSD:
+  ftmo_swing_test: "XCUUSD"
+  ftmo_challenge: "XCUUSD"
+  follow: false
+  pip_size: 0.0001
+  pip_value_per_lot: 2.5
+  contract_size: 25000
+
+XPDUSD:
+  ftmo_swing_test: "XPDUSD"
+  ftmo_challenge: "XPDUSD"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 1
+  contract_size: 100
+
+XPTUSD:
+  ftmo_swing_test: "XPTUSD"
+  ftmo_challenge: "XPTUSD"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 1
+  contract_size: 100
+
+# -----------------------------------------------------------------------------
+# ACTIONS US — CFDs (1 lot = 1 action, pip_size=0.01, pip_value_per_lot=0.01)
+# Gaps overnight fréquents, horaires limités (NYSE/NASDAQ 14:30-21:00 UTC)
+# -----------------------------------------------------------------------------
+AAPL:
+  ftmo_swing_test: "AAPL"
+  ftmo_challenge: "AAPL"
+  gft_compte1: "AAPL.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+AMZN:
+  ftmo_swing_test: "AMZN"
+  ftmo_challenge: "AMZN"
+  gft_compte1: "AMZN.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+GOOG:
+  ftmo_swing_test: "GOOG"
+  ftmo_challenge: "GOOG"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+META:
+  ftmo_swing_test: "META"
+  ftmo_challenge: "META"
+  gft_compte1: "META.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+MSFT:
+  ftmo_swing_test: "MSFT"
+  ftmo_challenge: "MSFT"
+  gft_compte1: "MSFT.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+NFLX:
+  ftmo_swing_test: "NFLX"
+  ftmo_challenge: "NFLX"
+  gft_compte1: "NFLX.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+NVDA:
+  ftmo_swing_test: "NVDA"
+  ftmo_challenge: "NVDA"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+TSLA:
+  ftmo_swing_test: "TSLA"
+  ftmo_challenge: "TSLA"
+  gft_compte1: "TSLA.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+V:
+  ftmo_swing_test: "V"
+  ftmo_challenge: "V"
+  gft_compte1: "V.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+BAC:
+  ftmo_swing_test: "BAC"
+  ftmo_challenge: "BAC"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+BABA:
+  ftmo_swing_test: "BABA"
+  ftmo_challenge: "BABA"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+PFE:
+  ftmo_swing_test: "PFE"
+  ftmo_challenge: "PFE"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+WMT:
+  ftmo_swing_test: "WMT"
+  ftmo_challenge: "WMT"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+ZM:
+  ftmo_swing_test: "ZM"
+  ftmo_challenge: "ZM"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+T:
+  ftmo_swing_test: "T"
+  ftmo_challenge: "T"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+RACE:
+  ftmo_swing_test: "RACE"
+  ftmo_challenge: "RACE"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+# --- Actions GFT uniquement (pas sur FTMO) ---
+BA:
+  gft_compte1: "BA.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+COST:
+  gft_compte1: "COST.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+JPM:
+  gft_compte1: "JPM.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+KO:
+  gft_compte1: "KO.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+ORCL:
+  gft_compte1: "ORCL.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+PLTR:
+  gft_compte1: "PLTR.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+UNH:
+  gft_compte1: "UNH.X"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.01
+
+# -----------------------------------------------------------------------------
+# ACTIONS EU — CFDs (cotées en devise locale)
+# FTMO uniquement. pip_value_per_lot en USD approx.
+# -----------------------------------------------------------------------------
+LVMH:
+  ftmo_swing_test: "LVMH"
+  ftmo_challenge: "LVMH"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.011  # EUR → USD
+
+AIRF:
+  ftmo_swing_test: "AIRF"
+  ftmo_challenge: "AIRF"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.011
+
+ALVG:
+  ftmo_swing_test: "ALVG"
+  ftmo_challenge: "ALVG"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.011
+
+BAYGn:
+  ftmo_swing_test: "BAYGn"
+  ftmo_challenge: "BAYGn"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.011
+
+DBKGn:
+  ftmo_swing_test: "DBKGn"
+  ftmo_challenge: "DBKGn"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.011
+
+VOWG_p:
+  ftmo_swing_test: "VOWG_p"
+  ftmo_challenge: "VOWG_p"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.011
+
+IBE:
+  ftmo_swing_test: "IBE"
+  ftmo_challenge: "IBE"
+  follow: false
+  pip_size: 0.01
+  pip_value_per_lot: 0.011
+

@@ -143,9 +143,11 @@ class OrderDispatcher:
         delay_ms: tuple = (500, 3000),
         dry_run: bool = False,
         on_order_result: Optional[Callable] = None,
+        on_slippage_reject: Optional[Callable] = None,
         risk_multiplier_fn: Optional[Callable] = None,
         risk_multiplier_by_tf: Optional[Dict[str, float]] = None,
         rodage_config: Optional[Dict] = None,
+        max_slippage_atr: float = 0.5,
     ):
         self.brokers = brokers
         self.instruments_cfg = instruments_cfg
@@ -156,8 +158,10 @@ class OrderDispatcher:
         self.delay_ms = delay_ms
         self.dry_run = dry_run
         self.on_order_result = on_order_result
+        self.on_slippage_reject = on_slippage_reject
         self._risk_multiplier_fn = risk_multiplier_fn
         self._risk_multiplier_by_tf = risk_multiplier_by_tf or {}
+        self._max_slippage_atr = max_slippage_atr
 
         # Rodage: risk multiplier for strategies in break-in period
         self._rodage_strategies: set = set()
@@ -188,6 +192,7 @@ class OrderDispatcher:
             "signals_rejected": 0,
             "signals_triggered": 0,
             "signals_expired": 0,
+            "signals_slippage_rejected": 0,
             "orders_placed": 0,
             "orders_failed": 0,
         }
@@ -460,6 +465,34 @@ class OrderDispatcher:
 
         # Dispatcher les déclenchés — FIFO séquentiel (pas de create_task !)
         for ps in triggered:
+            # ── Slippage guard (H4) ──
+            # Rejeter si le prix de trigger a trop dévié du signal
+            signal = ps.signal
+            if signal.atr > 0 and self._max_slippage_atr > 0:
+                slippage = abs(ps.trigger_price - signal.close)
+                slippage_atr = slippage / signal.atr
+                if slippage_atr > self._max_slippage_atr:
+                    self._stats["signals_slippage_rejected"] += 1
+                    logger.info(
+                        f"[Dispatcher] 🛑 Slippage rejeté: {signal.instrument} "
+                        f"{signal.side.value} — trigger={ps.trigger_price:.5f} vs "
+                        f"signal={signal.close:.5f} — slip={slippage_atr:.2f} ATR "
+                        f"(max={self._max_slippage_atr:.2f})"
+                    )
+                    # Créer un counterfactual pour mesurer l'impact
+                    if self.on_slippage_reject:
+                        try:
+                            self.on_slippage_reject(signal, ps.trigger_price, slippage_atr)
+                        except Exception as e:
+                            logger.debug(f"[Dispatcher] slippage reject callback error: {e}")
+                    # Libérer le slot instrument dans account_state
+                    if signal.instrument in self._account_state.open_instruments:
+                        self._account_state.open_instruments.remove(signal.instrument)
+                        self._account_state.open_positions = max(
+                            0, self._account_state.open_positions - 1
+                        )
+                    continue
+
             self._stats["signals_triggered"] += 1
             await self._dispatch_queue.put((ps, tick))
             # Démarrer le worker si pas encore actif
@@ -773,7 +806,8 @@ class OrderDispatcher:
         """
         sym = signal.instrument
         inst = self.instruments_cfg.get(sym, {})
-        pip_size = inst.get("pip_size", 0.0001)
+        yaml_pip_size = inst.get("pip_size", 0.0001)
+        pip_size = yaml_pip_size
         if pip_size <= 0 or risk_distance <= 0:
             return 0.01
 
@@ -813,9 +847,17 @@ class OrderDispatcher:
             base_ccy = sym[:3] if len(sym) >= 6 else ''
 
             if quote_ccy == "USD":
-                # XXX/USD ou crypto : pip_value directement en USD
-                pip_value = raw_pip_value
-                conversion = "USD-quoted"
+                # XXX/USD ou crypto : préférer yaml pip_value avec rescaling
+                # broker lot_size n'est pas fiable pour crypto
+                # (TradeLocker reporte 100k comme pour forex, mais 1 lot = 1 unité)
+                yaml_pv = inst.get("pip_value_per_lot")
+                if yaml_pv and yaml_pv > 0:
+                    pip_ratio = pip_size / yaml_pip_size if yaml_pip_size > 0 else 1
+                    pip_value = yaml_pv * pip_ratio
+                    conversion = f"USD-yaml(×{pip_ratio:.2g})" if pip_ratio != 1 else "USD-direct"
+                else:
+                    pip_value = raw_pip_value
+                    conversion = "USD-quoted"
             elif base_ccy == "USD" and current_price > 0:
                 # USD/XXX : diviser par le prix courant
                 pip_value = raw_pip_value / current_price
@@ -824,17 +866,20 @@ class OrderDispatcher:
                 # Cross pair : utiliser yaml pip_value_per_lot
                 yaml_pv = inst.get("pip_value_per_lot")
                 if yaml_pv and yaml_pv > 0:
-                    pip_value = yaml_pv
-                    conversion = "yaml-cross"
+                    # yaml_pv calibré pour yaml_pip_size — rescaler si broker pip_size diffère
+                    pip_ratio = pip_size / yaml_pip_size if yaml_pip_size > 0 else 1
+                    pip_value = yaml_pv * pip_ratio
+                    conversion = f"yaml-cross(×{pip_ratio:.0f})" if pip_ratio != 1 else "yaml-cross"
                 else:
                     pip_value = raw_pip_value / max(current_price, 1)
                     conversion = f"est/{current_price:.3f}"
 
         if not pip_value or pip_value <= 0:
-            pip_value = inst.get("pip_value_per_lot", 10)
-            if not pip_value:
-                pip_value = 10
-            conversion = "yaml-fallback"
+            yaml_pv = inst.get("pip_value_per_lot", 10) or 10
+            # Rescaler si pip_size a été overridé par le broker
+            pip_ratio = pip_size / yaml_pip_size if yaml_pip_size > 0 else 1
+            pip_value = yaml_pv * pip_ratio
+            conversion = f"yaml-fallback(×{pip_ratio:.0f})" if pip_ratio != 1 else "yaml-fallback"
 
         pips = risk_distance / pip_size
         lots = risk_cash / (pips * pip_value)

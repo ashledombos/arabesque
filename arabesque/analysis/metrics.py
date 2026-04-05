@@ -91,6 +91,16 @@ class BacktestMetrics:
     n_signals_rejected: int = 0
     rejection_reasons: dict[str, int] = field(default_factory=dict)
 
+    # Counterfactual guard tracking (signaux bloqués par guards tunables)
+    # Par guard : {reason: {count, would_win, would_lose, avg_r, verdict}}
+    guard_cf: dict[str, dict] = field(default_factory=dict)
+    # Rétro-compat (agrégé — duplicate_instrument uniquement)
+    guard_cf_count: int = 0
+    guard_cf_would_win: int = 0
+    guard_cf_would_lose: int = 0
+    guard_cf_avg_r: float = 0.0
+    guard_cf_verdict: str = ""
+
 
 def compute_metrics(
     closed_positions: list[Position],
@@ -366,6 +376,14 @@ def format_report(m: BacktestMetrics) -> str:
         lines.extend([f"", f"  REJECTIONS :"])
         for reason, count in sorted(m.rejection_reasons.items(), key=lambda x: -x[1]):
             lines.append(f"    {reason:25s} : {count:3d}")
+
+    if m.guard_cf:
+        lines.extend([f"", f"  GUARD COUNTERFACTUALS :"])
+        for reason in sorted(m.guard_cf.keys()):
+            g = m.guard_cf[reason]
+            lines.append(f"    {reason:25s}: {g['count']:3d} bloqués  "
+                         f"W:{g['would_win']} L:{g['would_lose']}  "
+                         f"avgR:{g['avg_r']:+.3f}  → {g['verdict']}")
 
     if m.slippage_sensitivity:
         lines.extend([f"", f"  SLIPPAGE SENSITIVITY :"])

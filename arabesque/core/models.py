@@ -253,6 +253,7 @@ class Position:
     current_cmf: float = 0.0
     current_bb_width: float = 0.01
     current_ema200: float = 0.0
+    current_regime: str = ""
 
     # Signal d'origine (pour audit)
     signal_data: dict = field(default_factory=dict)
@@ -343,6 +344,7 @@ class Counterfactual:
     signal_id: str = ""
     position_id: str = ""
     decision_type: DecisionType = DecisionType.SIGNAL_REJECTED
+    reject_reason: str = ""  # guard qui a causé le rejet (cooldown, bb_squeeze, etc.)
     instrument: str = ""
     side: Side = Side.LONG
 

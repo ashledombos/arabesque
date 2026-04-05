@@ -368,6 +368,47 @@ def compute_rsi_divergence(
     return result
 
 
+def compute_swing_levels(
+    df: pd.DataFrame,
+    pivot_window: int = 5,
+) -> pd.DataFrame:
+    """Calcule le dernier swing low/high confirmé à chaque barre.
+
+    Un pivot low à la barre i est confirmé à la barre i + pivot_window.
+    last_swing_low = prix du dernier pivot low confirmé (forward-filled).
+    last_swing_high = prix du dernier pivot high confirmé (forward-filled).
+
+    Anti-lookahead strict : le swing n'est visible qu'après confirmation.
+
+    Returns:
+        DataFrame avec colonnes 'last_swing_low', 'last_swing_high'.
+    """
+    n = len(df)
+    low = df["Low"].values
+    high = df["High"].values
+    w = pivot_window
+
+    swing_low = np.full(n, np.nan)
+    swing_high = np.full(n, np.nan)
+
+    for i in range(w, n - w):
+        if low[i] == np.min(low[max(0, i - w):i + w + 1]):
+            # Confirmed at i + w
+            confirm_bar = i + w
+            if confirm_bar < n:
+                swing_low[confirm_bar] = low[i]
+        if high[i] == np.max(high[max(0, i - w):i + w + 1]):
+            confirm_bar = i + w
+            if confirm_bar < n:
+                swing_high[confirm_bar] = high[i]
+
+    # Forward-fill: carry last confirmed swing
+    result = pd.DataFrame(index=df.index)
+    result["last_swing_low"] = pd.Series(swing_low, index=df.index).ffill()
+    result["last_swing_high"] = pd.Series(swing_high, index=df.index).ffill()
+    return result
+
+
 def compute_vwap(
     df: pd.DataFrame,
     session_reset: str = "daily",

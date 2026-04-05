@@ -5,7 +5,7 @@
 > ce fichier est la référence rapide pour savoir ce qui tourne, sur quel compte, avec quel paramétrage.
 > **Mettre à jour à chaque changement de compte ou de configuration live.**
 
-Dernière mise à jour : 2026-03-27 (session Opus 4.6)
+Dernière mise à jour : 2026-03-28 (session Opus 4.6)
 
 ---
 
@@ -31,9 +31,12 @@ Dernière mise à jour : 2026-03-27 (session Opus 4.6)
 |---|---|---|---|---|
 | **Extension** (trend BB) | H1 | XAUUSD, GBPJPY, AUDJPY, CHFJPY | Live plein (0.45%) | ✅ Actif |
 | **Extension** (trend BB) | H4 | 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…) | Live plein (0.55% via ×1.22) | ✅ Actif |
-| **Glissade** (RSI div) | H1 | XAUUSD, BTCUSD | Live plein (0.45%) | ✅ Actif |
+| **Glissade** (RSI div) | H1 | XAUUSD, BTCUSD | Rodage (0.225% = 0.45% × 0.50) | ✅ Actif (rodage) |
+| **Fouetté** (ORB M1) | M1 | XAUUSD (London), BTCUSD (NY) | Rodage (0.225% = 0.45% × 0.50) | ✅ Actif (rodage) |
+| **Cabriole** (Donchian) | H4 | BTCUSD, ETHUSD, SOLUSD, DOGEUSD, LINKUSD, ADAUSD | Rodage (0.275% = 0.55% × 0.50) | ✅ Actif (rodage) |
 
-Glissade est **live** (WF 3/3 PASS, WR 83%, Exp +0.147R).
+Glissade, Fouetté et Cabriole sont en **rodage** (risk × 0.50) depuis 2026-03-28.
+Retirer de la liste `rodage.strategies` une fois > 100 trades live validés.
 
 ---
 
@@ -54,6 +57,7 @@ ftmo_challenge:
 ```
 
 **Credentials** : stockées UNE SEULE FOIS dans `config/secrets.yaml` → section `ctrader_oauth`.
+App OpenAPI "arabesque" (client_id 23710, basculé 2026-03-28). Ancien compte (19907) gardé dans `ctrader_oauth_old`.
 Le compte challenge référence `oauth: ctrader_oauth` (pas de duplication de tokens).
 
 **Réduction linéaire de risque** : le compte est en DD -5.01%. Le `compute_sizing` réduit
@@ -148,13 +152,16 @@ Instruments H4 crypto limités à : BTCUSD, ETHUSD, BNBUSD, SOLUSD, LTCUSD, BCHU
 ### Vérification rapide
 ```bash
 # Moteur vivant ?
-ps aux | grep arabesque | grep -v grep
+systemctl --user status arabesque-live
 
 # Derniers logs
-tail -50 /tmp/arabesque_live.log
+journalctl --user -u arabesque-live -f
 
-# Equity + protection level (toutes les 2 min)
-grep "💰\|🔒\|🛡️\|🚨\|⚠️" /tmp/arabesque_live.log | tail -20
+# Equity + protection level
+journalctl --user -u arabesque-live | grep '💰\|🔒\|🛡️\|🚨\|⚠️' | tail -20
+
+# Health check complet (13 vérifications)
+python scripts/health_check.py
 ```
 
 ### Signaux d'alarme dans les logs
@@ -207,11 +214,13 @@ asyncio.run(t())
 
 `logs/trade_journal.jsonl` — un fichier JSONL avec chaque entrée/sortie live.
 
-**Comparer backtest vs live** :
+**Comparer backtest vs live** (multi-stratégie : Extension, Glissade, Fouetté, Cabriole) :
 ```bash
-python tmp/compare_live_vs_backtest.py                # toute la période du journal
-python tmp/compare_live_vs_backtest.py --last 7       # derniers 7 jours
+python scripts/compare_live_vs_backtest.py                # toute la période du journal
+python scripts/compare_live_vs_backtest.py --last 7       # derniers 7 jours
+python scripts/compare_live_vs_backtest.py --period this_week --notify  # + alerte Telegram
 ```
+Exécuté automatiquement par le timer daily (21h UTC) et weekly (dim 20h UTC).
 
 ---
 
@@ -240,12 +249,14 @@ python tmp/compare_live_vs_backtest.py --last 7       # derniers 7 jours
 ## Prochaines étapes immédiates
 
 - [x] ~~Corriger notifications Telegram~~ (fait 2026-03-27)
-- [ ] Exécuter `python tmp/compare_live_vs_backtest.py` (~1×/semaine)
+- [x] ~~Comparaison live vs backtest automatisée~~ (fait 2026-03-28 — timer daily + weekly, multi-stratégie)
+- [x] ~~Health check automatisé~~ (fait 2026-03-28 — 13 checks, alerte si WARN/CRIT)
+- [x] ~~Corrélation inter-positions~~ (fait 2026-03-27 — discount 0.70/0.50/0.35 par catégorie)
+- [x] ~~Activer Fouetté + Cabriole~~ (fait 2026-03-28 — rodage ×0.50)
 - [ ] Augmenter le risk à 0.80% une fois le compte stabilisé
 
 ## Prochaines étapes structurelles
 
-- [ ] Corrélation inter-positions : facteur par catégorie pour open_risk guard
 - [x] ~~Activer GFT compte1~~ (fait 2026-03-23)
 
 ---
@@ -256,11 +267,9 @@ python tmp/compare_live_vs_backtest.py --last 7       # derniers 7 jours
 Live actif (compte ftmo_challenge, 45667282, démo cTrader) :
   Extension H1 → XAUUSD, GBPJPY, AUDJPY, CHFJPY (risk 0.45%)
   Extension H4 → 27 crypto (risk 0.55% via ×1.22 TF multiplier)
-  Glissade H1  → XAUUSD, BTCUSD (risk 0.45%) ← activé 2026-03-22
-
-WF validé, non encore déployé :
-  Fouetté M1   → XAUUSD London, US100 NY, BTCUSD NY (fréquence à valider)
-  Cabriole 4H  → crypto (73-95% overlap Extension, pas prioritaire)
+  Glissade H1  → XAUUSD, BTCUSD (rodage ×0.50) ← activé 2026-03-22
+  Fouetté M1   → XAUUSD London, BTCUSD NY (rodage ×0.50) ← activé 2026-03-28
+  Cabriole 4H  → 6 crypto (rodage ×0.50, overlap Extension) ← activé 2026-03-28
 
 Testé, edge insuffisant :
   Renversé H1  → sweep + FVG retrace (WR 73%, Exp +0.006R = breakeven)

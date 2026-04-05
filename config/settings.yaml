@@ -42,6 +42,8 @@ rodage:
   risk_multiplier: 0.50          # ×0.50 = moitié du risque normal
   strategies:
     - glissade                   # Activé live 2026-03-22, pas encore validé en live
+    - fouette                    # Activé live 2026-03-28, WF 4/4 PASS
+    - cabriole                   # Activé live 2026-03-28, WF 6/6 PASS (overlap Extension)
 
 # -----------------------------------------------------------------------------
 # STRATÉGIE (v3.3 validé: trend-only)
@@ -69,12 +71,23 @@ strategy_assignments:
       - XAUUSD
       - BTCUSD
 
-  # Fouetté ORB M1 — WF PASS 4/4 (shadow mode pour commencer)
-  # Désactivé pour l'instant : nécessite M1 price feed + config session
-  #fouette:
-  #  timeframe: "M1"
-  #  instruments:
-  #    - XAUUSD
+  # Fouetté ORB M1 — WF PASS 4/4 (rodage ×0.50)
+  fouette:
+    timeframe: "M1"
+    instruments:
+      - XAUUSD      # London session (08:00 UTC winter / 07:00 summer)
+      - BTCUSD      # NY session (14:30 UTC winter / 13:30 summer)
+
+  # Cabriole Donchian 4H — WF PASS 6/6 (rodage ×0.50, overlap Extension)
+  cabriole:
+    timeframe: "H4"
+    instruments:
+      - BTCUSD
+      - ETHUSD
+      - SOLUSD
+      - DOGEUSD
+      - LINKUSD
+      - ADAUSD
 
 # -----------------------------------------------------------------------------
 # PRICE FEED (surveillance prix cTrader)

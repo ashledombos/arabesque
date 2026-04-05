@@ -123,6 +123,44 @@ class ManagerConfig:
     time_stop_bars: int = 336
     time_stop_min_profit_r: float = 0.0
 
+    # ── EMA 200 exit (BB_RPB_TSL: sortie agressive sous EMA 200) ──
+    # Quand le prix est du mauvais côté de l'EMA 200 (LONG sous,
+    # SHORT au-dessus), les conditions de sortie sont resserrées :
+    # giveback sans exiger momentum faible (RSI/CMF bypassed).
+    ema200_exit_enabled: bool = False
+
+    # ── RSI extreme exit (BB_RPB_TSL: sortie sur surextension) ──
+    # Si RSI > seuil et le trade est en profit, prendre le profit
+    # immédiatement. Capture les spikes sans attendre le trailing.
+    rsi_extreme_exit_enabled: bool = False
+    rsi_extreme_threshold: float = 80.0    # RSI > 80 pour LONG
+    rsi_extreme_min_profit_r: float = 0.3  # Profit minimum pour sortir
+
+    # ── Regime invalidation (M3) ──────────────────────────────────────
+    # Sortie quand le régime HTF change en défaveur du trade :
+    # LONG + regime → bear_trend, ou SHORT + regime → bull_trend.
+    # Conditions : trade en profit (> min_profit_r) → exit immédiate.
+    # Trade en perte → giveback bypasse le check momentum.
+    regime_invalidation_enabled: bool = False
+    regime_invalidation_min_profit_r: float = 0.0  # Sortir même à 0R
+
+    # ── Trailing continu (M1 — alternative aux paliers) ──────────────
+    # Au lieu de paliers discrets (1.5R/2R/3R), le trailing monte
+    # continuellement : trail_distance = max(floor, MFE × ratio).
+    # Active dès que MFE atteint le trigger.
+    trailing_continuous: bool = False
+    trailing_continuous_ratio: float = 0.5    # SL = MFE × (1 - ratio)
+    trailing_continuous_floor_r: float = 0.3  # Distance min du SL
+    trailing_continuous_trigger_r: float = 0.3  # MFE min pour activer
+
+    # ── Trailing Dow Theory (H6) ─────────────────────────────────────
+    # Trail SL vers le dernier swing low confirmé (LONG) ou swing high
+    # (SHORT). Le SL ne monte que si le nouveau swing est plus haut.
+    # Nécessite 'last_swing_low'/'last_swing_high' dans indicators.
+    trailing_dow: bool = False
+    trailing_dow_trigger_r: float = 0.3  # MFE min pour commencer
+    trailing_dow_offset_r: float = 0.1   # Marge sous le swing
+
 
 # ── Position Manager ────────────────────────────────────────────────
 
@@ -233,6 +271,9 @@ class PositionManager:
             pos.current_cmf = indicators.get("cmf", pos.current_cmf)
             pos.current_bb_width = indicators.get("bb_width", pos.current_bb_width)
             pos.current_ema200 = indicators.get("ema200", pos.current_ema200)
+            regime = indicators.get("regime", "")
+            if regime:
+                pos.current_regime = regime
 
         # Mettre à jour MFE/MAE avec high/low
         pos.update_price(high, low, close)
@@ -275,23 +316,35 @@ class PositionManager:
             decisions.append(be_decision)
 
         # ── 3. Trailing paliers (bonus trades uniquement) ──
-        trail_decision = self._update_trailing(pos, close)
+        trail_decision = self._update_trailing(pos, close, indicators)
         if trail_decision:
             decisions.append(trail_decision)
 
-        # ── 4. Giveback ──
+        # ── 4. RSI extreme exit (surextension) ──
+        if self.cfg.rsi_extreme_exit_enabled:
+            rsi_exit = self._check_rsi_extreme(pos, close)
+            if rsi_exit:
+                return decisions + [rsi_exit]
+
+        # ── 4b. Regime invalidation ──
+        if self.cfg.regime_invalidation_enabled:
+            regime_exit = self._check_regime_invalidation(pos, close)
+            if regime_exit:
+                return decisions + [regime_exit]
+
+        # ── 5. Giveback ──
         if self.cfg.giveback_enabled:
             gb = self._check_giveback(pos, close)
             if gb:
                 return decisions + [gb]
 
-        # ── 5. Deadfish ──
+        # ── 7. Deadfish ──
         if self.cfg.deadfish_enabled:
             df = self._check_deadfish(pos, close)
             if df:
                 return decisions + [df]
 
-        # ── 6. Time-stop (backstop final) ──
+        # ── 8. Time-stop (backstop final) ──
         if self.cfg.time_stop_enabled:
             ts = self._check_time_stop(pos, close)
             if ts:
@@ -415,7 +468,13 @@ class PositionManager:
 
     # ── Trailing paliers ─────────────────────────────────────────────
 
-    def _update_trailing(self, pos: Position, current_price: float) -> Decision | None:
+    def _update_trailing(self, pos: Position, current_price: float,
+                         indicators: dict | None = None) -> Decision | None:
+        if self.cfg.trailing_dow:
+            return self._update_trailing_dow(pos, current_price, indicators or {})
+        if self.cfg.trailing_continuous:
+            return self._update_trailing_continuous(pos, current_price)
+
         best_tier = None
         for tier in self.cfg.trailing_tiers:
             if pos.mfe_r >= tier.mfe_threshold_r:
@@ -464,6 +523,150 @@ class PositionManager:
             metadata={"tier": tier_idx, "mfe_r": round(pos.mfe_r, 3)},
         )
 
+    def _update_trailing_continuous(self, pos: Position, current_price: float) -> Decision | None:
+        """Trailing continu : SL suit le MFE avec un ratio fixe."""
+        if pos.mfe_r < self.cfg.trailing_continuous_trigger_r:
+            return None
+
+        # trail_distance = max(floor, MFE × ratio)
+        trail_dist_r = max(
+            self.cfg.trailing_continuous_floor_r,
+            pos.mfe_r * self.cfg.trailing_continuous_ratio,
+        )
+
+        if pos.side == Side.LONG:
+            new_sl = pos.max_favorable_price - trail_dist_r * pos.R
+            if new_sl <= pos.sl:
+                return None
+            if new_sl > current_price:
+                return None
+            old_sl = pos.sl
+            pos.sl = new_sl
+        else:
+            new_sl = pos.max_favorable_price + trail_dist_r * pos.R
+            if new_sl >= pos.sl:
+                return None
+            if new_sl < current_price:
+                return None
+            old_sl = pos.sl
+            pos.sl = new_sl
+
+        was_active = pos.trailing_active
+        pos.trailing_active = True
+
+        dtype = DecisionType.TRAILING_ACTIVATED if not was_active else DecisionType.TRAILING_TIGHTENED
+        return Decision(
+            decision_type=dtype,
+            position_id=pos.position_id,
+            signal_id=pos.signal_id,
+            instrument=pos.instrument,
+            reason=f"Trailing continu: MFE={pos.mfe_r:.2f}R, dist={trail_dist_r:.2f}R",
+            price_at_decision=current_price,
+            value_before=old_sl,
+            value_after=new_sl,
+            metadata={"mode": "continuous", "mfe_r": round(pos.mfe_r, 3), "trail_dist_r": round(trail_dist_r, 3)},
+        )
+
+    def _update_trailing_dow(self, pos: Position, current_price: float,
+                             indicators: dict) -> Decision | None:
+        """Trailing Dow Theory : SL suit le dernier swing confirmé."""
+        if pos.mfe_r < self.cfg.trailing_dow_trigger_r:
+            return None
+
+        is_long = pos.side == Side.LONG
+        if is_long:
+            swing = indicators.get("last_swing_low", 0)
+            if not swing or swing <= 0:
+                return None
+            # SL = swing low - offset (marge de sécurité)
+            new_sl = swing - self.cfg.trailing_dow_offset_r * pos.R
+            if new_sl <= pos.sl:
+                return None
+            if new_sl > current_price:
+                return None
+            old_sl = pos.sl
+            pos.sl = new_sl
+        else:
+            swing = indicators.get("last_swing_high", 0)
+            if not swing or swing <= 0:
+                return None
+            new_sl = swing + self.cfg.trailing_dow_offset_r * pos.R
+            if new_sl >= pos.sl:
+                return None
+            if new_sl < current_price:
+                return None
+            old_sl = pos.sl
+            pos.sl = new_sl
+
+        was_active = pos.trailing_active
+        pos.trailing_active = True
+
+        dtype = DecisionType.TRAILING_ACTIVATED if not was_active else DecisionType.TRAILING_TIGHTENED
+        return Decision(
+            decision_type=dtype,
+            position_id=pos.position_id,
+            signal_id=pos.signal_id,
+            instrument=pos.instrument,
+            reason=f"Trailing Dow: swing={swing:.5f}, MFE={pos.mfe_r:.2f}R",
+            price_at_decision=current_price,
+            value_before=old_sl,
+            value_after=pos.sl,
+            metadata={"mode": "dow", "swing": swing, "mfe_r": round(pos.mfe_r, 3)},
+        )
+
+    # ── Regime invalidation ────────────────────────────────────────────
+
+    def _check_regime_invalidation(self, pos: Position, current_price: float) -> Decision | None:
+        """Sortie quand le régime HTF change en défaveur du trade.
+
+        LONG + bear_trend → le marché a retourné, sortir.
+        SHORT + bull_trend → le marché a retourné, sortir.
+        Condition : current_r >= min_profit_r (par défaut 0.0 = sortir même à breakeven).
+        """
+        if not pos.current_regime:
+            return None
+
+        is_long = pos.side == Side.LONG
+        invalidated = (is_long and pos.current_regime == "bear_trend") or \
+                      (not is_long and pos.current_regime == "bull_trend")
+
+        if not invalidated:
+            return None
+
+        if pos.current_r < self.cfg.regime_invalidation_min_profit_r:
+            return None
+
+        return self._close_position(
+            pos, current_price, DecisionType.EXIT_GIVEBACK,
+            f"Regime invalidation: {pos.current_regime}, "
+            f"profit={pos.current_r:.2f}R, side={pos.side.value}")
+
+    # ── RSI extreme exit ──────────────────────────────────────────────
+
+    def _check_rsi_extreme(self, pos: Position, current_price: float) -> Decision | None:
+        """Sortie sur surextension RSI avec profit latent.
+
+        BB_RPB_TSL sort quand RSI > 80 + profit décent. L'idée est de
+        capturer les spikes rapides sans attendre le trailing.
+        Pour LONG : RSI > seuil = suracheté, prendre le profit.
+        Pour SHORT : RSI < (100 - seuil) = survendu, prendre le profit.
+        """
+        if pos.current_r < self.cfg.rsi_extreme_min_profit_r:
+            return None
+
+        is_long = pos.side == Side.LONG
+        if is_long:
+            if pos.current_rsi < self.cfg.rsi_extreme_threshold:
+                return None
+        else:
+            # SHORT : RSI survendu = sous (100 - threshold)
+            if pos.current_rsi > (100 - self.cfg.rsi_extreme_threshold):
+                return None
+
+        return self._close_position(
+            pos, current_price, DecisionType.EXIT_GIVEBACK,
+            f"RSI extreme: RSI={pos.current_rsi:.0f}, profit={pos.current_r:.2f}R")
+
     # ── Giveback ─────────────────────────────────────────────────────
 
     def _check_giveback(self, pos: Position, current_price: float) -> Decision | None:
@@ -472,16 +675,29 @@ class PositionManager:
         if pos.current_r > self.cfg.giveback_current_max_r:
             return None
 
-        # Condition momentum (BB_RPB_TSL : RSI < 46 + CMF < 0)
-        momentum_weak = (pos.current_rsi < self.cfg.giveback_rsi_threshold and
-                         pos.current_cmf < self.cfg.giveback_cmf_threshold)
-        if not momentum_weak:
-            return None
+        # EMA 200 override: si prix du mauvais côté, bypass momentum check
+        ema200_override = False
+        if self.cfg.ema200_exit_enabled and pos.current_ema200 > 0:
+            is_long = pos.side == Side.LONG
+            wrong_side = (current_price < pos.current_ema200) if is_long \
+                    else (current_price > pos.current_ema200)
+            if wrong_side:
+                ema200_override = True
+
+        if not ema200_override:
+            # Condition momentum (BB_RPB_TSL : RSI < 46 + CMF < 0)
+            momentum_weak = (pos.current_rsi < self.cfg.giveback_rsi_threshold and
+                             pos.current_cmf < self.cfg.giveback_cmf_threshold)
+            if not momentum_weak:
+                return None
+
+        reason = (f"Giveback: MFE={pos.mfe_r:.2f}R, cur={pos.current_r:.2f}R, "
+                  f"RSI={pos.current_rsi:.0f}, CMF={pos.current_cmf:.3f}")
+        if ema200_override:
+            reason += f", EMA200 override (price {'<' if pos.side == Side.LONG else '>'} EMA200)"
 
         return self._close_position(
-            pos, current_price, DecisionType.EXIT_GIVEBACK,
-            f"Giveback: MFE={pos.mfe_r:.2f}R, cur={pos.current_r:.2f}R, "
-            f"RSI={pos.current_rsi:.0f}, CMF={pos.current_cmf:.3f}")
+            pos, current_price, DecisionType.EXIT_GIVEBACK, reason)
 
     # ── Deadfish ─────────────────────────────────────────────────────
 
