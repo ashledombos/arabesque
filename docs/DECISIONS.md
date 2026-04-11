@@ -2522,3 +2522,33 @@ pour les entries sans exit, vérifie chez le broker, et logue les exits manquant
 
 **Fichiers** : `arabesque/execution/live.py`, `arabesque/execution/live_monitor.py`,
 `scripts/daily_report.py`, `scripts/compare_live_vs_backtest.py`, `scripts/health_check.py`
+
+## Incident 2026-04-11 — Moteur aveugle après reboot (2 jours sans trades)
+
+**Chronologie** :
+- 2026-04-09 10:13 : dernier BarAggregator log (PID 29839)
+- 2026-04-09 11:57 : reboot machine, nouveau boot, PID 1686
+- 2026-04-09 11:58 : engine démarre, cTrader échoue (DNS `Temporary failure in name resolution`)
+- 2026-04-09 11:58:19 : engine enregistre `1 broker(s): ['gft_compte1']` — FTMO absent
+- 2026-04-09 11:58:19 : **tous les BarAggregators** logguent "Pas de broker pour le préchargement historique"
+- 2026-04-09 11:58:23 : cTrader se connecte (4s après), mais trop tard — les aggregators ont déjà `broker=None`
+- 2026-04-09 → 2026-04-11 : moteur tourne mais zéro tick, zéro barre, zéro signal. Seul le health monitor logge toutes les heures.
+- 2026-04-11 21:01 : restart manuel, tous les aggregators préchargent normalement
+
+**Cause racine** : `bar_aggregator.preload_history()` est appelé une seule fois à l'init.
+Si le broker n'est pas encore connecté à ce moment, le preload échoue silencieusement
+(warning seul, pas de retry). Le broker peut se reconnecter ensuite (reconnexion TCP
+réussie à 11:58:23), mais les aggregators restent avec `self.broker = None` et ne
+reçoivent jamais les barres historiques nécessaires aux indicateurs (210 barres min).
+
+**Impact** :
+- ~2 jours de trading manqués (ven 9 avril après-midi → ven 11 soir)
+- Aucune perte directe (pas de position ouverte au moment du reboot)
+- Le moteur GFT seul n'aurait de toute façon reçu que les signaux H1 forex
+
+**Fix appliqué** : restart manuel.
+
+**TODO** : ajouter un retry de preload dans `engine.py` quand un broker se
+(re)connecte, ou différer la création des aggregators jusqu'à ce que tous les
+brokers soient prêts. Le health check devrait aussi alerter si aucun BarAggregator
+n'a produit de barre depuis > 1h.

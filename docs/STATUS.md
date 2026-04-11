@@ -5,7 +5,7 @@
 > ce fichier est la référence rapide pour savoir ce qui tourne, sur quel compte, avec quel paramétrage.
 > **Mettre à jour à chaque changement de compte ou de configuration live.**
 
-Dernière mise à jour : 2026-03-28 (session Opus 4.6)
+Dernière mise à jour : 2026-04-11 (session Opus 4.6)
 
 ---
 
@@ -13,15 +13,19 @@ Dernière mise à jour : 2026-03-28 (session Opus 4.6)
 
 | Paramètre | Valeur |
 |---|---|
-| **Statut** | ✅ En marche |
+| **Statut** | ✅ En marche (redémarré 2026-04-11 21:01 après incident) |
 | **Commande** | `systemctl --user start arabesque-live` (service systemd, auto-restart) |
 | **Log** | `journalctl --user -u arabesque-live -f` |
-| **Compte actif** | `ftmo_challenge` (account_id: 45667282) |
-| **Type** | Challenge Phase 1 (2-step, 100k USD) |
+| **Comptes actifs** | `ftmo_challenge` (cTrader 45667282) + `gft_compte1` (TradeLocker) |
+| **Type FTMO** | Challenge Phase 1 (2-step, 100k USD) |
+| **Type GFT** | Challenge (150k USD) |
 | **Environnement cTrader** | **Démo** (`is_demo: true` — les challenges FTMO utilisent l'endpoint démo) |
-| **Balance** | ~$94 473 (DD -5.5%) |
-| **Protection active** | LiveMonitor **CAUTION** (risk × 0.5) |
-| **Notifications** | ntfy ✅, Telegram ✅ (corrigé 2026-03-27) |
+| **Balance FTMO** | ~$94 494 (DD -5.5%) |
+| **Balance GFT** | ~$142 742 (DD -4.8%) |
+| **Protection FTMO** | LiveMonitor **CAUTION** (risk × 0.5) |
+| **Protection GFT** | LiveMonitor **NORMAL** |
+| **Notifications** | ntfy ✅, Telegram ✅ |
+| **Dernier incident** | 2026-04-09 → 2026-04-11 : moteur aveugle après reboot (voir DECISIONS.md) |
 
 ---
 
@@ -60,9 +64,12 @@ ftmo_challenge:
 App OpenAPI "arabesque" (client_id 23710, basculé 2026-03-28). Ancien compte (19907) gardé dans `ctrader_oauth_old`.
 Le compte challenge référence `oauth: ctrader_oauth` (pas de duplication de tokens).
 
-**Réduction linéaire de risque** : le compte est en DD -5.01%. Le `compute_sizing` réduit
-automatiquement le risque : ratio ≈ 0.33 → risque effectif ~0.15% au lieu de 0.45%.
-→ Passer à 0.80% une fois le compte stabilisé et la config validée.
+**Réduction linéaire de risque** : le compte FTMO est en DD -5.5%. Le `compute_sizing` réduit
+automatiquement le risque. En plus, CAUTION applique ×0.50.
+Le compte GFT est en DD -4.8%, protection NORMAL.
+
+**33 trades live** (au 2026-04-11) : WR=54.5%, Exp=-0.285R — drift vs baseline 75%/+0.10R.
+Échantillon trop petit pour conclure (IC99 très large sur 33 trades).
 
 ---
 

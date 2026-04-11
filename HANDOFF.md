@@ -3,7 +3,7 @@
 > **Pour reprendre le développement dans un nouveau chat.**
 > État live courant → `docs/STATUS.md`. Décisions techniques → `docs/DECISIONS.md`.
 >
-> Dernière mise à jour : 2026-04-06
+> Dernière mise à jour : 2026-04-11
 
 ---
 
@@ -15,9 +15,14 @@ Live actif (compte ftmo_challenge, account_id 45667282, démo cTrader) :
   Extension H4  → 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…) (risk 0.55% via TF multiplier)
   Glissade H1   → XAUUSD, BTCUSD (LIVE — WF 3/3 PASS, WR 83%, Exp +0.147R)
 
-Balance FTMO : ~94 556$ (DD -5.5%) — risk réduit ~45% par DD linéaire (compute_sizing)
+Balance FTMO : ~94 494$ (DD -5.5%) — protection CAUTION (risk ×0.50)
 Rodage Glissade : risk × 0.50 (config/settings.yaml → rodage.strategies)
-Balance GFT  : ~142 598$ (DD -4.9%) — risk réduit ~50% par DD linéaire
+Balance GFT  : ~142 742$ (DD -4.8%) — protection NORMAL
+
+⚠️ INCIDENT 2026-04-09 : reboot machine → moteur aveugle 2j (résolu 2026-04-11)
+  Cause : DNS failure au boot → cTrader hors broker list → BarAggregators sans preload
+  Trades manqués : ~2-3j de signaux (9-11 avril)
+  Impact : aucune perte, mais opportunités manquées
 
 Rodage (risk × 0.50, activé 2026-03-28) :
   Fouetté M1    → XAUUSD London, BTCUSD NY (WF 4/4 PASS)
@@ -132,10 +137,11 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 ### Critères pour augmenter le risque (walk-forward live)
 
 ```
-ÉTAT AU 2026-04-06 : 22 trades uniques loggés + 7 manquants = ~29 réels
-WR observé : 72.7% (16W/6L) — IC99 [45%, 90%] → INSUFFISANT
-Exp observée : -0.042R — IC99 inclut 0 → INSUFFISANT
-Rythme : ~10 trades/semaine
+ÉTAT AU 2026-04-11 : 33 trades loggés (après dédupliquation)
+WR observé : 54.5% (18W/15L) — drift significatif vs baseline 75%
+Exp observée : -0.285R — négatif, mais petit échantillon (IC99 large)
+Rythme : ~10 trades/semaine (hors incident 9-11 avril)
+Note : 68% des wins sont des BE exits (+0.20R), conforme distribution bimodale
 ```
 
 | Palier | Condition | Trades estimés | Date estimée | Action |
@@ -152,6 +158,8 @@ Si DD linéaire donne <$100, appliquer un plancher à $100 ou skip le trade.
 ### Bugs connus
 - GFT ne reçoit que les signaux H1 forex/métaux (XAUUSD, GBPJPY, AUDJPY, CHFJPY) — les crypto H4 ne sont pas disponibles chez GFT. Normal, pas un bug.
 - Compte 46570880 et 46738849 encore visibles via API cTrader (anciens tests, ne pas utiliser)
+- **BarAggregator sans preload si broker déconnecté au boot** — si cTrader échoue à la connexion initiale (DNS, timeout), les aggregators sont créés avec `broker=None` et ne peuvent plus précharger l'historique. L'engine continue mais aveugle (210 barres live requises = 9j H1, 35j H4). Seul fix actuel : restart. TODO: retry preload quand le broker se reconnecte.
+- **GFT positions orphelines** — le mapping order_id → position_id échoue parfois, créant une position sans SL/TP. Le position_monitor détecte et logge (👻) mais ne ferme pas automatiquement. Surveiller manuellement.
 
 ### Bugs corrigés (2026-03-28)
 - [x] Sizing cross pairs GFT (AUDJPY 0.010L au lieu de 0.320L) — TradeLocker pip_size en points (0.0001) vs yaml en pips (0.01) → yaml pip_value_per_lot non rescalé. Fix: ratio automatique `broker_pip_size / yaml_pip_size` sur pip_value dans les paths cross et fallback.
