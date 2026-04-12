@@ -132,6 +132,9 @@ class LivePositionMonitor:
         self._on_position_closed = on_position_closed
         # Trier trailing tiers du plus haut au plus bas
         self._cfg.trailing_tiers.sort(key=lambda t: t[0], reverse=True)
+        # Orphan tracking: {broker_id:position_id -> first_seen_timestamp}
+        self._orphan_first_seen: Dict[str, float] = {}
+        self._ORPHAN_GRACE_S = 120  # 2 min avant auto-close
 
     @property
     def open_positions(self) -> List[TrackedPosition]:
@@ -596,25 +599,62 @@ class LivePositionMonitor:
                     self._positions[k].position_id
                     for k in keys if k in self._positions
                 }
+                # Track which orphans are still present this cycle
+                current_orphan_keys = set()
                 for bp in broker_positions:
                     pid = str(bp.position_id)
                     if pid not in tracked_ids:
+                        orphan_key = f"{broker_id}:{pid}"
+                        current_orphan_keys.add(orphan_key)
                         has_sl = getattr(bp, 'stop_loss', None) not in (None, 0, 0.0)
                         has_tp = getattr(bp, 'take_profit', None) not in (None, 0, 0.0)
                         sym = getattr(bp, 'symbol', '?')
                         vol = getattr(bp, 'volume', 0)
                         side = getattr(bp, 'side', '?')
-                        warning_parts = []
+                        flags_parts = []
                         if not has_sl:
-                            warning_parts.append("PAS DE SL")
+                            flags_parts.append("PAS DE SL")
                         if not has_tp:
-                            warning_parts.append("PAS DE TP")
-                        flags = " ".join(warning_parts) if warning_parts else "SL+TP OK"
-                        logger.warning(
-                            f"[Monitor] 👻 Position orpheline détectée: "
-                            f"{sym} {side} {vol}L id={pid} sur {broker_id} "
-                            f"— {flags} — non gérée par Arabesque"
-                        )
+                            flags_parts.append("PAS DE TP")
+                        flags = " ".join(flags_parts) if flags_parts else "SL+TP OK"
+
+                        if orphan_key not in self._orphan_first_seen:
+                            self._orphan_first_seen[orphan_key] = now
+                            logger.warning(
+                                f"[Monitor] 👻 Position orpheline détectée: "
+                                f"{sym} {side} {vol}L id={pid} sur {broker_id} "
+                                f"— {flags} — délai de grâce {self._ORPHAN_GRACE_S}s"
+                            )
+
+                        age = now - self._orphan_first_seen[orphan_key]
+
+                        # Auto-close orphelins sans SL après grace period
+                        if not has_sl and age >= self._ORPHAN_GRACE_S:
+                            logger.warning(
+                                f"[Monitor] 🔒 Auto-close orpheline: "
+                                f"{sym} {side} {vol}L id={pid} sur {broker_id} "
+                                f"— sans SL depuis {age:.0f}s"
+                            )
+                            try:
+                                result = await broker.close_position(pid)
+                                logger.info(
+                                    f"[Monitor] ✅ Orpheline fermée: {sym} {pid} "
+                                    f"sur {broker_id} — {result}"
+                                )
+                                self._orphan_first_seen.pop(orphan_key, None)
+                            except Exception as close_err:
+                                logger.error(
+                                    f"[Monitor] ❌ Échec fermeture orpheline "
+                                    f"{sym} {pid}: {close_err}"
+                                )
+
+                # Clean up orphans that disappeared (closed by broker/user)
+                stale_keys = [
+                    k for k in list(self._orphan_first_seen)
+                    if k.startswith(f"{broker_id}:") and k not in current_orphan_keys
+                ]
+                for k in stale_keys:
+                    self._orphan_first_seen.pop(k, None)
             except Exception as e:
                 logger.warning(f"[Monitor] Reconcile error for {broker_id}: {e}")
 

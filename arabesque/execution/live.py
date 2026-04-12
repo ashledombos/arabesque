@@ -249,20 +249,46 @@ class LiveEngine:
         brokers_raw = create_all_brokers(
             self.settings, self.secrets, self.instruments
         )
+
+        max_retries = 5
+        retry_delays = [5, 10, 20, 30, 60]  # backoff en secondes
+
         for broker_id, broker in brokers_raw.items():
-            try:
-                connected = await broker.connect()
-                if connected:
-                    self._brokers[broker_id] = broker
-                    mapping_count = len(broker.config.get("instruments_mapping", {}))
-                    logger.info(
-                        f"[Engine] ✅ {broker_id} connecté "
-                        f"({mapping_count} instruments mappés)"
+            connected = False
+            for attempt in range(max_retries):
+                try:
+                    connected = await broker.connect()
+                    if connected:
+                        self._brokers[broker_id] = broker
+                        mapping_count = len(broker.config.get("instruments_mapping", {}))
+                        logger.info(
+                            f"[Engine] ✅ {broker_id} connecté "
+                            f"({mapping_count} instruments mappés)"
+                        )
+                        break
+                    else:
+                        logger.warning(
+                            f"[Engine] ❌ {broker_id} connexion échouée "
+                            f"(tentative {attempt + 1}/{max_retries})"
+                        )
+                except Exception as e:
+                    logger.error(
+                        f"[Engine] ❌ {broker_id}: {e} "
+                        f"(tentative {attempt + 1}/{max_retries})"
                     )
-                else:
-                    logger.warning(f"[Engine] ❌ {broker_id} connexion échouée")
-            except Exception as e:
-                logger.error(f"[Engine] ❌ {broker_id}: {e}")
+
+                if attempt < max_retries - 1:
+                    delay = retry_delays[min(attempt, len(retry_delays) - 1)]
+                    logger.info(
+                        f"[Engine] ⏳ Retry {broker_id} dans {delay}s..."
+                    )
+                    await asyncio.sleep(delay)
+
+            if not connected:
+                logger.error(
+                    f"[Engine] ❌ {broker_id} inaccessible après "
+                    f"{max_retries} tentatives — moteur démarré sans ce broker"
+                )
 
     # ------------------------------------------------------------------
     # Dispatcher

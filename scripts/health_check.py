@@ -427,6 +427,40 @@ def check_engine_running(alerts: list[Alert]):
             "Impossible de vérifier le service systemd"))
 
 
+def check_engine_processing_bars(alerts: list[Alert]):
+    """Check if BarAggregator is actually processing bars (not just running).
+
+    The engine can be 'active' per systemd but blind if BarAggregators
+    failed to preload (e.g. broker disconnected at startup). Detect this
+    by checking journalctl for recent BarAggregator output.
+    """
+    try:
+        result = subprocess.run(
+            ["journalctl", "--user", "-u", "arabesque-live",
+             "--since", "2 hours ago", "--no-pager", "-q"],
+            capture_output=True, text=True, timeout=10,
+        )
+        logs = result.stdout
+
+        has_bars = "BarAggregator" in logs and "barre(s) fermée(s)" in logs
+        has_preload_fail = "Pas de broker pour le préchargement" in logs
+
+        if has_preload_fail:
+            alerts.append(Alert(Severity.CRITICAL, "Engine Blind",
+                "BarAggregator sans preload historique — moteur aveugle, "
+                "aucun signal ne sera généré. Redémarrer le moteur."))
+        elif not has_bars:
+            # Check if engine just started (< 5 min ago)
+            if "Moteur prêt" in logs:
+                return  # Just started, give it time
+            alerts.append(Alert(Severity.WARN, "Engine Blind",
+                "Aucune barre traitée par BarAggregator depuis 2h — "
+                "le moteur est peut-être aveugle"))
+
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        pass  # Can't check, don't alert
+
+
 def check_winrate_decay(alerts: list[Alert]):
     """Compare recent WR vs historical WR to detect decay."""
     entries = load_journal_entries()
@@ -774,6 +808,7 @@ def run_all_checks() -> list[Alert]:
     alerts = []
 
     check_engine_running(alerts)
+    check_engine_processing_bars(alerts)
     check_dd_levels(alerts)
     check_broker_dd_levels(alerts)
     check_sizing_anomalies(alerts)

@@ -506,8 +506,7 @@ class LiveMonitor:
                 f"risque réduit à {self._cfg.risk_multiplier_caution:.0%}"
             )
             await self._notify_telegram(
-                f"🟡 CAUTION (was {old.value})\n{context}\n"
-                f"Risque réduit à {self._cfg.risk_multiplier_caution:.0%}"
+                f"CAUTION {broker_tag}— risk x{self._cfg.risk_multiplier_caution:.2f}"
             )
 
         elif new == ProtectionLevel.NORMAL:
@@ -515,7 +514,7 @@ class LiveMonitor:
                 f"[LiveMonitor] 🟢 NORMAL — {context} — risque plein"
             )
             await self._notify_telegram(
-                f"🟢 Retour NORMAL (was {old.value})\n{context}"
+                f"Retour normal {broker_tag}— risk plein"
             )
 
     # ------------------------------------------------------------------
@@ -532,25 +531,30 @@ class LiveMonitor:
     # ------------------------------------------------------------------
 
     async def notify_startup(self, broker_states: dict[str, dict]) -> None:
-        """Envoie un résumé Telegram de tous les comptes au démarrage.
+        """Envoie un résumé Telegram compact au démarrage.
 
         broker_states: {broker_id: {balance, equity, daily_dd_pct, total_dd_pct,
                                      open_positions, protection}}
         """
-        lines = ["🚀 Arabesque (re)démarré\n"]
+        parts = []
+        has_issue = False
         for bid, s in broker_states.items():
             level = self._protection_per_broker.get(bid, ProtectionLevel.NORMAL)
-            icon = {"normal": "🟢", "caution": "🟡", "danger": "🟠",
-                    "emergency": "🔴"}.get(level.value, "⚪")
-            lines.append(
-                f"{icon} {bid}: bal={s['balance']:.0f} eq={s['equity']:.0f} "
-                f"dd_day={s['daily_dd_pct']:.1f}% dd_tot={s['total_dd_pct']:.1f}% "
-                f"pos={s['open_positions']} [{level.value.upper()}]"
-            )
-        lines.append(f"\nRisk mult: ×{self.risk_multiplier:.2f}")
-        msg = "\n".join(lines)
+            dd = s['total_dd_pct']
+            pos = s['open_positions']
+            part = f"{bid} ${s['balance']:.0f} ({dd:+.1f}%)"
+            if pos:
+                part += f" {pos}pos"
+            if level != ProtectionLevel.NORMAL:
+                part += f" [{level.value.upper()}]"
+                has_issue = True
+            parts.append(part)
+
+        msg = "Arabesque restart — " + " | ".join(parts)
+        if self.risk_multiplier < 1.0:
+            msg += f" — risk x{self.risk_multiplier:.2f}"
+
         logger.info(f"[LiveMonitor] {msg}")
-        # Bypass rate limit — startup notification must always go through
         self._last_notification_time = 0
         await self._notify_telegram(msg)
 

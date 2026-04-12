@@ -428,20 +428,27 @@ def main():
             lines.append("Aucun trade live sur la période.")
         report = "\n".join(lines)
         print(f"\n--- Notification ---\n{report}")
-        try:
-            import asyncio, yaml, apprise
-            secrets_path = Path(__file__).resolve().parent.parent / "config" / "secrets.yaml"
-            secrets = yaml.safe_load(secrets_path.read_text()) or {}
-            channels = secrets.get("notifications", {}).get("channels", [])
-            if channels:
-                ap = apprise.Apprise()
-                for ch in channels:
-                    if isinstance(ch, str):
-                        ap.add(ch)
-                ok = asyncio.run(ap.async_notify(body=report, title="Arabesque Drift"))
-                print(f"Notification: {'✅' if ok else '❌'}")
-        except Exception as e:
-            print(f"Notification error: {e}")
+
+        # Only send notification if there are actual drifts to report
+        # (don't spam "aucun trade" when the engine is idle)
+        has_drifts = bool(drifts) if results else False
+        if not has_drifts:
+            print("(Pas de dérive — notification non envoyée)")
+        else:
+            try:
+                import asyncio, yaml, apprise
+                secrets_path = Path(__file__).resolve().parent.parent / "config" / "secrets.yaml"
+                secrets = yaml.safe_load(secrets_path.read_text()) or {}
+                channels = secrets.get("notifications", {}).get("channels", [])
+                if channels:
+                    ap = apprise.Apprise()
+                    for ch in channels:
+                        if isinstance(ch, str):
+                            ap.add(ch)
+                    ok = asyncio.run(ap.async_notify(body=report, title="Arabesque Drift"))
+                    print(f"Notification: {'✅' if ok else '❌'}")
+            except Exception as e:
+                print(f"Notification error: {e}")
 
     print()
 

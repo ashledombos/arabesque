@@ -163,65 +163,132 @@ def compute_stats(trades: list[dict]) -> dict:
     }
 
 
+def _strategy_activity_summary() -> str:
+    """Résumé de l'activité par stratégie (dernier trade, jours sans signal).
+
+    Inclut les stratégies configurées (settings.yaml strategy_assignments)
+    même si elles n'ont jamais produit de trade.
+    """
+    # Known strategies from journal
+    last_by_strat: dict[str, str] = {}
+    if TRADE_JOURNAL.exists():
+        for line in TRADE_JOURNAL.read_text().splitlines():
+            try:
+                e = json.loads(line)
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if e.get("event") not in ("entry", "exit"):
+                continue
+            strat = e.get("strategy", "")
+            ts = e.get("ts", "")
+            if strat and ts:
+                last_by_strat[strat] = max(last_by_strat.get(strat, ""), ts)
+
+    # Also check configured strategies from settings.yaml
+    settings_path = REPO / "config" / "settings.yaml"
+    if settings_path.exists():
+        try:
+            import yaml
+            settings = yaml.safe_load(settings_path.read_text()) or {}
+            for strat_name in (settings.get("strategy_assignments") or {}):
+                if strat_name not in last_by_strat:
+                    last_by_strat[strat_name] = ""  # never traded
+        except Exception:
+            pass
+
+    if not last_by_strat:
+        return ""
+
+    now = datetime.now(timezone.utc)
+    parts = []
+    for strat in sorted(last_by_strat):
+        ts_str = last_by_strat[strat]
+        if not ts_str:
+            parts.append(f"{strat}: 0 trades")
+            continue
+        try:
+            last = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
+            days = (now - last).days
+            if days >= 2:
+                parts.append(f"{strat}: {days}j")
+        except (ValueError, TypeError):
+            pass
+
+    if not parts:
+        return ""
+    return "Inactif: " + ", ".join(parts)
+
+
 def format_report(stats: dict, equity_snaps: list[dict], period: str) -> str:
-    """Formate le rapport en texte pour Telegram."""
-    label = "QUOTIDIEN" if period == "daily" else "HEBDOMADAIRE"
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
+    """Formate le rapport en texte compact pour Telegram."""
+    label = "jour" if period == "daily" else "semaine"
+    now_str = datetime.now(timezone.utc).strftime("%d/%m %Hh")
 
-    lines = [f"📊 RAPPORT {label} — {now}", ""]
+    lines = []
 
+    # Trades
     if stats["n_trades"] == 0:
-        lines.append("Aucun trade clôturé sur la période.")
-        if stats.get("n_entries", 0) > 0:
-            lines.append(f"Nouvelles entrées : {stats['n_entries']}")
+        lines.append(f"Rapport {label} {now_str} — aucun trade")
     else:
-        lines.append(f"Trades clôturés : {stats['n_trades']}")
-        lines.append(f"WR : {stats['wr']}% ({stats['wins']}W / {stats['losses']}L)")
-        lines.append(f"Expectancy : {stats['exp']:+.3f}R")
-        lines.append(f"Total R : {stats['total_r']:+.2f}R")
-        lines.append("")
+        n = stats["n_trades"]
         lines.append(
-            f"Sorties : {stats['tp_exits']} TP, {stats['be_exits']} BE, "
-            f"{stats['trail_exits']} Trail, {stats['sl_exits']} SL"
+            f"Rapport {label} {now_str} — {n}t "
+            f"WR {stats['wr']}% Exp {stats['exp']:+.3f}R "
+            f"({stats['total_r']:+.2f}R)"
         )
+        # Exit distribution compact
+        parts = []
+        if stats['tp_exits']:
+            parts.append(f"{stats['tp_exits']}TP")
+        if stats['be_exits']:
+            parts.append(f"{stats['be_exits']}BE")
+        if stats['trail_exits']:
+            parts.append(f"{stats['trail_exits']}Trail")
+        if stats['sl_exits']:
+            parts.append(f"{stats['sl_exits']}SL")
+        if parts:
+            lines.append(" ".join(parts))
 
         if stats.get("by_strategy"):
-            lines.append("")
-            lines.append("Par stratégie :")
             for strat, ss in stats["by_strategy"].items():
                 lines.append(
                     f"  {strat}: {ss['trades']}t WR={ss['wr']}% "
-                    f"Exp={ss['exp']:+.3f}R Total={ss['total_r']:+.2f}R"
+                    f"Exp={ss['exp']:+.3f}R"
                 )
 
-    # Equity — ventilé par broker
+    # Equity — compact per broker
     if equity_snaps:
-        # Group snapshots by broker_id (empty = legacy/primary)
         from collections import defaultdict as _dd
         by_broker = _dd(list)
         for s in equity_snaps:
-            bid = s.get("broker_id", "")
-            by_broker[bid].append(s)
+            by_broker[s.get("broker_id", "")].append(s)
 
-        lines.append("")
+        broker_parts = []
+        worst_level = "normal"
         for bid in sorted(by_broker.keys()):
             snaps_b = by_broker[bid]
-            first = snaps_b[0]
-            last = snaps_b[-1]
+            first, last = snaps_b[0], snaps_b[-1]
             bal_start = first.get("balance") or first.get("bal", 0)
             bal_end = last.get("balance") or last.get("bal", 0)
-            eq_end = last.get("equity") or last.get("eq", bal_end)
             dd_total = last.get("total_dd_pct", 0)
-            label = bid if bid else "primary"
+            bid_short = bid.replace("_challenge", "").replace("_compte1", "")
             if bal_start and bal_end:
                 delta = bal_end - bal_start
-                pct = delta / bal_start * 100 if bal_start else 0
-                lines.append(f"💰 {label}: ${bal_end:,.0f} ({pct:+.2f}%) eq=${eq_end:,.0f} DD={dd_total:.1f}%")
+                broker_parts.append(f"{bid_short} ${bal_end:,.0f} ({dd_total:+.1f}%)")
+            level = last.get("protection_level") or last.get("level", "normal")
+            if level != "normal":
+                worst_level = level
 
-        # Protection level
-        level = last.get("protection_level") or last.get("level", "")
-        if level and level != "normal":
-            lines.append(f"🛡️ Protection : {level.upper()}")
+        if broker_parts:
+            lines.append(" | ".join(broker_parts))
+
+        if worst_level != "normal":
+            lines.append(f"Protection: {worst_level.upper()}")
+
+    # Strategy activity
+    activity = _strategy_activity_summary()
+    if activity:
+        lines.append(activity)
 
     return "\n".join(lines)
 
