@@ -356,6 +356,7 @@ class LiveEngine:
             risk_multiplier_by_tf=tf_risk,
             rodage_config=rodage_cfg,
             max_slippage_atr=max_slippage_atr,
+            settings=self.settings,
         )
         dispatcher._price_feed = None
         return dispatcher

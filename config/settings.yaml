@@ -105,6 +105,18 @@ price_feed:
   #   - BTCUSD
 
 # -----------------------------------------------------------------------------
+# WEEKEND CRYPTO GUARD — Empêche les nouvelles positions crypto sur cTrader
+# le vendredi après le cutoff. cTrader ferme les CFD crypto le weekend,
+# créant des gaps de prix à la réouverture (slippage SL confirmé ETHUSD/DASHUSD).
+# GFT (TradeLocker) n'est pas affecté (feed continu).
+# -----------------------------------------------------------------------------
+weekend_crypto_guard:
+  enabled: true
+  cutoff_utc_hour: 15          # Vendredi 15:00 UTC (~1h après NY open)
+  broker_types:                # Types de broker affectés
+    - ctrader
+
+# -----------------------------------------------------------------------------
 # FILTRES PRÉ-PLACEMENT
 # -----------------------------------------------------------------------------
 filters:

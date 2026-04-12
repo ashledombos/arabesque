@@ -46,6 +46,9 @@ logger = logging.getLogger("arabesque.live.order_dispatcher")
 # JSONL pour shadow filters — persiste chaque trade accepté avec ses indicateurs
 SHADOW_LOG_PATH = Path("logs/shadow_filters.jsonl")
 
+# JSONL pour le weekend crypto guard — trace chaque blocage et chaque gap weekend
+WEEKEND_GUARD_LOG_PATH = Path("logs/weekend_crypto_guard.jsonl")
+
 
 # =============================================================================
 # PendingSignal
@@ -148,6 +151,7 @@ class OrderDispatcher:
         risk_multiplier_by_tf: Optional[Dict[str, float]] = None,
         rodage_config: Optional[Dict] = None,
         max_slippage_atr: float = 0.5,
+        settings: Optional[dict] = None,
     ):
         self.brokers = brokers
         self.instruments_cfg = instruments_cfg
@@ -162,6 +166,18 @@ class OrderDispatcher:
         self._risk_multiplier_fn = risk_multiplier_fn
         self._risk_multiplier_by_tf = risk_multiplier_by_tf or {}
         self._max_slippage_atr = max_slippage_atr
+
+        # Weekend crypto guard config
+        wcg = (settings or {}).get("weekend_crypto_guard", {})
+        self._wcg_enabled = wcg.get("enabled", False)
+        self._wcg_cutoff_hour = wcg.get("cutoff_utc_hour", 15)
+        self._wcg_broker_types = set(wcg.get("broker_types", ["ctrader"]))
+        if self._wcg_enabled:
+            logger.info(
+                f"[Dispatcher] Weekend crypto guard actif: "
+                f"vendredi >= {self._wcg_cutoff_hour}h UTC, "
+                f"brokers: {self._wcg_broker_types}"
+            )
 
         # Rodage: risk multiplier for strategies in break-in period
         self._rodage_strategies: set = set()
@@ -585,6 +601,59 @@ class OrderDispatcher:
             f"{successes}/{ len(results)} ordre(s) placé(s) avec succès"
         )
 
+    def _is_weekend_crypto_blocked(
+        self, broker_id: str, broker: BaseBroker, signal: Signal
+    ) -> bool:
+        """Vérifie si le signal est bloqué par le weekend crypto guard.
+
+        cTrader ferme les CFD crypto le vendredi soir, créant des gaps de prix
+        à la réouverture. Ce guard empêche d'ouvrir de nouvelles positions
+        crypto sur les brokers cTrader après le cutoff du vendredi.
+        """
+        if not self._wcg_enabled:
+            return False
+
+        # Vérifier le type de broker
+        broker_type = broker.config.get("type", "")
+        if broker_type not in self._wcg_broker_types:
+            return False
+
+        # Vérifier si l'instrument est crypto (session_model: 24x7)
+        inst_cfg = self.instruments_cfg.get(signal.instrument, {})
+        if inst_cfg.get("session_model") != "24x7":
+            return False
+
+        # Vérifier si on est vendredi après le cutoff
+        now = datetime.now(timezone.utc)
+        if now.weekday() != 4:  # 4 = vendredi
+            return False
+        if now.hour < self._wcg_cutoff_hour:
+            return False
+
+        return True
+
+    def _log_weekend_guard(self, event: str, signal: Signal, broker_id: str,
+                           extra: dict | None = None) -> None:
+        """Persiste un événement du weekend crypto guard en JSONL."""
+        try:
+            WEEKEND_GUARD_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            entry = {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "event": event,
+                "instrument": signal.instrument,
+                "side": signal.side.value,
+                "strategy": getattr(signal, "strategy_type", ""),
+                "entry_price": signal.close,
+                "sl": signal.sl,
+                "broker_id": broker_id,
+            }
+            if extra:
+                entry.update(extra)
+            with open(WEEKEND_GUARD_LOG_PATH, "a") as f:
+                f.write(json.dumps(entry) + "\n")
+        except Exception as e:
+            logger.debug(f"[Dispatcher] weekend guard log error: {e}")
+
     async def _place_on_broker(
         self,
         broker_id: str,
@@ -595,6 +664,19 @@ class OrderDispatcher:
         """Place l'ordre sur un broker spécifique."""
         signal = ps.signal
         sym = signal.instrument
+
+        # Weekend crypto guard — bloque les nouvelles positions crypto
+        # sur cTrader le vendredi après le cutoff (gap risk à la réouverture)
+        if self._is_weekend_crypto_blocked(broker_id, broker, signal):
+            logger.info(
+                f"[Dispatcher] 🛡️ Weekend crypto guard: {sym} {signal.side.value} "
+                f"bloqué sur {broker_id} (vendredi >= {self._wcg_cutoff_hour}h UTC)"
+            )
+            self._log_weekend_guard("blocked", signal, broker_id)
+            return OrderResult(
+                success=False,
+                message=f"Weekend crypto guard: {sym} bloqué sur {broker_id}"
+            )
 
         # Vérifier si l'instrument est disponible sur ce broker
         broker_sym = broker.map_symbol(sym)

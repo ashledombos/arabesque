@@ -2552,3 +2552,26 @@ reçoivent jamais les barres historiques nécessaires aux indicateurs (210 barre
 (re)connecte, ou différer la création des aggregators jusqu'à ce que tous les
 brokers soient prêts. Le health check devrait aussi alerter si aucun BarAggregator
 n'a produit de barre depuis > 1h.
+
+---
+
+## 2026-04-12 — Weekend crypto guard (cTrader gap protection)
+
+**Problème** : cTrader ferme les CFD crypto le vendredi soir (14h-23h UTC, variable par instrument). Le marché spot (Binance) continue 24/7. Si le prix bouge significativement pendant le weekend, le SL s'exécute au premier prix de réouverture = gap slippage.
+
+**Preuves** :
+- ETHUSD 12/04/2026 : SL 2260.70, fill réel 2222.66 = -1.69R au lieu de -1.00R ($62 extra)
+- DASHUSD 04/04/2026 : gap 29.55 → 30.31 sur cTrader (pas de gap sur Binance)
+- 167 événements feed stale le samedi vs 2-12 les autres jours
+- GFT (TradeLocker) non affecté : fill exact au SL pour ETHUSD même trade
+
+**Décision** : guard qui bloque les nouvelles positions crypto (`session_model: 24x7`) sur les brokers cTrader le vendredi après 15h UTC (~1h après NY open).
+
+**Implémentation** :
+- `settings.yaml → weekend_crypto_guard: {enabled: true, cutoff_utc_hour: 15, broker_types: [ctrader]}`
+- Guard dans `order_dispatcher._place_on_broker()` — per-broker, n'affecte pas GFT
+- Logging JSONL dans `logs/weekend_crypto_guard.jsonl` pour mesurer l'utilité
+
+**Limites** : ne protège pas les positions déjà ouvertes avant le cutoff. Pour ça, il faudrait fermer les positions crypto le vendredi (option 1, non retenue pour l'instant car coupe aussi les trades gagnants).
+
+**Note** : ceci est un problème cTrader (protocole Open API), pas spécifique à FTMO. Tout broker cTrader aurait le même comportement.

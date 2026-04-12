@@ -3,7 +3,7 @@
 > **Pour reprendre le développement dans un nouveau chat.**
 > État live courant → `docs/STATUS.md`. Décisions techniques → `docs/DECISIONS.md`.
 >
-> Dernière mise à jour : 2026-04-12
+> Dernière mise à jour : 2026-04-12 (session 2)
 
 ---
 
@@ -23,6 +23,13 @@ Balance GFT  : ~142 742$ (DD -4.8%) — protection NORMAL
   Cause : DNS failure au boot → cTrader hors broker list → BarAggregators sans preload
   Trades manqués : ~2-3j de signaux (9-11 avril)
   Impact : aucune perte, mais opportunités manquées
+
+⚠️ GAP WEEKEND cTrader — confirmé récurrent (ETHUSD 12/04, DASHUSD 04/04)
+  cTrader ferme les CFD crypto vendredi soir (14h-23h UTC variable)
+  Le marché Binance continue 24/7 → gap à la réouverture dimanche
+  ETHUSD : SL 2260.70 → fill 2222.66 = -1.69R au lieu de -1.00R (-$62 extra)
+  167 événements feed stale le samedi vs ~5 les autres jours
+  Protection : weekend_crypto_guard activé (settings.yaml) — bloque crypto cTrader vendredi >= 15h UTC
 
 Rodage (risk × 0.50, activé 2026-03-28) :
   Fouetté M1    → XAUUSD London, BTCUSD NY (WF 4/4 PASS)
@@ -107,6 +114,7 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - **DD tracking doit être persistant** : `start_balance` depuis accounts.yaml, `daily_start_balance` persistant entre refreshes, rollover UTC à minuit. Sinon floating P&L = faux DD → faux EMERGENCY
 - **Position monitor state persisté** : `save_state()` sur SIGTERM, `load_state()` au restart. Sans ça, MFE/BE/trailing perdus → positions à MFE 0.5R repartent sans BE
 - **EMERGENCY = protection intelligente** : pas de close all (réalise les pertes). Triage par P&L courant : positive → BE immédiat, 0/-0.5R → SL serré -0.3R, -0.5/-0.7R → fermer, < -0.7R → laisser (trop proche SL)
+- **Gap weekend cTrader crypto = risque systémique** : cTrader ferme les CFD crypto le vendredi (14h-23h UTC, variable par instrument). Le marché Binance continue 24/7. Si le prix bouge pendant le weekend, le SL s'exécute au premier prix de réouverture = gap slippage. Confirmé ETHUSD (-1.69R au lieu de -1.00R) et DASHUSD (gap 29.55→30.31). Guard implémenté : pas de nouvelle position crypto cTrader le vendredi après 15h UTC. GFT (TradeLocker) non affecté (feed continu).
 - **Distribution bimodale des trades** : 68% BE wins (+0.20R), 19% SL losses (-1R), 9% runners (>+1R). Les runners génèrent 159% du P&L net — toute modification qui les empêche (TP fixe, ROI agressif) détruit l'edge. La zone +0.2R à +1R est quasi vide (4%)
 - **Cooldown 5 barres optimal** : testé cd5/cd2/cd0/dégressif — plus de trades sans cooldown (+27%) mais Exp chute de +0.093R à +0.043R. Les trades supplémentaires sont de mauvaise qualité
 - **Sorties MR incompatibles trend-following** : BB_RPB_TSL (MR, SL=-99%) uses RSI extreme / ROI court / momentum surextensif pour couper les profits. Avec SL réel -1R, ces mêmes mécanismes tuent les runners. Testé 11/13 éléments : tous NEUTRE ou REJETÉ (2026-03-28)
@@ -124,6 +132,7 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - [x] ~~Alerte moteur aveugle~~ (fait 2026-04-12 — check_engine_processing_bars dans health_check.py)
 - [x] ~~Auto-close orphelins GFT~~ (fait 2026-04-12 — fermeture auto sans SL après 120s grace dans position_monitor)
 - [x] ~~Notifs Telegram digestes~~ (fait 2026-04-12 — startup compact, CAUTION/NORMAL 1 ligne, drift ne notifie que si dérive, rapport quotidien compact + activité stratégies)
+- [x] ~~Weekend crypto guard FTMO~~ (fait 2026-04-12 — bloque nouvelles positions crypto sur cTrader vendredi >= 15h UTC, JSONL logging dans logs/weekend_crypto_guard.jsonl)
 - [ ] Augmenter risk quand data suffisante (voir critères ci-dessous)
 
 ### Court terme
@@ -158,6 +167,18 @@ Note : 68% des wins sont des BE exits (+0.20R), conforme distribution bimodale
 **Règle anti-slippage** : ne jamais descendre sous $100/trade de risk.
 En-dessous, le lot rounding (±$5) mange >25% du gain moyen (+0.20R).
 Si DD linéaire donne <$100, appliquer un plancher à $100 ou skip le trade.
+
+### Sujets à traiter (prochaine session)
+
+1. **Journal de trading global** �� Mettre en place un journal de trading structuré (local, gitignored) qui centralise les trades, les événements marquants, les décisions manuelles. Pas un trade_journal.jsonl machine, mais un journal humain lisible. À garder en local (.gitignore) car contient des données personnelles de trading. Format suggéré : Markdown mensuel dans `logs/journal/` (gitignored).
+
+2. **Filtre news haute importance** — Récupérer les dates de news éco (NFP, FOMC, CPI…) et bloquer le trading ±5min autour. API candidates : ForexFactory RSS, Investing.com calendar, FXStreet. Implémentation : `is_high_impact_news(now, buffer_minutes=5)` dans guards.py, appelé avant le dispatch. Réduit le besoin d'un compte swing (les news sont le seul autre cas de gap intra-semaine).
+
+3. **Récupérer le vrai prix de sortie broker** — Le journal estime le exit_price au SL théorique (`position_monitor.py:681`). Ajouter une requête à l'historique broker pour récupérer le vrai fill. Important pour la vérité du DD tracking.
+
+4. **Simplifier la comparaison live/backtest** — Remplacer le mécanisme automatique par un simple log des trades manqués (guard blocked, weekend guard, slippage reject). L'analyse se fait manuellement dans le journal de trading.
+
+5. **Stratégies non-Extension : pas de bug** — Diagnostic 2026-04-12 : Cabriole (0 breakout Donchian depuis 28/03), Glissade (0 divergence RSI), Fouetté (917 tentatives filtrées par EMA shadow). Conditions de marché défavorables, pas un bug. Surveiller via le rapport quotidien ("Inactif: cabriole: Xj").
 
 ### Bugs connus
 - GFT ne reçoit que les signaux H1 forex/métaux (XAUUSD, GBPJPY, AUDJPY, CHFJPY) — les crypto H4 ne sont pas disponibles chez GFT. Normal, pas un bug.
