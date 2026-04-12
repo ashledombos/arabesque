@@ -3,7 +3,7 @@
 > **Pour reprendre le développement dans un nouveau chat.**
 > État live courant → `docs/STATUS.md`. Décisions techniques → `docs/DECISIONS.md`.
 >
-> Dernière mise à jour : 2026-04-11
+> Dernière mise à jour : 2026-04-12
 
 ---
 
@@ -120,6 +120,10 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - [x] ~~Corriger notifications Telegram~~ (fait 2026-03-27 — token manquait préfixe numérique)
 - [x] ~~Fix double-comptage rapports~~ (fait 2026-04-06 — dédupliqué par trade_id dans daily_report, compare_live_vs_backtest, health_check, live_monitor._load_journal)
 - [x] ~~Fix exits manquants au redémarrage~~ (fait 2026-04-06 — _reconcile_missed_exits() dans live.py scanne le journal au démarrage)
+- [x] ~~Résilience reboot~~ (fait 2026-04-12 — retry 5x backoff dans _connect_brokers)
+- [x] ~~Alerte moteur aveugle~~ (fait 2026-04-12 — check_engine_processing_bars dans health_check.py)
+- [x] ~~Auto-close orphelins GFT~~ (fait 2026-04-12 — fermeture auto sans SL après 120s grace dans position_monitor)
+- [x] ~~Notifs Telegram digestes~~ (fait 2026-04-12 — startup compact, CAUTION/NORMAL 1 ligne, drift ne notifie que si dérive, rapport quotidien compact + activité stratégies)
 - [ ] Augmenter risk quand data suffisante (voir critères ci-dessous)
 
 ### Court terme
@@ -158,8 +162,8 @@ Si DD linéaire donne <$100, appliquer un plancher à $100 ou skip le trade.
 ### Bugs connus
 - GFT ne reçoit que les signaux H1 forex/métaux (XAUUSD, GBPJPY, AUDJPY, CHFJPY) — les crypto H4 ne sont pas disponibles chez GFT. Normal, pas un bug.
 - Compte 46570880 et 46738849 encore visibles via API cTrader (anciens tests, ne pas utiliser)
-- **BarAggregator sans preload si broker déconnecté au boot** — si cTrader échoue à la connexion initiale (DNS, timeout), les aggregators sont créés avec `broker=None` et ne peuvent plus précharger l'historique. L'engine continue mais aveugle (210 barres live requises = 9j H1, 35j H4). Seul fix actuel : restart. TODO: retry preload quand le broker se reconnecte.
-- **GFT positions orphelines** — le mapping order_id → position_id échoue parfois, créant une position sans SL/TP. Le position_monitor détecte et logge (👻) mais ne ferme pas automatiquement. Surveiller manuellement.
+- **BarAggregator sans preload si broker déconnecté au boot** — ATTÉNUÉ (2026-04-12) : `_connect_brokers()` retry 5x avec backoff (5-60s). Le health check détecte aussi l'absence de barres (check_engine_processing_bars). Edge case restant : si le broker est injoignable > 2min, le moteur démarre quand même sans.
+- **GFT positions orphelines** — ATTÉNUÉ (2026-04-12) : auto-close des orphelins sans SL après 120s de grâce. Le mapping order_id → position_id échoue encore parfois chez TradeLocker.
 
 ### Bugs corrigés (2026-03-28)
 - [x] Sizing cross pairs GFT (AUDJPY 0.010L au lieu de 0.320L) — TradeLocker pip_size en points (0.0001) vs yaml en pips (0.01) → yaml pip_value_per_lot non rescalé. Fix: ratio automatique `broker_pip_size / yaml_pip_size` sur pip_value dans les paths cross et fallback.
