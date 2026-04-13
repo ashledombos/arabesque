@@ -133,6 +133,7 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - [x] ~~Auto-close orphelins GFT~~ (fait 2026-04-12 — fermeture auto sans SL après 120s grace dans position_monitor)
 - [x] ~~Notifs Telegram digestes~~ (fait 2026-04-12 — startup compact, CAUTION/NORMAL 1 ligne, drift ne notifie que si dérive, rapport quotidien compact + activité stratégies)
 - [x] ~~Weekend crypto guard FTMO~~ (fait 2026-04-12 — bloque nouvelles positions crypto sur cTrader vendredi >= 15h UTC, JSONL logging dans logs/weekend_crypto_guard.jsonl)
+- [x] ~~Vrai prix de sortie broker~~ (fait 2026-04-13 — position_monitor interroge broker.get_closed_position_detail() au lieu d'estimer au SL théorique. cTrader via ProtoOADealListReq, TradeLocker via get_all_orders(history=True). Fallback sur estimation si broker call échoue.)
 - [ ] Augmenter risk quand data suffisante (voir critères ci-dessous)
 
 ### Court terme
@@ -174,11 +175,7 @@ Si DD linéaire donne <$100, appliquer un plancher à $100 ou skip le trade.
 
 2. **Filtre news haute importance** — Récupérer les dates de news éco (NFP, FOMC, CPI…) et bloquer le trading ±5min autour. API candidates : ForexFactory RSS, Investing.com calendar, FXStreet. Implémentation : `is_high_impact_news(now, buffer_minutes=5)` dans guards.py, appelé avant le dispatch. Réduit le besoin d'un compte swing (les news sont le seul autre cas de gap intra-semaine).
 
-3. **Récupérer le vrai prix de sortie broker** — Le journal estime le exit_price au SL théorique (`position_monitor.py:681`). Ajouter une requête à l'historique broker pour récupérer le vrai fill. Important pour la vérité du DD tracking.
-
-4. **Simplifier la comparaison live/backtest** — Remplacer le mécanisme automatique par un simple log des trades manqués (guard blocked, weekend guard, slippage reject). L'analyse se fait manuellement dans le journal de trading.
-
-5. **Stratégies non-Extension : pas de bug** — Diagnostic 2026-04-12 : Cabriole (0 breakout Donchian depuis 28/03), Glissade (0 divergence RSI), Fouetté (917 tentatives filtrées par EMA shadow). Conditions de marché défavorables, pas un bug. Surveiller via le rapport quotidien ("Inactif: cabriole: Xj").
+3. **Stratégies non-Extension : pas de bug** — Diagnostic 2026-04-12 : Cabriole (0 breakout Donchian depuis 28/03), Glissade (0 divergence RSI), Fouetté (917 tentatives filtrées par EMA shadow). Conditions de marché défavorables, pas un bug. Surveiller via le rapport quotidien ("Inactif: cabriole: Xj").
 
 ### Bugs connus
 - GFT ne reçoit que les signaux H1 forex/métaux (XAUUSD, GBPJPY, AUDJPY, CHFJPY) — les crypto H4 ne sont pas disponibles chez GFT. Normal, pas un bug.
