@@ -451,6 +451,41 @@ class TradeLockerBroker(BaseBroker):
         """Modify SL/TP — delegates to modify_position."""
         return await self.modify_position(position_id, stop_loss, take_profit)
 
+    async def get_closed_position_detail(
+        self, position_id: str
+    ) -> Optional[dict]:
+        """Retrieve the real fill price for a closed position via order history."""
+        if not self._api:
+            return None
+        try:
+            orders = self._api.get_all_orders(history=True)
+            if orders is None or orders.empty:
+                return None
+            # Filter by position_id — TradeLocker links orders to positions
+            # The column names vary; try common patterns
+            pid = int(position_id)
+            match = None
+            for col in ("positionId", "position_id", "relatedPositionId"):
+                if col in orders.columns:
+                    match = orders[orders[col] == pid]
+                    if not match.empty:
+                        break
+            if match is None or match.empty:
+                return None
+            # Take the last (closing) order
+            row = match.iloc[-1]
+            exit_price = row.get("filledPrice") or row.get("avgPrice") or row.get("price")
+            if exit_price is None:
+                return None
+            return {
+                "exit_price": float(exit_price),
+                "exit_time": str(row.get("filledTime", row.get("updatedTime", ""))),
+                "gross_profit": float(row.get("grossPl", 0)),
+                "commission": float(row.get("commission", 0)),
+            }
+        except Exception:
+            return None
+
 
 # =============================================================================
 # Synchronous Wrapper

@@ -476,9 +476,27 @@ class LivePositionMonitor:
                                 f"[Monitor] 🗑️ {pos.symbol} {pos.position_id}: "
                                 f"position fermée (POSITION_NOT_FOUND) — arrêt monitoring"
                             )
-                            # Notify LiveMonitor immediately
+                            # Notify LiveMonitor — try real fill first
                             exit_reason = self._estimate_exit_reason(pos)
                             exit_price = self._estimate_exit_price(pos, exit_reason)
+                            broker = self._brokers.get(pos.broker_id)
+                            if broker:
+                                try:
+                                    real_fill = await broker.get_closed_position_detail(
+                                        pos.position_id
+                                    )
+                                    if real_fill and real_fill.get("exit_price"):
+                                        real_price = real_fill["exit_price"]
+                                        slippage = abs(real_price - exit_price)
+                                        if slippage > 0.0001:
+                                            logger.info(
+                                                f"[Monitor] 💰 Vrai fill "
+                                                f"{pos.symbol}: {real_price:.5f} "
+                                                f"(estimé {exit_price:.5f})"
+                                            )
+                                        exit_price = real_price
+                                except Exception:
+                                    pass
                             if self._on_position_closed:
                                 try:
                                     self._on_position_closed(
@@ -567,15 +585,43 @@ class LivePositionMonitor:
 
                     self._positions.pop(key, None)
 
-                    # Estimate exit details for trade journal
+                    # Try to get the real fill price from the broker
                     exit_reason = self._estimate_exit_reason(pos)
                     exit_price = self._estimate_exit_price(pos, exit_reason)
+                    real_fill = None
+                    try:
+                        real_fill = await broker.get_closed_position_detail(
+                            pos.position_id
+                        )
+                    except Exception as e:
+                        logger.debug(
+                            f"[Monitor] get_closed_position_detail failed "
+                            f"for {pos.position_id}: {e}"
+                        )
+                    if real_fill and real_fill.get("exit_price"):
+                        real_price = real_fill["exit_price"]
+                        slippage = abs(real_price - exit_price)
+                        if slippage > 0.0001:
+                            logger.info(
+                                f"[Monitor] 💰 Vrai fill {pos.symbol} "
+                                f"{pos.position_id}: {real_price:.5f} "
+                                f"(estimé {exit_price:.5f}, "
+                                f"slip={slippage:.5f})"
+                            )
+                        exit_price = real_price
+                        # Adjust exit_reason if the real price tells us TP was hit
+                        if pos.tp > 0:
+                            if pos.side == Side.LONG and real_price >= pos.tp * 0.999:
+                                exit_reason = "take_profit"
+                            elif pos.side == Side.SHORT and real_price <= pos.tp * 1.001:
+                                exit_reason = "take_profit"
 
                     logger.info(
                         f"[Monitor] 🗑️ Position {pos.symbol} {pos.position_id} "
                         f"non trouvée sur {broker_id} après {age:.0f}s — retirée "
                         f"(MFE={pos.mfe_r:.2f}R BE={'✓' if pos.breakeven_set else '✗'} "
-                        f"trail={pos.trailing_tier} exit≈{exit_reason})"
+                        f"trail={pos.trailing_tier} exit≈{exit_reason}"
+                        f"{' REAL' if real_fill else ' EST'})"
                     )
 
                     # Notify LiveMonitor

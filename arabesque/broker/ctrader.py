@@ -38,6 +38,7 @@ try:
         ProtoOASubscribeSpotsReq,
         ProtoOAUnsubscribeSpotsReq,
         ProtoOAGetTrendbarsReq,
+        ProtoOADealListReq,
     )
     CTRADER_AVAILABLE = True
 except ImportError as e:
@@ -463,6 +464,11 @@ class CTraderBroker(BaseBroker):
 
             elif ptype == "ProtoOASpotEvent":
                 self._process_spot_event(payload)
+
+            elif ptype == "ProtoOADealListRes":
+                future = self._pending_requests.pop("deal_list", None)
+                if future and not future.done():
+                    self._resolve_future(future, payload)
 
             elif "Order" in ptype or "Execution" in ptype:
                 self._process_order_response(payload, ptype)
@@ -1522,6 +1528,63 @@ class CTraderBroker(BaseBroker):
             except asyncio.TimeoutError:
                 self._pending_requests.pop("position_close", None)
                 return OrderResult(success=False, message="Close timeout")
+
+
+    async def get_closed_position_detail(
+        self, position_id: str
+    ) -> Optional[dict]:
+        """Retrieve the real fill price for a closed position via DealList.
+
+        Queries the last 24h of deals and finds the closing deal for this
+        position_id. Returns {exit_price, exit_time, gross_profit, commission}
+        or None if not found.
+        """
+        if not self._connected:
+            return None
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        self._pending_requests["deal_list"] = future
+
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        day_ago_ms = now_ms - 86_400_000  # 24h
+
+        req = ProtoOADealListReq()
+        req.ctidTraderAccountId = self.account_id
+        req.fromTimestamp = day_ago_ms
+        req.toTimestamp = now_ms
+        req.maxRows = 100
+
+        from twisted.internet import reactor
+        self._send_via_reactor(req)
+
+        try:
+            payload = await asyncio.wait_for(future, timeout=15)
+        except asyncio.TimeoutError:
+            self._pending_requests.pop("deal_list", None)
+            return None
+
+        # Find the closing deal for this position
+        pos_id_int = int(position_id)
+        for deal in payload.deal:
+            if deal.positionId != pos_id_int:
+                continue
+            # A closing deal has closePositionDetail
+            if not deal.HasField("closePositionDetail"):
+                continue
+            cpd = deal.closePositionDetail
+            money_digits = getattr(deal, "moneyDigits", 2)
+            divisor = 10 ** money_digits
+            return {
+                "exit_price": deal.executionPrice,
+                "exit_time": datetime.fromtimestamp(
+                    deal.executionTimestamp / 1000, tz=timezone.utc
+                ).isoformat(),
+                "gross_profit": cpd.grossProfit / divisor,
+                "commission": cpd.commission / divisor,
+                "entry_price": cpd.entryPrice,
+            }
+
+        return None
 
 
 # =============================================================================

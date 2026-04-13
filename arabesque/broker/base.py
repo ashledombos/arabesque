@@ -377,6 +377,16 @@ class BaseBroker(ABC):
         """
         return []
 
+    async def get_closed_position_detail(
+        self, position_id: str
+    ) -> Optional[dict]:
+        """Retrieve fill details for a recently closed position.
+
+        Returns a dict with keys: exit_price, exit_time, gross_profit, commission
+        or None if not available / not implemented.
+        """
+        return None
+
     def map_symbol(self, unified_symbol: str) -> Optional[str]:
         mapping = self.config.get("instruments_mapping", {})
         return mapping.get(unified_symbol)
