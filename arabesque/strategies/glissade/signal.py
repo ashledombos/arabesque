@@ -450,7 +450,7 @@ class GlissadeRSIDivGenerator:
         signals: list[tuple[int, Signal]] = []
         c = self.cfg
 
-        for i in range(max(c.ema_period, 50), len(df) - 1):
+        for i in range(max(c.ema_period, 50), len(df)):
             row = df.iloc[i]
             rsi_div = int(row["rsi_div"])
             if rsi_div == 0:

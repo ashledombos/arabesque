@@ -65,7 +65,7 @@ class CabrioleSignalGenerator:
         c = self.cfg
         start = max(c.ema_period, 50)
 
-        for i in range(start, len(df) - 1):
+        for i in range(start, len(df)):
             row = df.iloc[i]
             close = row["Close"]
             ema = row["ema200"]

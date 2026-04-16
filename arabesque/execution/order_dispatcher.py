@@ -787,7 +787,7 @@ class OrderDispatcher:
         """
         if signal.strategy_type == "mean_reversion":
             return OrderType.LIMIT
-        elif signal.strategy_type == "trend":
+        elif signal.strategy_type in ("trend", "extension"):
             return OrderType.STOP
         else:
             # Heuristique

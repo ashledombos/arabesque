@@ -62,7 +62,7 @@ class BarAggregatorConfig:
     timeframe_s: int = BAR_PERIOD_S       # 3600 = 1H
     history_bars: int = 250               # barres à précharger au démarrage
     min_bars: int = MIN_BARS_FOR_SIGNAL   # minimum pour générer des signaux
-    signal_strategy: str = "trend"         # "mean_reversion", "trend", "combined" — v3.3: trend-only validé
+    signal_strategy: str = "extension"      # "mean_reversion", "extension", "combined" — v3.3: trend-only validé
 
 
 class BarAggregator:

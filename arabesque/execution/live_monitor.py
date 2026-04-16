@@ -72,7 +72,7 @@ class MonitorConfig:
 
     # Drift detection — baselines backtest
     baselines: dict = field(default_factory=lambda: {
-        "trend": {"wr": 0.75, "exp_r": 0.10, "label": "Extension H1"},
+        "extension": {"wr": 0.75, "exp_r": 0.10, "label": "Extension H1"},
         "glissade": {"wr": 0.55, "exp_r": 0.15, "label": "Glissade RSI div H1"},
     })
     wr_drift_threshold: float = 0.15       # alerte si WR live < baseline - 15pp
@@ -97,9 +97,9 @@ class MonitorConfig:
     dd_daily_caution_pct: float = -2.5     # → CAUTION at -2.5% daily
     dd_daily_danger_pct: float = -3.0      # → DANGER at -3.0% daily
     dd_daily_emergency_pct: float = -3.5   # → EMERGENCY at -3.5% daily
-    dd_total_caution_pct: float = -5.0     # → CAUTION at -5.0% total
-    dd_total_danger_pct: float = -6.5      # → DANGER at -6.5% total
-    dd_total_emergency_pct: float = -8.0   # → EMERGENCY at -8.0% total
+    dd_total_caution_pct: float = -7.0     # → CAUTION at -7.0% total (was -5.0, trop serré → piège à recovery)
+    dd_total_danger_pct: float = -8.0      # → DANGER at -8.0% total
+    dd_total_emergency_pct: float = -9.0   # → EMERGENCY at -9.0% total (FTMO breach à 10%)
 
     # Risk multipliers per protection level
     risk_multiplier_normal: float = 1.0

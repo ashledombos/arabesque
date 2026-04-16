@@ -57,6 +57,7 @@ class TrackedPosition:
     registered_at: float = 0.0     # time.time() à l'enregistrement
     _amend_in_progress: bool = False  # Guard contre les amends concurrents
     _skip_count: int = 0              # Compteur de skips (anti-spam log)
+    missing_cycles: int = 0           # Cycles reconcile consécutifs où la position est absente de get_positions()
 
     @property
     def R(self) -> float:
@@ -565,12 +566,21 @@ class LivePositionMonitor:
                 broker_positions = await broker.get_positions()
                 broker_pos_ids = {str(p.position_id) for p in broker_positions}
 
-                # Retirer les positions qui n'existent plus sur le broker
+                # Retirer les positions qui n'existent plus sur le broker.
+                # On exige une corroboration : get_closed_position_detail doit
+                # retourner un vrai fill, sinon on compte les cycles d'absence
+                # consécutifs et on ne déclare fermée qu'après un fallback
+                # (MISSING_CYCLES_FALLBACK cycles de 2 min = ~6 min d'absence
+                # continue). Ceci évite les "phantom exits" quand get_positions()
+                # retourne momentanément une liste incomplète (race côté broker).
+                MISSING_CYCLES_FALLBACK = 3
                 for key in keys:
                     pos = self._positions.get(key)
                     if not pos:
                         continue
                     if pos.position_id in broker_pos_ids:
+                        # Position réapparue → reset du compteur d'absence
+                        pos.missing_cycles = 0
                         continue  # Toujours ouverte
 
                     # Vérifier la grace period
@@ -583,11 +593,7 @@ class LivePositionMonitor:
                         )
                         continue
 
-                    self._positions.pop(key, None)
-
-                    # Try to get the real fill price from the broker
-                    exit_reason = self._estimate_exit_reason(pos)
-                    exit_price = self._estimate_exit_price(pos, exit_reason)
+                    # Corroborer l'absence via get_closed_position_detail
                     real_fill = None
                     try:
                         real_fill = await broker.get_closed_position_detail(
@@ -598,6 +604,35 @@ class LivePositionMonitor:
                             f"[Monitor] get_closed_position_detail failed "
                             f"for {pos.position_id}: {e}"
                         )
+
+                    if not (real_fill and real_fill.get("exit_price")):
+                        # Pas de confirmation broker → absence non corroborée
+                        pos.missing_cycles += 1
+                        if pos.missing_cycles < MISSING_CYCLES_FALLBACK:
+                            logger.info(
+                                f"[Monitor] ⏳ Position {pos.symbol} "
+                                f"{pos.position_id} absente de get_positions() "
+                                f"({pos.missing_cycles}/{MISSING_CYCLES_FALLBACK}) "
+                                f"mais pas de closed_detail — on re-vérifie "
+                                f"au prochain cycle"
+                            )
+                            continue
+                        # Fallback : N cycles consécutifs d'absence sans
+                        # closed_detail → on considère fermée quand même,
+                        # avec estimation (probable si le broker n'expose
+                        # tout simplement pas l'historique)
+                        logger.warning(
+                            f"[Monitor] ⚠️ Position {pos.symbol} "
+                            f"{pos.position_id} absente depuis "
+                            f"{pos.missing_cycles} cycles sans closed_detail "
+                            f"— retrait forcé (fallback)"
+                        )
+
+                    self._positions.pop(key, None)
+
+                    # Determine exit price / reason (réel si dispo, sinon estimé)
+                    exit_reason = self._estimate_exit_reason(pos)
+                    exit_price = self._estimate_exit_price(pos, exit_reason)
                     if real_fill and real_fill.get("exit_price"):
                         real_price = real_fill["exit_price"]
                         slippage = abs(real_price - exit_price)

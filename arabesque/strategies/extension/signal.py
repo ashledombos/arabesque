@@ -332,7 +332,7 @@ class ExtensionSignalGenerator:
             regime=regime,
             max_spread_atr=0.3,
             rr=round(rr, 2),
-            strategy_type="trend",
+            strategy_type="extension",
             timestamp=df.index[idx],
         )
 

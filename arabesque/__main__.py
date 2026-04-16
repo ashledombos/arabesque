@@ -150,6 +150,12 @@ def _run_backtest(args: argparse.Namespace) -> int:
     if interval_override:
         timeframe = interval_override
 
+    # Weekend crypto guard : filtrer les signaux bloqués en live
+    if getattr(args, "no_weekend", False):
+        from arabesque.execution.weekend_filter import WeekendFilter
+        sig_gen = WeekendFilter(sig_gen)
+        print("  [--no-weekend] Signaux crypto bloqués : ven >= 15h UTC, sam, dim")
+
     # Résolution des instruments : --universe ou liste explicite
     instruments = _resolve_instruments(args)
     period = getattr(args, "period", "730d")
@@ -318,6 +324,12 @@ def cmd_walkforward(args: argparse.Namespace) -> int:
         default_tf = "1h"
 
     timeframe = getattr(args, "interval", None) or default_tf
+
+    if getattr(args, "no_weekend", False):
+        from arabesque.execution.weekend_filter import WeekendFilter
+        sig_gen = WeekendFilter(sig_gen)
+        print("  [--no-weekend] Signaux crypto bloqués : ven >= 15h UTC, sam, dim")
+
     instruments = _resolve_instruments(args)
     if not instruments:
         print("Usage : python -m arabesque walkforward --strategy extension BTCUSD XAUUSD",
@@ -511,6 +523,10 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Override timeframe (ex: 4h, 15m). Par défaut : selon la stratégie")
     run_p.add_argument("--risk", type=float, default=0.40, help="Risque par trade (%%)")
     run_p.add_argument("--verbose", "-v", action="store_true")
+    run_p.add_argument("--no-weekend", action="store_true",
+                       help="Filtre les signaux bloqués par le weekend crypto "
+                            "guard (ven >= 15h UTC, sam, dim) — reflète la "
+                            "config live cTrader")
     run_p.add_argument("--no-sub-bar", action="store_true",
                        help="Désactive le sub-bar replay M1 (plus rapide, moins précis)")
     run_p.add_argument("--universe", default=None,
@@ -533,6 +549,9 @@ def build_parser() -> argparse.ArgumentParser:
     wf_p.add_argument("--from", dest="start", default=None, help="Date début YYYY-MM-DD")
     wf_p.add_argument("--to", dest="end", default=None, help="Date fin YYYY-MM-DD")
     wf_p.add_argument("--risk", type=float, default=0.40, help="Risque par trade (%%)")
+    wf_p.add_argument("--no-weekend", action="store_true",
+                      help="Filtre les signaux bloqués par le weekend crypto "
+                           "guard — reflète la config live cTrader")
     wf_p.add_argument("--universe", default=None, help="Univers d'instruments")
     wf_p.add_argument("--verbose", "-v", action="store_true")
     wf_p.add_argument("instruments", nargs="*", help="Instruments")

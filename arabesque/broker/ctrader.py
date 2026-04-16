@@ -367,15 +367,11 @@ class CTraderBroker(BaseBroker):
             except asyncio.InvalidStateError:
                 pass
 
-    async def connect(self) -> bool:
-        # Capturer le loop asyncio pour les callbacks thread-safe
-        self._asyncio_loop = asyncio.get_event_loop()
+    async def _connect_once(self) -> bool:
+        """Tente une seule connexion TCP + auth cTrader.
 
-        if self._should_refresh_token():
-            if self._refresh_access_token():
-                self._token_refreshed = True
-
-        self._ensure_reactor_running()
+        Lève une exception avec le message d'erreur en cas d'échec.
+        """
         self._client = Client(self.host, self.port, TcpProtocol)
 
         connect_future = asyncio.get_event_loop().create_future()
@@ -479,15 +475,55 @@ class CTraderBroker(BaseBroker):
         from twisted.internet import reactor
         reactor.callFromThread(self._client.startService)
 
-        try:
-            await asyncio.wait_for(connect_future, timeout=30)
-            return True
-        except asyncio.TimeoutError:
-            print("[cTrader] ❌ Connection timeout")
-            return False
-        except Exception as e:
-            print(f"[cTrader] ❌ Connection error: {e}")
-            return False
+        await asyncio.wait_for(connect_future, timeout=30)
+        return True
+
+    def _stop_client(self):
+        """Arrête le client TCP Twisted (best effort)."""
+        if self._client:
+            from twisted.internet import reactor
+            reactor.callFromThread(self._client.stopService)
+            self._client = None
+
+    async def connect(self) -> bool:
+        # Capturer le loop asyncio pour les callbacks thread-safe
+        self._asyncio_loop = asyncio.get_event_loop()
+
+        if self._should_refresh_token():
+            if self._refresh_access_token():
+                self._token_refreshed = True
+
+        self._ensure_reactor_running()
+
+        # Retry avec backoff si la session précédente n'a pas expiré
+        # (ALREADY_LOGGED_IN après coupure de courant, crash, etc.)
+        retry_delays = [30, 60, 120, 120, 120]
+        last_error = None
+
+        for attempt in range(len(retry_delays) + 1):
+            try:
+                return await self._connect_once()
+            except asyncio.TimeoutError:
+                print("[cTrader] ❌ Connection timeout")
+                self._stop_client()
+                return False
+            except Exception as e:
+                last_error = e
+                is_already_logged = "ALREADY_LOGGED_IN" in str(e)
+                if not is_already_logged or attempt >= len(retry_delays):
+                    print(f"[cTrader] ❌ Connection error: {e}")
+                    self._stop_client()
+                    return False
+                delay = retry_delays[attempt]
+                print(
+                    f"[cTrader] ⏳ Session fantôme détectée, "
+                    f"retry dans {delay}s ({attempt + 1}/{len(retry_delays)})..."
+                )
+                self._stop_client()
+                await asyncio.sleep(delay)
+
+        print(f"[cTrader] ❌ Connection error: {last_error}")
+        return False
 
     async def disconnect(self):
         if self._subscribed_symbol_ids and self._client:
