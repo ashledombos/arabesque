@@ -3,7 +3,7 @@
 > **Pour reprendre le développement dans un nouveau chat.**
 > État live courant → `docs/STATUS.md`. Décisions techniques → `docs/DECISIONS.md`.
 >
-> Dernière mise à jour : 2026-04-12 (session 2)
+> Dernière mise à jour : 2026-04-16
 
 ---
 
@@ -15,9 +15,19 @@ Live actif (compte ftmo_challenge, account_id 45667282, démo cTrader) :
   Extension H4  → 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…) (risk 0.55% via TF multiplier)
   Glissade H1   → XAUUSD, BTCUSD (LIVE — WF 3/3 PASS, WR 83%, Exp +0.147R)
 
-Balance FTMO : ~94 494$ (DD -5.5%) — protection CAUTION (risk ×0.50)
+Balance FTMO : ~94 309$ (DD -5.7%) — protection NORMAL (seuils DD relevés 2026-04-15)
 Rodage Glissade : risk × 0.50 (config/settings.yaml → rodage.strategies)
 Balance GFT  : ~142 742$ (DD -4.8%) — protection NORMAL
+
+⚠️ DD THRESHOLDS RELEVÉS 2026-04-15 : CAUTION -5%→-7%, DANGER -6.5%→-8%, EMERGENCY -8%→-9%
+  Ancien seuil -5% piégeait le compte en CAUTION permanente (risk ×0.50 = ~$14-80/trade
+  au lieu de ~$424), recovery trop lente pour remonter. Simulation sur 31 trades live :
+  max DD 4.5% à 0.45% constant → pas de breach. Weekend crypto guard + 1% de marge FTMO.
+
+⚠️ PHANTOM EXITS FIX 2026-04-15 : position_monitor exige maintenant get_closed_position_detail()
+  avant de déclarer une position fermée. Si pas de confirmation broker, compteur de cycles
+  d'absence (fallback après 3 cycles ≈ 6 min). Évite les faux exits quand get_positions()
+  retourne une liste incomplète (race côté broker GFT/cTrader).
 
 ⚠️ INCIDENT 2026-04-09 : reboot machine → moteur aveugle 2j (résolu 2026-04-11)
   Cause : DNS failure au boot → cTrader hors broker list → BarAggregators sans preload
@@ -134,6 +144,10 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - [x] ~~Notifs Telegram digestes~~ (fait 2026-04-12 — startup compact, CAUTION/NORMAL 1 ligne, drift ne notifie que si dérive, rapport quotidien compact + activité stratégies)
 - [x] ~~Weekend crypto guard FTMO~~ (fait 2026-04-12 — bloque nouvelles positions crypto sur cTrader vendredi >= 15h UTC, JSONL logging dans logs/weekend_crypto_guard.jsonl)
 - [x] ~~Vrai prix de sortie broker~~ (fait 2026-04-13 — position_monitor interroge broker.get_closed_position_detail() au lieu d'estimer au SL théorique. cTrader via ProtoOADealListReq, TradeLocker via get_all_orders(history=True). Fallback sur estimation si broker call échoue.)
+- [x] ~~Fix phantom exits~~ (fait 2026-04-15 — reconcile() exige corroboration get_closed_position_detail avant de retirer une position. Fallback 3 cycles d'absence ≈ 6 min.)
+- [x] ~~DD thresholds relevés~~ (fait 2026-04-15 — CAUTION -7%, DANGER -8%, EMERGENCY -9%. L'ancien -5% piégeait en CAUTION permanente.)
+- [x] ~~Strategy rename trend→extension~~ (fait 2026-04-15 — signal.py, bar_aggregator, order_dispatcher, live_monitor baselines)
+- [x] ~~cTrader reconnect retry ALREADY_LOGGED_IN~~ (fait 2026-04-15 — retry 5× backoff 30-120s pour sessions fantômes après coupure de courant)
 - [ ] Augmenter risk quand data suffisante (voir critères ci-dessous)
 
 ### Court terme

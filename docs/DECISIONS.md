@@ -2575,3 +2575,40 @@ n'a produit de barre depuis > 1h.
 **Limites** : ne protège pas les positions déjà ouvertes avant le cutoff. Pour ça, il faudrait fermer les positions crypto le vendredi (option 1, non retenue pour l'instant car coupe aussi les trades gagnants).
 
 **Note** : ceci est un problème cTrader (protocole Open API), pas spécifique à FTMO. Tout broker cTrader aurait le même comportement.
+
+---
+
+### Décision : DD thresholds relevés (2026-04-15)
+
+**Problème** : le seuil CAUTION à -5% total DD piégeait le compte en mode risk réduit (×0.50) dès que le DD dépassait -5%. À -5.69% de DD, le risk effectif tombait à 0.225% (≈$14-80/trade selon l'instrument, au lieu de ~$424). La recovery à ce rythme était trop lente pour remonter au-dessus du seuil — piège permanent.
+
+**Analyse** : simulation sur les 31 trades live (mars-avril 2026) à 0.45% constant (sans réduction) : max DD total = 4.5%. Le worst case historique sur 20 mois = 8.2% à 0.40%. Avec le weekend crypto guard actif et 1% de marge avant le breach FTMO (10%), les nouveaux seuils laissent assez de marge.
+
+**Décision** : relever les seuils DD total dans `live_monitor.py` :
+- CAUTION : -5.0% → **-7.0%**
+- DANGER : -6.5% → **-8.0%**
+- EMERGENCY : -8.0% → **-9.0%**
+
+Les seuils daily DD restent inchangés (-2.5% / -3.0% / -3.5%) car FTMO impose -5% daily max.
+
+**Risque accepté** : 1% de marge entre EMERGENCY (-9%) et breach FTMO (-10%). Si le système atteint EMERGENCY, le risk est déjà à ×0.10 (lot minimum). Acceptable tant que le weekend crypto guard empêche les gaps.
+
+---
+
+### Décision : corroboration phantom exits (2026-04-15)
+
+**Problème** : `position_monitor.reconcile()` déclarait une position fermée dès qu'elle disparaissait de `get_positions()` (après 5 min de grace). Or l'API broker (cTrader et TradeLocker) peut retourner une liste incomplète momentanément (race condition). Résultat : des "phantom exits" — positions déclarées fermées dans le journal alors qu'elles étaient encore ouvertes chez le broker.
+
+**Impact observé** : GFT positions marquées SL dans le journal mais toujours ouvertes sur TradeLocker (2026-04-14). Le trade journal surestimait les pertes.
+
+**Décision** : exiger une corroboration via `get_closed_position_detail()` avant de retirer une position. Si le broker confirme un fill réel → exit immédiat avec le vrai prix. Si pas de confirmation → incrémenter un compteur `missing_cycles`. Fallback après 3 cycles consécutifs d'absence (~6 min) pour les brokers qui n'exposent pas l'historique.
+
+**Implémentation** : champ `missing_cycles: int` dans `TrackedPosition`. Reset à 0 quand la position réapparaît dans `get_positions()`.
+
+---
+
+### Décision : rename strategy_type "trend" → "extension" (2026-04-15)
+
+**Problème** : le `strategy_type="trend"` dans les logs et le code était ambigu — "trend" est un concept générique, "extension" est le nom de la stratégie. Confusion dans les rapports, baselines, et filtres.
+
+**Décision** : renommer partout en "extension". `order_dispatcher` accepte les deux (`"trend"` et `"extension"`) pour backward compat avec les positions déjà ouvertes et les anciens logs journal.
