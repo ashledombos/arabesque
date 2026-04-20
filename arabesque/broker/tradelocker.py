@@ -13,7 +13,7 @@ from typing import Optional, List, Dict, Any
 
 from .base import (
     BaseBroker, OrderRequest, OrderResult, OrderSide, OrderType, OrderStatus,
-    Position, PendingOrder, AccountInfo, SymbolInfo,
+    Position, PendingOrder, AccountInfo, SymbolInfo, PriceTick,
 )
 
 os.environ.setdefault('TRADELOCKER_LOG_LEVEL', 'WARNING')
@@ -243,6 +243,24 @@ class TradeLockerBroker(BaseBroker):
             )
         except Exception as e:
             print(f"[TradeLocker] Error getting symbol info: {e}")
+            return None
+
+    async def get_quote(self, symbol: str) -> Optional[PriceTick]:
+        if not self._api:
+            return None
+        inst_id = self._get_instrument_id(symbol)
+        if inst_id is None:
+            return None
+        try:
+            q = self._api.get_quotes(inst_id)
+            if not q:
+                return None
+            bid = float(q.get('bp', 0) or 0)
+            ask = float(q.get('ap', 0) or 0)
+            if bid <= 0 or ask <= 0:
+                return None
+            return PriceTick(symbol=symbol, bid=bid, ask=ask)
+        except Exception:
             return None
 
     async def place_order(self, order: OrderRequest) -> OrderResult:

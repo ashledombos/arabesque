@@ -837,6 +837,9 @@ class CTraderBroker(BaseBroker):
             return None
         return self._price_ticks.get(symbol_id)
 
+    async def get_quote(self, symbol: str) -> Optional[PriceTick]:
+        return self.get_last_tick(symbol)
+
     def _process_spot_event(self, payload):
         """Traite un ProtoOASpotEvent reçu du serveur."""
         symbol_id = payload.symbolId

@@ -59,6 +59,8 @@ class LiveEngine:
         self._running = False
         self._account_refresh_task: Optional[asyncio.Task] = None
         self._reconcile_task: Optional[asyncio.Task] = None
+        self._snapshot_task: Optional[asyncio.Task] = None
+        self._snapshotter = None
 
         # DD tracking — persistent across refreshes, per-broker
         self._initial_balance: Optional[float] = None      # primary, from accounts.yaml
@@ -148,6 +150,15 @@ class LiveEngine:
             self._reconcile_task = asyncio.create_task(
                 self._reconcile_loop()
             )
+            # 6e. Snapshots multi-broker des symboles en position
+            from arabesque.execution.broker_snapshot import BrokerPriceSnapshotter
+            self._snapshotter = BrokerPriceSnapshotter(
+                brokers=self._brokers,
+                position_monitor=self._position_monitor,
+            )
+            self._snapshot_task = asyncio.create_task(
+                self._snapshotter.run_forever(lambda: self._running)
+            )
 
         self._running = True
         tf_summary = ", ".join(
@@ -171,6 +182,8 @@ class LiveEngine:
             self._account_refresh_task.cancel()
         if self._reconcile_task:
             self._reconcile_task.cancel()
+        if self._snapshot_task:
+            self._snapshot_task.cancel()
         if self._price_feed:
             await self._price_feed.stop()
         for broker_id, broker in self._brokers.items():

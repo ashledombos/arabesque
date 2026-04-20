@@ -3,7 +3,7 @@
 > **Pour reprendre le développement dans un nouveau chat.**
 > État live courant → `docs/STATUS.md`. Décisions techniques → `docs/DECISIONS.md`.
 >
-> Dernière mise à jour : 2026-04-19 (bilan semaine 16)
+> Dernière mise à jour : 2026-04-19 (bilan semaine 16 + snapshot multi-broker)
 
 ---
 
@@ -148,6 +148,7 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - [x] ~~DD thresholds relevés~~ (fait 2026-04-15 — CAUTION -7%, DANGER -8%, EMERGENCY -9%. L'ancien -5% piégeait en CAUTION permanente.)
 - [x] ~~Strategy rename trend→extension~~ (fait 2026-04-15 — signal.py, bar_aggregator, order_dispatcher, live_monitor baselines)
 - [x] ~~cTrader reconnect retry ALREADY_LOGGED_IN~~ (fait 2026-04-15 — retry 5× backoff 30-120s pour sessions fantômes après coupure de courant)
+- [x] ~~Snapshot multi-broker des positions ouvertes~~ (fait 2026-04-19 — `arabesque/execution/broker_snapshot.py` écrit `logs/multi_broker_snapshots.jsonl` à 30s de cadence tant qu'au moins une position est ouverte, sur tous les brokers connectés. Analyse : `python scripts/review_broker_divergences.py`. Cadence/rétention/filtres hard-codés — à rendre paramétrables si l'usage est confirmé pertinent.)
 - [ ] Augmenter risk quand data suffisante (voir critères ci-dessous)
 
 ### Court terme
