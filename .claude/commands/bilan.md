@@ -1,9 +1,11 @@
 ---
-name: bilan
-description: Bilan de trading reproductible sur une période (jour/semaine/mois). Analyse live vs backtest, divergences inter-brokers, met à jour le journal et les docs, puis ouvre une discussion ciblée (RAS possible).
+description: Bilan de trading reproductible (jour/semaine/mois) — live vs backtest, divergences inter-brokers, met à jour journal + docs, discussion ciblée.
+argument-hint: "[jour|hier|semaine|semaine-derniere|mois|mois-dernier|YYYY-MM-DD|YYYY-MM-DD..YYYY-MM-DD]"
 ---
 
 # /bilan — bilan de trading reproductible
+
+Période demandée : **$ARGUMENTS** (si vide → choisis un défaut intelligent selon le jour/heure, voir plus bas).
 
 ## Objectif
 
