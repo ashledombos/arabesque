@@ -1,0 +1,13 @@
+[Unit]
+Description=Arabesque /suivi reminder ping (ntfy + Telegram)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory={{REPO_DIR}}
+ExecStart={{REPO_DIR}}/.venv/bin/python scripts/suivi_reminder.py
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+Nice=10

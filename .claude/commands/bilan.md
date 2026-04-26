@@ -67,22 +67,40 @@ Par **broker** et par **(broker × stratégie)** :
 - MFE moyen, MFE max
 - Durée moyenne de position
 
-Pour la **précision live vs backtest** :
-- Appelle `scripts/compare_live_vs_backtest.py --period <period>` (ou start/end)
-- Compare live vs baseline : delta WR, delta Exp, delta ΣR
-- Extrais aussi les trades qui **divergent fortement** (live SL mais backtest BE/win)
+#### 2.a Adéquation **live vs backtest** (le système valide-t-il toujours sa baseline ?)
 
-Pour les **divergences inter-brokers** :
-- Groupe les exits par `trade_id` ou `(strategy, instrument, entry_ts approximatif)` pour retrouver les paires cross-broker
-- Pour chaque paire : Δ R, Δ P&L, MFE écart
-- Appelle `scripts/review_broker_divergences.py --since <start>` si snapshots disponibles
+C'est la question fondamentale : *les chiffres du backtest qui ont servi à choisir les stratégies tiennent-ils en live ?*
+
+- Lance `python scripts/compare_live_vs_backtest.py --start <start> --end <end>` (ou `--last <N>` jours, ou `--period {today|yesterday|this_week|this_month|prev_month|3m|12m}`).
+- Pour chaque stratégie active, le script reporte : `n_live`, `WR_live`, `Exp_live`, `ΣR_live` **vs** baseline backtest 20 mois (`WR_baseline`, `Exp_baseline`).
+- Calcule **Δ_WR = WR_live − WR_baseline** et **Δ_Exp = Exp_live − Exp_baseline**.
+- **Significativité** : Wilson IC95 sur `WR_live` (small-n safe). Si `IC95_low > WR_baseline + 5pp` ou `IC95_high < WR_baseline − 5pp`, le drift est significatif.
+- Liste les **trades pivots** où live SL mais backtest BE/win (révèle un problème d'exécution : slippage, spread, latence, fill).
+- **Notif si dérive** : `Δ_WR < −15pp ET n ≥ 30` → notifie Telegram+ntfy avec le delta et la stratégie. Le verdict §4 prendra le relais.
+
+#### 2.b Cohérence **cross-broker** (FTMO vs GFT — même signal, exécutions différentes)
+
+C'est la question opérationnelle : *quand un même signal part sur les 2 brokers, sortent-ils au même endroit ?*
+
+- **Source primaire** : `logs/trade_journal.jsonl` filtré sur événements `exit`. Groupe par `(strategy, instrument, entry_ts ±5min)` pour retrouver les paires FTMO/GFT (un même signal qui part sur les 2 brokers).
+- **Source secondaire** (si dispo) : `python scripts/review_broker_divergences.py --since <start>` agrège les snapshots simultanés bid/ask/spread depuis `logs/multi_broker_snapshots.jsonl`. Si « 0 paires » → snapshots non synchrones, s'appuyer uniquement sur la source primaire.
+- Pour chaque paire : `Δ_entry_price`, `Δ_R`, `Δ_PnL`, écart MFE max.
+- **Métriques agrégées** par stratégie : `n_paires`, `mean(|Δ_R|)`, `n_paires_avec_inversion` (un broker WIN, l'autre LOSS).
+- **Notif si dérive** :
+  - `mean(|Δ_R|) > 0.40` sur `n ≥ 5` paires → drift broker structurel sur cette stratégie.
+  - `n_inversions ≥ 3` sur `n ≥ 10` paires → l'exécution d'un broker mange l'edge.
+- **Action** : si la divergence est attribuable à un broker spécifique (spread/slippage), proposer ajout dans `strategy_broker_exclusions` (config/settings.yaml). Cf. cas Cabriole×GFT 2026-04-25.
 
 ### 3. Anomalies à détecter
 
 - **Protection switches** : CAUTION/DANGER/EMERGENCY déclenchés sur la période
 - **Phantom exits** : exits avec `phantom_fallback=True` (après 3 cycles d'absence)
 - **Feed stale** : events `feed_stale` répétés (> 5 par jour)
-- **Weekend guard** : nombre de trades bloqués + évaluation contrefactuelle si applicable
+- **Weekend guard ROI** : (a) compte les blocked events sur la période depuis `logs/weekend_crypto_guard.jsonl` (event=blocked), groupés par stratégie ; (b) **évaluation contrefactuelle** : pour chaque blocked event, simule le résultat avec les bougies post-signal (parquet) en appliquant la même logique BE 0.3R / offset 0.20R / TP 2R / SL signal.sl. Reporte WR_counterfactuel, Exp_counterfactuel, ΣR_counterfactuel **vs** WR_semaine de la même stratégie sur la période. Verdict :
+  - Si `WR_cf > WR_semaine + 10pp` ET `n ≥ 30` blocked → **proposer désactivation** du guard (le blocage coûte de l'edge).
+  - Si `WR_cf < WR_semaine` OU `Exp_cf < 0` → **confirmer** le guard (on a bien raison de bloquer).
+  - Sinon (zone grise) → noter, recheck semaine suivante.
+  Inclure ce verdict dans le résumé Telegram/ntfy de `/suivi` quand le check tombe.
 - **Consecutive losses** : séquences ≥ 5 pertes consécutives sur une même stratégie
 - **Drift vs baseline** : WR observé s'éloigne de > 15pp de la baseline validée
 

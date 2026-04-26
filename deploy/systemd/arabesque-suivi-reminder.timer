@@ -1,0 +1,11 @@
+[Unit]
+Description=Vérifie toutes les heures si /suivi est en retard et ping si oui
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+RandomizedDelaySec=300
+Unit=arabesque-suivi-reminder.service
+
+[Install]
+WantedBy=timers.target
