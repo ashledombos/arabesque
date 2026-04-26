@@ -53,17 +53,16 @@ Conséquences :
 - **Double exposure non intentionnelle** si les deux sont actifs simultanément
 - Le WF PASS 6/6 de Cabriole reflète l'edge d'Extension, pas un edge indépendant
 
-**Décision : Cabriole n'est pas déployé en live.** Il reste comme backup et référence de code.
+**Décision révisée 2026-03-28** : Cabriole **est déployé en live** sur 6 crypto (BTCUSD, ETHUSD, SOLUSD, DOGEUSD, LINKUSD, ADAUSD) en complément d'Extension, sous rodage ×0.50. Configuré dans `config/settings.yaml → strategy_assignments.cabriole`.
 
 Si Extension est un jour retiré pour une raison quelconque, Cabriole peut le remplacer directement sur les mêmes instruments.
 
 ---
 
-## Usage possible
+## Usage actuel
 
-- **Backup** : si Extension est désactivé temporairement
-- **Univers différent** : tester Cabriole sur des instruments où Extension ne génère pas de signaux
-- **Combinaison filtrée** : n'activer Cabriole que si pas de signal Extension actif sur le même instrument (réduirait le nombre de trades mais éviterait le double-counting)
+- **Live FTMO** : actif sur 6 crypto H4, rodage ×0.50, en parallèle d'Extension. Entries STOP au breakout Donchian.
+- **Live GFT** : 🚫 **bloqué depuis 2026-04-25** via `strategy_broker_exclusions` (config/settings.yaml). Cause : 0/10 WR sur GFT (semaines 16+17), p≈4×10⁻⁷ vs baseline WR 77% — incompatibilité spread/exécution TradeLocker. Critère de levée : Cabriole FTMO WR ≥ 70% sur ≥ 20 trades.
 
 ---
 
@@ -73,5 +72,5 @@ Si Extension est un jour retiré pour une raison quelconque, Cabriole peut le re
 |---|---|
 | Walk-forward 6/6 | ✅ PASS |
 | Overlap diagnostiqué | ✅ 73-95% des signaux = Extension |
-| Déployé en live | ❌ Non (overlap, pas de valeur ajoutée) |
-| Backup Extension | 📋 Prêt si besoin |
+| Déployé en live FTMO | ✅ Oui (depuis 2026-03-28, rodage ×0.50) |
+| Déployé en live GFT | 🚫 Bloqué (2026-04-25 — voir DECISIONS.md) |

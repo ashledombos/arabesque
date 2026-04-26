@@ -426,6 +426,9 @@ Gain estimé : +2-5% d’expectancy via résolution de l’ambiguïté SL vs TP 
 | 0 signaux en dry-run replay | `only_last_bar=True` incompatible avec le rebuild du cache | `only_last_bar=False` + `_seen_signals` |
 | 55+ trades WR 25% | Suppression du filtre sans tracking → signaux doublons massifs | Set `_seen_signals` par timestamp |
 | `git push --force` a écrasé un commit | Force push depuis local en retard → écrasement du remote | Ne jamais faire `--force` sur `main` |
+| `close_position` GFT échouait en silence (2026-04-25) | TLAPI signature `close_position(order_id=0, position_id=0)` — notre wrapper appelait `close_position(int(position_id))` qui mappait sur `order_id` (premier arg positionnel). TLAPI cherchait l'ID dans l'historique des ordres → introuvable → `False`. Cause racine des 2 BTCUSD.X orphelines non-fermables sur GFT semaines 16-17. | `arabesque/broker/tradelocker.py:429` ajout du keyword `position_id=int(position_id)` |
+| `compare_live_vs_backtest.py` `NameError` (2026-04-25) | `results` jamais défini, `drifts` non initialisé dans path no-trades. Faisait fail les services systemd `arabesque-report-daily/weekly` depuis 2026-04-19. | Init `drifts: list[str] = []` avant la branche, simplifie `has_drifts = bool(drifts)` |
+| Weekend crypto guard ne bloquait QUE le vendredi (2026-04-26) | `_is_weekend_crypto_blocked` faisait `if now.weekday() != 4: return False`. Conséquence : samedi (`wd=5`) et dimanche (`wd=6`) → guard désactivé → 3 trades crypto FTMO ont passé samedi 2026-04-25 (ALGUSD, MANUSD, IMXUSD — heureusement BE+ tous les 3). Le pendant backtest (`weekend_filter.py`) bloque correctement les 3 cas → divergence live/backtest non détectée. | `arabesque/execution/order_dispatcher.py:_is_weekend_crypto_blocked` : `if wd in (5,6): return True; if wd==4 and hour>=cutoff: return True; return False`. Vérifier ROI du blocage via étape "Weekend guard ROI" de `/bilan` (counterfactual sur blocked events). |
 
 ### ⚠️ Identifiés, non encore corrigés
 
@@ -2612,3 +2615,49 @@ Les seuils daily DD restent inchangés (-2.5% / -3.0% / -3.5%) car FTMO impose -
 **Problème** : le `strategy_type="trend"` dans les logs et le code était ambigu — "trend" est un concept générique, "extension" est le nom de la stratégie. Confusion dans les rapports, baselines, et filtres.
 
 **Décision** : renommer partout en "extension". `order_dispatcher` accepte les deux (`"trend"` et `"extension"`) pour backward compat avec les positions déjà ouvertes et les anciens logs journal.
+
+---
+
+### Décision : cooldown guard validé BENEFICIAL — on le garde (2026-04-24)
+
+**Contexte** : le cooldown guard bloque les re-entries trop rapprochées sur un même instrument après un exit. Valeur live `cooldown_cd5` (5 bougies). Son utilité a été questionnée plusieurs fois — la semaine 17 fournit une mesure propre.
+
+**Mesure walk-forward live (2 semaines, semaines 16 et 17 avril 2026)** :
+- Semaine 17 : 10 signaux bloqués par cooldown, WR 0%, avgR **-1.000R** → **+10R économisés**, classé BENEFICIAL par `compare_live_vs_backtest`.
+- Semaine 16 : pattern identique (cooldown consistent BENEFICIAL sur le rapport hebdo).
+- Confirme le backtest WF 2026-03-30 (`cd5` > `cd2` > `cd0` > dégressif).
+
+**Décision** : le cooldown guard est **non négociable**, au même titre que le BE trigger 0.3R. Tout test futur qui propose de l'abaisser doit prouver un gain net > +5R/semaine sur IC99 pour être retenu.
+
+**Implémentation** : déjà actif dans `order_dispatcher.py`. Counterfactual logging dans `scripts/compare_live_vs_backtest.py` conservé comme vigie permanente.
+
+---
+
+### Décision : bloquer Cabriole sur GFT jusqu'à preuve d'edge (2026-04-24, à valider)
+
+**Contexte** : 0/10 trades GFT Cabriole sur 2 semaines consécutives (16 et 17 avril). Semaine 16 : 7 SL (-$162). Semaine 17 : 3 SL (-$47). Total -$209.
+
+**Analyse statistique** :
+- WR baseline backtest Cabriole crypto 4H : 77% sur 2 392 trades / 20 mois.
+- Probabilité de 0/10 avec WR baseline 77% : `(0.23)^10 ≈ 4×10⁻⁷`.
+- Donc **pas la queue statistique d'un edge sain** — c'est un problème d'exécution broker-spécifique.
+- Mesure croisée : sur les paires cross-broker même signal, **FTMO convertit en BE +0.20R là où GFT prend SL -1R** (4/4 paires semaine 17). Différentiel ~+0.7R/trade FTMO.
+- Cause probable : spread/slippage TradeLocker aux heures creuses (00-08 UTC) qui fait toucher le SL avant d'atteindre le BE trigger à +0.3R de MFE.
+
+**Décision** (à valider par l'opérateur avant déploiement) : bloquer Cabriole côté GFT uniquement. FTMO Cabriole reste actif (les 4 BE +0.20R du 22/04 montrent que l'edge existe côté FTMO).
+
+**Critère de réactivation** : FTMO Cabriole affiche WR ≥ 70% sur ≥ 20 trades cumulés. Alors on retestera GFT sur 20 trades shadow avant réactivation full.
+
+**Implémentation candidate** : filtre broker dans `order_dispatcher.py` (skip `gft_compte1` si `strategy == "cabriole"`), équivalent d'un `exclude_brokers` par stratégie dans `config/settings.yaml`.
+
+---
+
+### Décision : snapshotter multi-broker des positions ouvertes (2026-04-19)
+
+**Problème** : les divergences d'exécution FTMO vs GFT sur les mêmes signaux sont observables dans les trades closés mais jamais mesurées en direct pendant qu'une position est ouverte. Impossible de quantifier spread et écart mid cross-broker sans logs temps réel.
+
+**Décision** : ajouter un `BrokerPriceSnapshotter` (arabesque/execution/broker_snapshot.py) qui, tant qu'au moins une position est ouverte, écrit dans `logs/multi_broker_snapshots.jsonl` les bid/ask/spread de chaque broker connecté toutes les 30s.
+
+**Paramétrage** : cadence (30s), rétention et filtres hard-codés pour l'instant. À rendre paramétrable (`config/settings.yaml`) si l'usage se confirme pertinent après quelques semaines de données.
+
+**Analyse** : script `scripts/review_broker_divergences.py` pour agréger spread médian et écart mid cross-broker par symbole.

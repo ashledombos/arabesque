@@ -3,7 +3,7 @@
 > **Pour reprendre le développement dans un nouveau chat.**
 > État live courant → `docs/STATUS.md`. Décisions techniques → `docs/DECISIONS.md`.
 >
-> Dernière mise à jour : 2026-04-19 (bilan semaine 16 + snapshot multi-broker)
+> Dernière mise à jour : 2026-04-26 (fix weekend guard live — bloquait que vendredi, samedi/dimanche bypassed)
 
 ---
 
@@ -149,7 +149,27 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - [x] ~~Strategy rename trend→extension~~ (fait 2026-04-15 — signal.py, bar_aggregator, order_dispatcher, live_monitor baselines)
 - [x] ~~cTrader reconnect retry ALREADY_LOGGED_IN~~ (fait 2026-04-15 — retry 5× backoff 30-120s pour sessions fantômes après coupure de courant)
 - [x] ~~Snapshot multi-broker des positions ouvertes~~ (fait 2026-04-19 — `arabesque/execution/broker_snapshot.py` écrit `logs/multi_broker_snapshots.jsonl` à 30s de cadence tant qu'au moins une position est ouverte, sur tous les brokers connectés. Analyse : `python scripts/review_broker_divergences.py`. Cadence/rétention/filtres hard-codés — à rendre paramétrables si l'usage est confirmé pertinent.)
+- [x] ~~Bug racine close_position TradeLocker~~ (fait 2026-04-25 — `arabesque/broker/tradelocker.py:429` appelait `close_position(int(position_id))` qui mappait sur `order_id` arg positionnel. TLAPI cherchait l'ID dans l'historique des ordres → introuvable → False systématique. Fix : keyword `position_id=`. Cause des orphelines GFT non-fermables.)
+- [x] ~~Filtre strategy×broker~~ (fait 2026-04-25 — `strategy_broker_exclusions` dans config/settings.yaml + check `_place_on_broker` dans order_dispatcher. `cabriole: [gft_compte1]` actif.)
+- [x] ~~Fix bug compare_live_vs_backtest~~ (fait 2026-04-25 — `NameError: 'results' is not defined` dans path no-trades, services systemd report-daily/weekly fail depuis 2026-04-19. Fix : init `drifts=[]` avant la branche, simplifie has_drifts.)
+- [x] ~~Fix weekend crypto guard~~ (fait 2026-04-26 — `_is_weekend_crypto_blocked` retournait False dès `weekday()!=4`, donc samedi/dimanche bypassed. 3 trades samedi 2026-04-25 (ALGUSD/MANUSD/IMXUSD, FTMO crypto H4) ont passé — heureusement BE+ tous. Fix : bloque wd in (5,6) toujours, wd==4 si hour>=cutoff. Engine restart 11:11 UTC.)
+- [ ] **Coder `scripts/weekend_guard_review.py`** — counterfactual sur les blocked events (lit `logs/weekend_crypto_guard.jsonl`, simule résultat avec bougies parquet + BE 0.3R/offset 0.20R/TP 2R/SL signal.sl). Sortie : WR_cf, Exp_cf, ΣR_cf vs WR_semaine. Câblé dans `/bilan` (étape "Weekend guard ROI") pour confirmer/infirmer le blocage.
+- [ ] Bug amont entry-logged-before-fill (Donchian breakout STOP orders) — entry loggée à submission, fill 2h+ après → phantom exit pendant l'attente → orphan. Zone Opus-only (live.py + position_monitor.py). Solution candidate : log entry seulement quand `position_id` confirmé par broker dans get_positions().
+- [ ] Étendre `/bilan` skill pour couvrir GFT (backtest replay par broker dans la skill — actuellement `compare_live_vs_backtest.py` ne lit que cTrader/journal mixte, pas de séparation par broker)
 - [ ] Augmenter risk quand data suffisante (voir critères ci-dessous)
+
+### Watchlist `/suivi` — seuils quantifiables à surveiller
+
+> Ces seuils sont câblés dans la skill `.claude/commands/suivi.md`. Invoquer `/suivi` pour évaluer + agir.
+> Infra de rappel : `arabesque-suivi-reminder.timer` (systemd user, hourly, `Persistent=true`). Lit `logs/maintenance_state.jsonl`, ping Telegram+ntfy si `next_expected_in_hours` dépassé. Survit au reboot. Cooldown 3h. Auto-bilan si fenêtre (dimanche 18h+ UTC ou début de mois).
+
+- **`glissade_gft_block`** : si Glissade GFT WR < 30% sur n ≥ 8 trades → ajouter `glissade: [gft_compte1]` à `strategy_broker_exclusions`. Actuellement n=4 (1/4 = 25%, CI95 trop large). Levée si Glissade FTMO WR ≥ 70% sur n ≥ 15 puis test progressif sur GFT.
+- **`cabriole_gft_unblock`** : si Cabriole FTMO WR ≥ 70% sur n ≥ 20 trades → retirer `cabriole: gft_compte1` de l'exclusion. Actuellement 8/14 = 57% (incl. BE). Manque 6 trades.
+- **`extension_gft_drift`** : si Extension GFT WR diverge de FTMO de > 50pp sur n ≥ 10 → block. Actuellement n=3 trop petit.
+- **`phantom_exit_alert`** : si nouvel `orphan_cleanup` ou phantom_fallback dans les 24h → alerte Telegram + investigation. Cause amont non corrigée.
+- **`engine_uptime_drop`** : si engine restarté < 30min ou inactif > 5min → alerte (peut indiquer crash auto-restart).
+- **`dd_proximity`** : si DD courant > 70% du seuil CAUTION (-7%) → alerte proactive avant guard.
+- **`stale_bilan`** : si pas de `/bilan` depuis ≥ 8 jours → suggestion (pas auto).
 
 ### Court terme
 - [x] ~~Corrélation inter-positions~~ (fait 2026-03-27 — discount 0.70/0.50/0.35 par catégorie dans order_dispatcher)
