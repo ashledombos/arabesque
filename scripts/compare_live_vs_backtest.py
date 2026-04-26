@@ -400,6 +400,7 @@ def main():
     # --- Notification ---
     if args.notify:
         lines = [f"📊 DRIFT LIVE vs BACKTEST [{period_label}]", ""]
+        drifts: list[str] = []
         if len(journal) > 0:
             total_r = journal["result_r"].sum()
             total_wr = (journal["result_r"] > 0).mean() * 100
@@ -414,7 +415,6 @@ def main():
 
             lines.append("")
             # Flag instruments with drift
-            drifts = []
             for strat, inst in pairs:
                 live = live_stats[(strat, inst)]
                 if isinstance(live["live_exp"], float) and live["live_exp"] < -0.1 and live["live_trades"] >= 5:
@@ -431,7 +431,7 @@ def main():
 
         # Only send notification if there are actual drifts to report
         # (don't spam "aucun trade" when the engine is idle)
-        has_drifts = bool(drifts) if results else False
+        has_drifts = bool(drifts)
         if not has_drifts:
             print("(Pas de dérive — notification non envoyée)")
         else:

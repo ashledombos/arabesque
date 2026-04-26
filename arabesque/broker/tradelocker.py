@@ -426,7 +426,7 @@ class TradeLockerBroker(BaseBroker):
         if not self._api:
             return OrderResult(success=False, message="Not connected")
         try:
-            result = self._api.close_position(int(position_id))
+            result = self._api.close_position(position_id=int(position_id))
             if result:
                 return OrderResult(success=True, order_id=position_id, message="Position closed")
             else:

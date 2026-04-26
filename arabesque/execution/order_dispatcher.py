@@ -179,6 +179,18 @@ class OrderDispatcher:
                 f"brokers: {self._wcg_broker_types}"
             )
 
+        # Strategy × broker exclusions (e.g. cabriole -> [gft_compte1])
+        sbe_cfg = (settings or {}).get("strategy_broker_exclusions", {}) or {}
+        self._strategy_broker_exclusions: Dict[str, set] = {
+            strat: set(brokers_list or [])
+            for strat, brokers_list in sbe_cfg.items()
+        }
+        if self._strategy_broker_exclusions:
+            logger.info(
+                f"[Dispatcher] Exclusions stratégie×broker: "
+                f"{self._strategy_broker_exclusions}"
+            )
+
         # Rodage: risk multiplier for strategies in break-in period
         self._rodage_strategies: set = set()
         self._rodage_multiplier: float = 1.0
@@ -623,14 +635,15 @@ class OrderDispatcher:
         if inst_cfg.get("session_model") != "24x7":
             return False
 
-        # Vérifier si on est vendredi après le cutoff
+        # Bloquer vendredi après cutoff, samedi (5), dimanche (6).
+        # Avant : ne bloquait que vendredi → samedi/dimanche bypassed.
         now = datetime.now(timezone.utc)
-        if now.weekday() != 4:  # 4 = vendredi
-            return False
-        if now.hour < self._wcg_cutoff_hour:
-            return False
-
-        return True
+        wd = now.weekday()
+        if wd in (5, 6):
+            return True
+        if wd == 4 and now.hour >= self._wcg_cutoff_hour:
+            return True
+        return False
 
     def _log_weekend_guard(self, event: str, signal: Signal, broker_id: str,
                            extra: dict | None = None) -> None:
@@ -664,6 +677,20 @@ class OrderDispatcher:
         """Place l'ordre sur un broker spécifique."""
         signal = ps.signal
         sym = signal.instrument
+
+        # Strategy × broker exclusion — block the pair (config-driven).
+        excluded = self._strategy_broker_exclusions.get(
+            signal.strategy_type, set()
+        )
+        if broker_id in excluded:
+            logger.info(
+                f"[Dispatcher] 🚫 {signal.strategy_type} bloqué sur {broker_id} "
+                f"(strategy_broker_exclusions) — {sym} {signal.side.value}"
+            )
+            return OrderResult(
+                success=False,
+                message=f"{signal.strategy_type} exclu de {broker_id}",
+            )
 
         # Weekend crypto guard — bloque les nouvelles positions crypto
         # sur cTrader le vendredi après le cutoff (gap risk à la réouverture)

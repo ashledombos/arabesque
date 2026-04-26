@@ -105,6 +105,16 @@ price_feed:
   #   - BTCUSD
 
 # -----------------------------------------------------------------------------
+# STRATEGY-BROKER EXCLUSIONS — bloque une stratégie sur un broker donné.
+# Motif inscrit dans docs/DECISIONS.md (2026-04-24).
+# Pour lever un blocage : vérifier le critère quantifiable associé (ex: Cabriole
+# FTMO WR≥70% sur ≥20 trades) puis supprimer l'entrée.
+# -----------------------------------------------------------------------------
+strategy_broker_exclusions:
+  cabriole:
+    - gft_compte1              # 0/10 WR vs 77% attendu — block jusqu'à preuve d'edge FTMO
+
+# -----------------------------------------------------------------------------
 # WEEKEND CRYPTO GUARD — Empêche les nouvelles positions crypto sur cTrader
 # le vendredi après le cutoff. cTrader ferme les CFD crypto le weekend,
 # créant des gaps de prix à la réouverture (slippage SL confirmé ETHUSD/DASHUSD).
