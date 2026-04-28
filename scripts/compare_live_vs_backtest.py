@@ -99,22 +99,36 @@ def resolve_period(period: str) -> tuple[datetime, datetime]:
     return start, end
 
 
-def load_journal(path: str = "logs/trade_journal.jsonl") -> pd.DataFrame:
-    """Charge le journal des trades live."""
+def load_journal(path: str = "logs/trade_journal.jsonl",
+                 broker: str | None = None) -> pd.DataFrame:
+    """Charge le journal des trades live.
+
+    Si ``broker`` est fourni (ex: ``ftmo_challenge``, ``gft_compte1``), seuls
+    les exits de ce broker sont retenus — pas de dédup cross-broker.
+    Sinon : dédup par ``trade_id`` (premier exit gardé) pour éviter le
+    double-comptage d'un même signal qui part sur plusieurs brokers.
+    """
     entries = []
     seen_tids: dict[str, dict] = {}
     with open(path) as f:
         for line in f:
             entry = json.loads(line.strip())
-            if entry.get("event") == "exit":
-                tid = entry.get("trade_id", "")
-                if tid and tid in seen_tids:
-                    continue  # même trade sur un autre broker
-                if tid:
-                    seen_tids[tid] = entry
+            if entry.get("event") != "exit":
+                continue
+            if broker is not None:
+                if entry.get("broker_id") != broker:
+                    continue
                 entries.append(entry)
+                continue
+            tid = entry.get("trade_id", "")
+            if tid and tid in seen_tids:
+                continue
+            if tid:
+                seen_tids[tid] = entry
+            entries.append(entry)
     if not entries:
-        print("❌ Aucun trade 'exit' dans le journal.")
+        scope = f" (broker={broker})" if broker else ""
+        print(f"❌ Aucun trade 'exit' dans le journal{scope}.")
         sys.exit(1)
     df = pd.DataFrame(entries)
     df["ts_dt"] = pd.to_datetime(df["ts"], utc=True)
@@ -222,6 +236,9 @@ def main():
                                  "prev_month", "3m", "12m"],
                         help="Preset temporel (équivalent filtres cTrader)")
     parser.add_argument("--journal", type=str, default="logs/trade_journal.jsonl")
+    parser.add_argument("--broker", type=str, default=None,
+                        help="Filtre par broker_id (ex: ftmo_challenge, gft_compte1). "
+                             "Désactive la dédup cross-broker.")
     parser.add_argument("--notify", action="store_true",
                         help="Envoyer le résultat via notifications (Telegram/ntfy)")
     args = parser.parse_args()
@@ -238,7 +255,7 @@ def main():
                   if args.end else datetime.now(timezone.utc))
     else:
         # Période couverte par le journal
-        journal_all = load_journal(args.journal)
+        journal_all = load_journal(args.journal, broker=args.broker)
         start_dt = journal_all["ts_dt"].min() - timedelta(days=1)
         end_dt = journal_all["ts_dt"].max() + timedelta(days=1)
 
@@ -252,8 +269,9 @@ def main():
     ]
 
     period_label = args.period or (f"--last {args.last}" if args.last else f"{start_str} → {end_str}")
+    broker_label = f"  [broker={args.broker}]" if args.broker else ""
     print(f"\n{'='*70}")
-    print(f"  COMPARAISON LIVE vs BACKTEST  [{period_label}]")
+    print(f"  COMPARAISON LIVE vs BACKTEST  [{period_label}]{broker_label}")
     print(f"  Période : {start_str} → {end_str}")
     print(f"  Trades live dans la fenêtre : {len(journal)}")
     print(f"{'='*70}\n")

@@ -157,7 +157,7 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - [x] ~~`scripts/replay_signals_vs_live.py`~~ (fait 2026-04-28 — rejoue les signaux théoriques (extension/cabriole/glissade/fouette) sur la période, compare aux entries live + blocked weekend. Détecte les signaux qui auraient dû être exécutés et ne l'ont pas été. Tolérance ±2h H1 / ±6h H4 / ±0.5h M1. Câblé dans `/suivi` watchlist `missing_trades_unjustified`.)
 - [x] ~~Support `--session` CLI Fouetté~~ (fait 2026-04-28 — `python -m arabesque run --strategy fouette --session london XAUUSD`)
 - [ ] Bug amont entry-logged-before-fill (Donchian breakout STOP orders) — entry loggée à submission, fill 2h+ après → phantom exit pendant l'attente → orphan. Zone Opus-only (live.py + position_monitor.py). Solution candidate : log entry seulement quand `position_id` confirmé par broker dans get_positions().
-- [ ] Étendre `/bilan` skill pour couvrir GFT (backtest replay par broker dans la skill — actuellement `compare_live_vs_backtest.py` ne lit que cTrader/journal mixte, pas de séparation par broker)
+- [x] ~~Étendre `/bilan` skill pour couvrir GFT~~ (fait 2026-04-28 — `compare_live_vs_backtest.py --broker {ftmo_challenge|gft_compte1}` filtre par `broker_id` dans le journal, désactive la dédup cross-broker. /bilan §2.a invoque le script 2× par broker quand un même signal part sur les deux.)
 - [ ] Augmenter risk quand data suffisante (voir critères ci-dessous)
 
 ### Watchlist `/suivi` — seuils quantifiables à surveiller

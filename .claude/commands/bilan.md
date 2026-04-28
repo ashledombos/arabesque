@@ -72,6 +72,7 @@ Par **broker** et par **(broker × stratégie)** :
 C'est la question fondamentale : *les chiffres du backtest qui ont servi à choisir les stratégies tiennent-ils en live ?*
 
 - Lance `python scripts/compare_live_vs_backtest.py --start <start> --end <end>` (ou `--last <N>` jours, ou `--period {today|yesterday|this_week|this_month|prev_month|3m|12m}`).
+- **Pour les stratégies multi-brokers** (Extension H1 forex/métaux qui part sur FTMO ET GFT) : invoque le script **2 fois** avec `--broker ftmo_challenge` puis `--broker gft_compte1` pour comparer chaque broker à sa baseline indépendamment (sinon la dédup masque le drift d'un broker).
 - Pour chaque stratégie active, le script reporte : `n_live`, `WR_live`, `Exp_live`, `ΣR_live` **vs** baseline backtest 20 mois (`WR_baseline`, `Exp_baseline`).
 - Calcule **Δ_WR = WR_live − WR_baseline** et **Δ_Exp = Exp_live − Exp_baseline**.
 - **Significativité** : Wilson IC95 sur `WR_live` (small-n safe). Si `IC95_low > WR_baseline + 5pp` ou `IC95_high < WR_baseline − 5pp`, le drift est significatif.
