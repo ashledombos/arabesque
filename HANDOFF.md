@@ -3,7 +3,7 @@
 > **Pour reprendre le développement dans un nouveau chat.**
 > État live courant → `docs/STATUS.md`. Décisions techniques → `docs/DECISIONS.md`.
 >
-> Dernière mise à jour : 2026-04-26 (fix weekend guard live — bloquait que vendredi, samedi/dimanche bypassed)
+> Dernière mise à jour : 2026-04-28 (weekend_guard_review + replay_signals_vs_live — détection trades manquants/non-justifiés)
 
 ---
 
@@ -153,7 +153,9 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - [x] ~~Filtre strategy×broker~~ (fait 2026-04-25 — `strategy_broker_exclusions` dans config/settings.yaml + check `_place_on_broker` dans order_dispatcher. `cabriole: [gft_compte1]` actif.)
 - [x] ~~Fix bug compare_live_vs_backtest~~ (fait 2026-04-25 — `NameError: 'results' is not defined` dans path no-trades, services systemd report-daily/weekly fail depuis 2026-04-19. Fix : init `drifts=[]` avant la branche, simplifie has_drifts.)
 - [x] ~~Fix weekend crypto guard~~ (fait 2026-04-26 — `_is_weekend_crypto_blocked` retournait False dès `weekday()!=4`, donc samedi/dimanche bypassed. 3 trades samedi 2026-04-25 (ALGUSD/MANUSD/IMXUSD, FTMO crypto H4) ont passé — heureusement BE+ tous. Fix : bloque wd in (5,6) toujours, wd==4 si hour>=cutoff. Engine restart 11:11 UTC.)
-- [ ] **Coder `scripts/weekend_guard_review.py`** — counterfactual sur les blocked events (lit `logs/weekend_crypto_guard.jsonl`, simule résultat avec bougies parquet + BE 0.3R/offset 0.20R/TP 2R/SL signal.sl). Sortie : WR_cf, Exp_cf, ΣR_cf vs WR_semaine. Câblé dans `/bilan` (étape "Weekend guard ROI") pour confirmer/infirmer le blocage.
+- [x] ~~`scripts/weekend_guard_review.py`~~ (fait 2026-04-28 — counterfactual sur les blocked events, simule TP/SL/BE sur bougies parquet, compare à WR/Exp en semaine. Verdict ✅ confirme guard / ⚠️ propose désactivation / 🟡 grey zone. Câblé dans `/bilan` §3.)
+- [x] ~~`scripts/replay_signals_vs_live.py`~~ (fait 2026-04-28 — rejoue les signaux théoriques (extension/cabriole/glissade/fouette) sur la période, compare aux entries live + blocked weekend. Détecte les signaux qui auraient dû être exécutés et ne l'ont pas été. Tolérance ±2h H1 / ±6h H4 / ±0.5h M1. Câblé dans `/suivi` watchlist `missing_trades_unjustified`.)
+- [x] ~~Support `--session` CLI Fouetté~~ (fait 2026-04-28 — `python -m arabesque run --strategy fouette --session london XAUUSD`)
 - [ ] Bug amont entry-logged-before-fill (Donchian breakout STOP orders) — entry loggée à submission, fill 2h+ après → phantom exit pendant l'attente → orphan. Zone Opus-only (live.py + position_monitor.py). Solution candidate : log entry seulement quand `position_id` confirmé par broker dans get_positions().
 - [ ] Étendre `/bilan` skill pour couvrir GFT (backtest replay par broker dans la skill — actuellement `compare_live_vs_backtest.py` ne lit que cTrader/journal mixte, pas de séparation par broker)
 - [ ] Augmenter risk quand data suffisante (voir critères ci-dessous)
@@ -170,6 +172,7 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - **`engine_uptime_drop`** : si engine restarté < 30min ou inactif > 5min → alerte (peut indiquer crash auto-restart).
 - **`dd_proximity`** : si DD courant > 70% du seuil CAUTION (-7%) → alerte proactive avant guard.
 - **`stale_bilan`** : si pas de `/bilan` depuis ≥ 8 jours → suggestion (pas auto).
+- **`missing_trades_unjustified`** : `scripts/replay_signals_vs_live.py --since J-7` → si > 2 signaux théoriques sans entry, sans blocked, sans exclusion par broker → alerte. Cause possible : engine aveugle, stratégie dropped silencieusement, filtre trop restrictif.
 
 ### Court terme
 - [x] ~~Corrélation inter-positions~~ (fait 2026-03-27 — discount 0.70/0.50/0.35 par catégorie dans order_dispatcher)
@@ -177,7 +180,6 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - [x] ~~Graceful SIGTERM~~ (fait 2026-03-27 — save_state/load_state position_monitor, MFE+BE+trailing persistés)
 - [x] ~~Rapports automatisés~~ (fait 2026-03-27 — daily 21h UTC + weekly dim 20h UTC via systemd timers)
 - [x] ~~Feuille de route BB_RPB_TSL~~ (fait 2026-03-28 — 11/13 éléments testés, tous NEUTRE ou REJETÉ. Le système actuel est le bon profil. Voir `docs/EXPERIMENT_LOG.md` section 6)
-- [ ] Ajouter support `--session` CLI pour Fouetté (passer london/ny/tokyo)
 - [x] ~~Implémenter protection slippage entrée (H4)~~ (fait 2026-03-28 — `order_dispatcher.py` check ATR-normalized slippage at trigger, counterfactual + JSONL logging, seuil configurable `max_slippage_atr: 0.5`)
 - [x] ~~Explorer volatility targeting~~ (fait 2026-03-28 — REJETÉ, haute vol = notre signal d'entrée, réduire risk en haute vol tue l'edge. Voir `docs/EXPERIMENT_LOG.md` section 7)
 - [x] ~~Guard counterfactual tracking~~ (fait 2026-03-30 — backtest+WF logguent les counterfactuals par guard : cooldown, bb_squeeze, slippage, spread, duplicate_instrument. Affichage agrégé dans WF report et compare_live_vs_backtest)

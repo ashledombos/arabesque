@@ -113,7 +113,10 @@ def _run_backtest(args: argparse.Namespace) -> int:
     if strategy == "fouette":
         from arabesque.strategies.fouette.signal import FouetteSignalGenerator, FouetteConfig
         from arabesque.core.guards import ExecConfig
-        sig_gen = FouetteSignalGenerator(FouetteConfig())
+        fouette_cfg_kwargs = {}
+        if getattr(args, "session", None):
+            fouette_cfg_kwargs["session_preset"] = args.session
+        sig_gen = FouetteSignalGenerator(FouetteConfig(**fouette_cfg_kwargs))
         timeframe = "min1"  # Fouetté = ORB M1
         # Sur M1, ATR ~$0.80 sur XAUUSD vs ~$15 en H1.
         # Les seuils H1 (spread/slip < 0.10-0.15×ATR) rejettent 97% des signaux M1.
@@ -527,6 +530,9 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Filtre les signaux bloqués par le weekend crypto "
                             "guard (ven >= 15h UTC, sam, dim) — reflète la "
                             "config live cTrader")
+    run_p.add_argument("--session", default=None,
+                       choices=["ny", "london", "tokyo"],
+                       help="Session preset Fouetté (par défaut: ny). Ignoré hors Fouetté.")
     run_p.add_argument("--no-sub-bar", action="store_true",
                        help="Désactive le sub-bar replay M1 (plus rapide, moins précis)")
     run_p.add_argument("--universe", default=None,

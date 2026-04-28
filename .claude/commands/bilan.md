@@ -91,6 +91,15 @@ C'est la question opérationnelle : *quand un même signal part sur les 2 broker
   - `n_inversions ≥ 3` sur `n ≥ 10` paires → l'exécution d'un broker mange l'edge.
 - **Action** : si la divergence est attribuable à un broker spécifique (spread/slippage), proposer ajout dans `strategy_broker_exclusions` (config/settings.yaml). Cf. cas Cabriole×GFT 2026-04-25.
 
+#### 2.c Trades manquants (signaux théoriques sans entry live)
+
+C'est la question de couverture : *toutes les stratégies actives ont-elles bien tiré sur tous leurs signaux ?*
+
+- Lance `python scripts/replay_signals_vs_live.py --since <start> --until <end>`.
+- Pour chaque stratégie active, le script reporte : `théoriques`, `live`, `blocked_weekend`, `manquants` (= ni live ni weekend ni couvert par `strategy_broker_exclusions`).
+- **Si `manquants > 2` sur une stratégie** → investigue : engine aveugle sur cette plage ? stratégie dropped silencieusement ? filtre cooldown/spread/slippage trop agressif ? feed stale ?
+- Inclure le résumé dans le bilan (par stratégie, ligne `manquants=N` à côté de `live=N`).
+
 ### 3. Anomalies à détecter
 
 - **Protection switches** : CAUTION/DANGER/EMERGENCY déclenchés sur la période
