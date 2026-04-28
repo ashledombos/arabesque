@@ -25,8 +25,11 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import signal as sys_signal
+import time
+from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger("arabesque.live.engine")
@@ -71,6 +74,12 @@ class LiveEngine:
         self._broker_initial_balance: dict[str, float] = {}
         self._broker_daily_start_balance: dict[str, float] = {}
         self._broker_daily_start_date: dict[str, str] = {}
+
+        # Pending orders en attente de fill (STOP/LIMIT non immédiats).
+        # key = "broker_id:order_id" → {broker_id, order_id, signal, ts}
+        # record_entry n'est appelé qu'après confirmation du fill via get_positions().
+        self._pending_fills: dict[str, dict] = {}
+        self._pending_fills_path = Path("logs/pending_fills.json")
 
     @classmethod
     def from_config(
@@ -145,6 +154,8 @@ class LiveEngine:
             await self._reconcile_existing_positions()
             # 6c. Restaurer l'état sauvegardé (MFE, BE, trailing)
             self._position_monitor.load_state()
+            # 6c-bis. Restaurer les pending fills (STOP/LIMIT en attente)
+            self._load_pending_fills()
             # 6d. Détecter les trades fermés pendant le downtime
             await self._reconcile_missed_exits()
             self._reconcile_task = asyncio.create_task(
@@ -178,6 +189,10 @@ class LiveEngine:
                 self._position_monitor.save_state()
             except Exception as e:
                 logger.error(f"[Engine] Erreur sauvegarde état positions: {e}")
+        try:
+            self._save_pending_fills()
+        except Exception as e:
+            logger.error(f"[Engine] Erreur sauvegarde pending_fills: {e}")
         if self._account_refresh_task:
             self._account_refresh_task.cancel()
         if self._reconcile_task:
@@ -461,14 +476,150 @@ class LiveEngine:
         return monitor
 
     async def _reconcile_loop(self) -> None:
-        """Nettoie périodiquement les positions fermées du monitor."""
+        """Nettoie périodiquement les positions fermées du monitor.
+
+        Détecte aussi les fills tardifs des ordres STOP/LIMIT (Cabriole Donchian
+        breakout : un STOP peut prendre plusieurs heures avant d'être touché).
+        """
         while self._running:
             await asyncio.sleep(120)  # toutes les 2 minutes
-            if self._running and self._position_monitor:
+            if not self._running:
+                continue
+            if self._position_monitor:
                 try:
                     await self._position_monitor.reconcile()
                 except Exception as e:
                     logger.warning(f"[Engine] Reconcile error: {e}")
+            # Pending fills : détecte les STOP/LIMIT qui viennent de toucher
+            try:
+                await self._poll_pending_fills()
+            except Exception as e:
+                logger.warning(f"[Engine] Pending fills poll error: {e}")
+
+    async def _poll_pending_fills(self) -> None:
+        """Vérifie si les ordres pending sont fillés. Loggue entry à ce moment.
+
+        Pour chaque pending : appelle ``broker.get_positions()`` et cherche un
+        ``position_id`` qui matche l'``order_id`` placé. Si trouvé, loggue
+        ``record_entry`` + register_position. Si l'ordre a > 24h ET qu'il n'est
+        plus dans la liste des pending broker-side, loggue ``pending_expired``
+        et retire de ``_pending_fills``.
+        """
+        if not self._pending_fills:
+            return
+
+        from arabesque.core.models import Side
+
+        items = list(self._pending_fills.items())
+        changed = False
+        for key, info in items:
+            broker_id = info["broker_id"]
+            order_id = info["order_id"]
+            broker = self._brokers.get(broker_id)
+            if not broker:
+                continue
+            try:
+                positions = await broker.get_positions()
+            except Exception as e:
+                logger.debug(f"[Engine] poll {broker_id} get_positions: {e}")
+                continue
+
+            match = next(
+                (p for p in positions if str(p.position_id) == str(order_id)),
+                None,
+            )
+            if match:
+                # Fill confirmé. Reconstruit un signal-like objet pour record_entry.
+                class _StubSignal:
+                    pass
+                stub = _StubSignal()
+                stub.signal_id = info.get("signal_id", "")
+                stub.instrument = info["instrument"]
+                stub.strategy_type = info.get("strategy_type", "unknown")
+                stub.side = Side.LONG if info["side"].upper() == "LONG" else Side.SHORT
+                stub.close = info["signal_close"]
+                stub.sl = info["signal_sl"]
+                stub.tp_indicative = info.get("signal_tp", 0.0)
+
+                if self._live_monitor:
+                    self._live_monitor.record_entry(
+                        signal=stub,
+                        broker_id=broker_id,
+                        position_id=str(order_id),
+                        entry_price=match.entry_price,
+                        volume=match.volume,
+                        risk_cash=info.get("risk_cash", 0.0),
+                    )
+
+                if self._position_monitor:
+                    digits = 5
+                    try:
+                        sinfo = await broker.get_symbol_info(info["instrument"])
+                        if sinfo:
+                            digits = sinfo.digits
+                    except Exception:
+                        pass
+                    self._position_monitor.register_position(
+                        broker_id=broker_id,
+                        position_id=str(order_id),
+                        symbol=info["instrument"],
+                        side=stub.side,
+                        entry=match.entry_price,
+                        sl=match.stop_loss or info["signal_sl"],
+                        tp=match.take_profit or info.get("signal_tp", 0.0),
+                        volume=match.volume,
+                        digits=digits,
+                    )
+
+                logger.info(
+                    f"[Engine] 🎯 Pending fill confirmé: {info['instrument']} "
+                    f"{info['side']} entry={match.entry_price:.5f} "
+                    f"({broker_id}:{order_id})"
+                )
+                self._pending_fills.pop(key, None)
+                changed = True
+                continue
+
+            # Pas trouvé : si > 24h, on considère expiré
+            age = time.time() - info.get("ts_placed", time.time())
+            if age > 24 * 3600:
+                if self._live_monitor:
+                    self._live_monitor.record_pending_expired(
+                        broker_id, str(order_id), info["instrument"],
+                        reason="timeout_24h",
+                    )
+                logger.info(
+                    f"[Engine] ⌛ Pending expiré (24h): "
+                    f"{info['instrument']} ({broker_id}:{order_id})"
+                )
+                self._pending_fills.pop(key, None)
+                changed = True
+
+        if changed:
+            self._save_pending_fills()
+
+    def _save_pending_fills(self) -> None:
+        try:
+            self._pending_fills_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self._pending_fills_path, "w") as f:
+                json.dump(self._pending_fills, f)
+        except Exception as e:
+            logger.warning(f"[Engine] save pending_fills: {e}")
+
+    def _load_pending_fills(self) -> None:
+        if not self._pending_fills_path.exists():
+            return
+        try:
+            with open(self._pending_fills_path) as f:
+                self._pending_fills = json.load(f) or {}
+            if self._pending_fills:
+                logger.info(
+                    f"[Engine] Restauré {len(self._pending_fills)} pending fill(s) "
+                    f"depuis {self._pending_fills_path}"
+                )
+        except Exception as e:
+            logger.warning(f"[Engine] load pending_fills: {e}")
+            self._pending_fills = {}
 
     async def _reconcile_existing_positions(self) -> None:
         """Au démarrage, enregistre les positions déjà ouvertes dans le monitor.
@@ -1075,18 +1226,12 @@ class LiveEngine:
                 f"[Engine] {status} {broker_id} | {signal.instrument} "
                 f"{signal.side.value} order_id={result.order_id}"
             )
-            # Enregistrer dans le live monitor (trade journal)
-            if self._live_monitor and result.order_id:
-                self._live_monitor.record_entry(
-                    signal=signal,
-                    broker_id=broker_id,
-                    position_id=str(result.order_id),
-                    entry_price=result.fill_price or signal.close,
-                    volume=result.fill_volume or result.volume_lots or 0.01,
-                    risk_cash=result.risk_cash,
-                )
-            # Enregistrer la position dans le monitor pour BE/trailing
-            if self._position_monitor and result.order_id:
+            # NB : on ne loggue plus `record_entry` ici. Les ordres STOP/LIMIT
+            # peuvent être placés sans être fillés (Cabriole Donchian breakout
+            # peut prendre 2h+). _register_position_in_monitor décide entre
+            # `record_entry` (fill confirmé broker-side) et `record_pending_order`
+            # (en attente de fill, suivi par _pending_fills).
+            if result.order_id:
                 await self._register_position_in_monitor(
                     broker_id, signal, result
                 )
@@ -1159,18 +1304,23 @@ class LiveEngine:
             logger.debug(f"[Engine] slippage log error: {e}")
 
     async def _register_position_in_monitor(self, broker_id, signal, result):
-        """Enregistre une position fraîchement ouverte dans le position monitor.
+        """Confirme le fill d'un ordre, ou le marque comme pending.
 
-        Valide que le fill correspond bien au signal (détection mismatch).
+        - Si la position apparaît dans get_positions() après retry → fill confirmé,
+          on loggue `record_entry` + on enregistre dans le position_monitor.
+        - Sinon (STOP/LIMIT non encore fillé) → on loggue `record_pending_order`
+          et on stocke dans `_pending_fills`. Le `_pending_fills_loop` détectera
+          le fill ultérieur et fera record_entry à ce moment-là.
+
+        Valide aussi que l'entry broker correspond au signal (détection mismatch).
         """
         try:
             broker = self._brokers.get(broker_id)
             if not broker:
                 return
 
-            # Chercher la position avec retry (le broker peut mettre du temps)
             entry = signal.close
-            volume = 0.01
+            volume = result.fill_volume or result.volume_lots or 0.01
             found = False
             pos = None
 
@@ -1189,37 +1339,80 @@ class LiveEngine:
                     break
 
             if not found:
-                logger.warning(
-                    f"[Engine] Position {result.order_id} not found after 3 attempts, "
-                    f"registering with signal values "
-                    f"(entry={entry}, vol=estimated)"
-                )
-
-            # Validation fill mismatch : si le slip est absurde, c'est un bug de routage
-            if found:
-                slip = abs(entry - signal.close)
-                risk_distance = abs(signal.close - signal.sl) if signal.sl else 1.0
-                slip_in_r = slip / risk_distance if risk_distance > 0 else 0
-
-                if slip_in_r > 5.0:
-                    logger.error(
-                        f"[Engine] 🔴 FILL MISMATCH DÉTECTÉ: {signal.instrument} "
-                        f"signal_close={signal.close:.5f} fill_entry={entry:.5f} "
-                        f"slip={slip:.5f} ({slip_in_r:.1f}R) — position NON enregistrée. "
-                        f"Vérifier manuellement position_id={result.order_id}"
+                # Pas de fill immédiat — c'est un STOP/LIMIT en attente.
+                # On loggue `pending_order` (pas `entry`) et on stocke pour
+                # détection ultérieure via _pending_fills_loop.
+                if self._live_monitor:
+                    self._live_monitor.record_pending_order(
+                        signal=signal,
+                        broker_id=broker_id,
+                        order_id=str(result.order_id),
+                        order_type="STOP_OR_LIMIT",
+                        target_price=signal.close,
+                        volume=volume,
+                        risk_cash=getattr(result, "risk_cash", 0.0),
                     )
-                    return  # Ne PAS enregistrer une position corrompue
-
+                key = f"{broker_id}:{result.order_id}"
+                self._pending_fills[key] = {
+                    "broker_id": broker_id,
+                    "order_id": str(result.order_id),
+                    "instrument": signal.instrument,
+                    "side": signal.side.value,
+                    "signal_close": signal.close,
+                    "signal_sl": signal.sl,
+                    "signal_tp": getattr(signal, "tp_indicative", 0.0),
+                    "strategy_type": getattr(signal, "strategy_type", "unknown"),
+                    "signal_id": getattr(signal, "signal_id", ""),
+                    "risk_cash": getattr(result, "risk_cash", 0.0),
+                    "volume_estimate": volume,
+                    "ts_placed": time.time(),
+                }
+                self._save_pending_fills()
                 logger.info(
-                    f"[Engine] 📋 Fill confirmé: {signal.instrument} "
-                    f"{signal.side.value} {volume:.3f}L "
-                    f"entry={entry:.5f} (signal={signal.close:.5f} "
-                    f"slip={slip:.5f}) "
-                    f"SL={pos.stop_loss} TP={pos.take_profit}"
+                    f"[Engine] ⏳ Pending fill: {signal.instrument} "
+                    f"{signal.side.value} order_id={result.order_id} — "
+                    f"sera confirmé quand le STOP/LIMIT sera touché"
+                )
+                return
+
+            # Fill confirmé broker-side : validation slippage puis enregistrement
+            slip = abs(entry - signal.close)
+            risk_distance = abs(signal.close - signal.sl) if signal.sl else 1.0
+            slip_in_r = slip / risk_distance if risk_distance > 0 else 0
+
+            if slip_in_r > 5.0:
+                logger.error(
+                    f"[Engine] 🔴 FILL MISMATCH DÉTECTÉ: {signal.instrument} "
+                    f"signal_close={signal.close:.5f} fill_entry={entry:.5f} "
+                    f"slip={slip:.5f} ({slip_in_r:.1f}R) — position NON enregistrée. "
+                    f"Vérifier manuellement position_id={result.order_id}"
+                )
+                return
+
+            logger.info(
+                f"[Engine] 📋 Fill confirmé: {signal.instrument} "
+                f"{signal.side.value} {volume:.3f}L "
+                f"entry={entry:.5f} (signal={signal.close:.5f} "
+                f"slip={slip:.5f}) "
+                f"SL={pos.stop_loss} TP={pos.take_profit}"
+            )
+
+            # Trade journal entry — la position existe vraiment
+            if self._live_monitor:
+                self._live_monitor.record_entry(
+                    signal=signal,
+                    broker_id=broker_id,
+                    position_id=str(result.order_id),
+                    entry_price=entry,
+                    volume=volume,
+                    risk_cash=getattr(result, "risk_cash", 0.0),
                 )
 
-            # Digits du symbole
-            digits = 5  # défaut
+            # Position monitor (BE/trailing)
+            if not self._position_monitor:
+                return
+
+            digits = 5
             try:
                 sinfo = await broker.get_symbol_info(signal.instrument)
                 if sinfo:
@@ -1227,11 +1420,9 @@ class LiveEngine:
             except Exception:
                 pass
 
-            # Utiliser SL/TP du broker si disponibles (plus fiables que le signal)
-            sl = pos.stop_loss if (found and pos.stop_loss) else signal.sl
-            tp = pos.take_profit if (found and pos.take_profit) else signal.tp_indicative
+            sl = pos.stop_loss if pos.stop_loss else signal.sl
+            tp = pos.take_profit if pos.take_profit else signal.tp_indicative
 
-            from arabesque.core.models import Side
             self._position_monitor.register_position(
                 broker_id=broker_id,
                 position_id=str(result.order_id),

@@ -597,6 +597,57 @@ class LiveMonitor:
     # Trade entry
     # ------------------------------------------------------------------
 
+    def record_pending_order(
+        self,
+        signal,
+        broker_id: str,
+        order_id: str,
+        order_type: str,
+        target_price: float,
+        volume: float,
+        risk_cash: float = 0.0,
+    ) -> None:
+        """Loggue un ordre placé mais pas encore fillé (STOP/LIMIT pending).
+
+        Pas d'entrée dans ``_open_trades`` — l'event ``entry`` arrivera plus tard
+        quand le broker confirmera le fill via ``record_entry``. Permet aux outils
+        de bilan/suivi d'ignorer les pending et de ne compter R/PnL que sur les
+        vrais fills.
+        """
+        self._append_journal({
+            "event": "pending_order",
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "trade_id": getattr(signal, "signal_id", "")[:12],
+            "instrument": signal.instrument,
+            "strategy": getattr(signal, "strategy_type", "unknown"),
+            "side": signal.side.value,
+            "order_type": order_type,
+            "target_price": target_price,
+            "sl": signal.sl,
+            "volume": volume,
+            "risk_cash": risk_cash,
+            "broker_id": broker_id,
+            "order_id": str(order_id),
+        })
+        logger.info(
+            f"[LiveMonitor] ⏳ Pending {order_type}: {signal.instrument} "
+            f"{signal.side.value} @ {target_price:.5f} SL={signal.sl:.5f} "
+            f"vol={volume:.3f}L ({broker_id}:{order_id})"
+        )
+
+    def record_pending_expired(
+        self, broker_id: str, order_id: str, instrument: str, reason: str = "expired"
+    ) -> None:
+        """Loggue l'expiration/annulation d'un pending order non fillé."""
+        self._append_journal({
+            "event": "pending_expired",
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "broker_id": broker_id,
+            "order_id": str(order_id),
+            "instrument": instrument,
+            "reason": reason,
+        })
+
     def record_entry(
         self,
         signal,
