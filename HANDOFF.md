@@ -3,7 +3,10 @@
 > **Pour reprendre le développement dans un nouveau chat.**
 > État live courant → `docs/STATUS.md`. Décisions techniques → `docs/DECISIONS.md`.
 >
-> Dernière mise à jour : 2026-04-28 (weekend_guard_review + replay_signals_vs_live — détection trades manquants/non-justifiés)
+> 🎯 **OBJECTIF PRINCIPAL : vérifier que l'edge backtest se reproduit en live** (la perf est secondaire).
+> **À lire en premier dans toute session de bilan/suivi : `logs/edge_audit_latest.md`** — état actuel de l'edge par stratégie, sans refaire l'analyse. Rafraîchir si > 24h via `python scripts/audit_edge_live_vs_backtest.py`.
+>
+> Dernière mise à jour : 2026-04-29 (audit edge live vs backtest opérationnel + persistant — script + skill /bilan §2.d + watchlist /suivi)
 
 ---
 
@@ -158,6 +161,11 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - [x] ~~Support `--session` CLI Fouetté~~ (fait 2026-04-28 — `python -m arabesque run --strategy fouette --session london XAUUSD`)
 - [x] ~~Bug entry-logged-before-fill~~ (fait 2026-04-28 — `_register_position_in_monitor` distingue maintenant fill confirmé vs pending. Si la position est dans `get_positions()` après retry → `record_entry` + register_position. Sinon → `record_pending_order` + ajout à `_pending_fills` (persistant `logs/pending_fills.json`). Le `_reconcile_loop` poll les pending toutes les 2 min ; quand le STOP/LIMIT touche, on loggue `entry` à ce moment avec le vrai entry_price broker. Pending > 24h → `pending_expired`. Élimine les phantom exits Cabriole avant fill. Nouveaux events JSONL : `pending_order`, `pending_expired`.)
 - [x] ~~Étendre `/bilan` skill pour couvrir GFT~~ (fait 2026-04-28 — `compare_live_vs_backtest.py --broker {ftmo_challenge|gft_compte1}` filtre par `broker_id` dans le journal, désactive la dédup cross-broker. /bilan §2.a invoque le script 2× par broker quand un même signal part sur les deux.)
+- [x] ~~`scripts/audit_edge_live_vs_backtest.py`~~ (fait 2026-04-29 — **objectif principal du système : vérifier que l'edge est conservé**. Pour chaque stratégie active, panorama Live vs Backtest pleine fenêtre vs Baseline 20 mois. Verdicts : edge_intact / drift_modere / drift_structurel / regime_defavorable / small_n_inconclusif. **Persistance** : append à `logs/edge_audit.jsonl` (1 ligne/run) + écrit `logs/edge_audit_latest.md` (Markdown lisible) — ces fichiers résistent au compactage de session, reboot, coupure. Pour relire l'état : `cat logs/edge_audit_latest.md`. Câblé dans `/bilan §2.d` et `/suivi` watchlist `edge_audit_drift`.)
+- [ ] **Investiguer 8 extension manquants 27/04 03:00-04:00 UTC** — engine vivant à ce moment (BarAggregators OK), signaux théoriques sur AUDJPY/BNBUSD/GRTUSD/LNKUSD/UNIUSD+3 mais aucune entry. Hypothèse : `max_open_positions=5` ou cooldown a écrasé un cluster post-weekend. Si raison structurelle OK ; sinon edge inexploité aux open lundis.
+- [ ] **Cabriole** : audit edge 13-29 avril donne ΔExp live vs backtest = -0.309R sur n=27 (sous seuil drift_structurel n≥30 mais juste). Backtest perd aussi (-0.338R vs baseline +0.034R = régime défavorable). Live colle au backtest dans une période rouge — **edge intact, pas de drift d'exécution**. Si l'écart se confirme à n≥30 et reste à -0.30R : action requise (block FTMO ou refonte). Surveiller via `audit_edge_live_vs_backtest`.
+- [ ] **Extension** : audit edge donne ΔExp -0.219R sur n=14, drift modéré. Backtest aussi en perte (régime). À surveiller.
+- [ ] Fix `--broker` flag dans `compare_live_vs_backtest.py` — n'a pas filtré sur W18 (6 trades retournés FTMO et GFT alors que GFT n'a qu'1 trade).
 - [ ] Augmenter risk quand data suffisante (voir critères ci-dessous)
 
 ### Watchlist `/suivi` — seuils quantifiables à surveiller

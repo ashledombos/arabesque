@@ -101,6 +101,22 @@ C'est la question de couverture : *toutes les stratégies actives ont-elles bien
 - **Si `manquants > 2` sur une stratégie** → investigue : engine aveugle sur cette plage ? stratégie dropped silencieusement ? filtre cooldown/spread/slippage trop agressif ? feed stale ?
 - Inclure le résumé dans le bilan (par stratégie, ligne `manquants=N` à côté de `live=N`).
 
+#### 2.d Audit edge global (panorama persistant — l'objectif principal)
+
+C'est **la** question : *l'edge mesuré en backtest tient-il toujours en live ?* La perf est secondaire — un edge qui fuit, c'est la mort silencieuse du système.
+
+- Lance `python scripts/audit_edge_live_vs_backtest.py --since <start> --until <end>`.
+- Le script produit un panorama par stratégie active : Live n + Exp, Backtest pleine fenêtre n + Exp (sur **tous** les instruments configurés, pas seulement ceux tradés en live), ΔExp live vs backtest, Δ Exp backtest vs baseline 20 mois.
+- **Persistance** : append automatique à `logs/edge_audit.jsonl` (1 ligne par run, append-only) + écriture `logs/edge_audit_latest.md` (résumé Markdown lisible humain). **Ces fichiers survivent au compactage de session, au reboot, à toute coupure.** Pour relire sans refaire l'analyse : `cat logs/edge_audit_latest.md`.
+- **Verdicts** (sortis automatiquement) :
+  - ✅ `edge_intact` : ΔExp ∈ [-0.10, +0.10] → live colle au backtest, edge conservé.
+  - 🟡 `regime_defavorable` : backtest perd aussi, live colle → on attend, on ne stoppe pas.
+  - ⚠️ `drift_modere` : ΔExp ∈ [-0.30, -0.10] → surveiller (spread, slippage, fills).
+  - 🔶 `drift_structurel` : ΔExp < -0.30 sur n_live ≥ 30 → action requise (block broker / refonte).
+  - 💤 `small_n_inconclusif` : n_live < 5.
+- **Reprise sans contexte** : si on a perdu la session/le contexte, lire `logs/edge_audit_latest.md` donne immédiatement l'état "edge tient ou pas" pour les 4 stratégies. Pas besoin de tout re-faire tourner.
+- **À inclure dans le bilan** : recopier la table de synthèse + le verdict par stratégie. Si un verdict est `drift_modere` ou pire, l'analyser dans la section "Événements marquants".
+
 ### 3. Anomalies à détecter
 
 - **Protection switches** : CAUTION/DANGER/EMERGENCY déclenchés sur la période
