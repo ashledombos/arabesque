@@ -49,7 +49,7 @@ rodage:
 # STRATÉGIE (v3.3 validé: trend-only)
 # -----------------------------------------------------------------------------
 strategy:
-  type: trend            # "trend" | "mean_reversion" | "combined" — trend-only validé sur 20 mois
+  type: extension        # nom canonique ; "trend" reste accepté en alias (cf. BarAggregator._make_signal_generator + order_dispatcher)
 
 # -----------------------------------------------------------------------------
 # MULTI-STRATÉGIE — Assignments instrument → stratégie + timeframe

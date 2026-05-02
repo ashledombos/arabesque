@@ -6,7 +6,7 @@
 > 🎯 **OBJECTIF PRINCIPAL : vérifier que l'edge backtest se reproduit en live** (la perf est secondaire).
 > **À lire en premier dans toute session de bilan/suivi : `logs/edge_audit_latest.md`** — état actuel de l'edge par stratégie, sans refaire l'analyse. Rafraîchir si > 24h via `python scripts/audit_edge_live_vs_backtest.py`.
 >
-> Dernière mise à jour : 2026-04-29 (audit edge live vs backtest opérationnel + persistant — script + skill /bilan §2.d + watchlist /suivi)
+> Dernière mise à jour : 2026-05-02 (bilan mois avril, dédup signal sessions dans replay, fix --broker dans compare, normalisation strategy.type → extension)
 
 ---
 
@@ -166,7 +166,8 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - [x] ~~Amender `replay_signals_vs_live.py`~~ (fait 2026-05-02 — dédup par session `_dedup_sessions()` : signaux consécutifs séparés de ≤ 1.5×TF groupés en 1 session, seul le premier gardé. Remap alias `trend`→`extension`. Ajout `--min-missing N` (défaut 10) pour le seuil trigger. Extension : 201→111 théoriques/mois. Les manquants restants ont des causes légitimes : positions déjà ouvertes, engine restart (W15 DNS), max_open_positions. Trigger `missing_trades_unjustified` dans /suivi : utiliser `--since J-7 --min-missing 5` pour détecter un engine aveugle soudain, pas une analyse de couverture mensuelle.)
 - [ ] **Cabriole** : audit edge 13-29 avril donne ΔExp live vs backtest = -0.309R sur n=27 (sous seuil drift_structurel n≥30 mais juste). Backtest perd aussi (-0.338R vs baseline +0.034R = régime défavorable). Live colle au backtest dans une période rouge — **edge intact, pas de drift d'exécution**. Si l'écart se confirme à n≥30 et reste à -0.30R : action requise (block FTMO ou refonte). Surveiller via `audit_edge_live_vs_backtest`.
 - [ ] **Extension** : audit edge donne ΔExp -0.219R sur n=14, drift modéré. Backtest aussi en perte (régime). À surveiller.
-- [ ] Fix `--broker` flag dans `compare_live_vs_backtest.py` — n'a pas filtré sur W18 (6 trades retournés FTMO et GFT alors que GFT n'a qu'1 trade).
+- [x] ~~Fix `--broker` flag dans `compare_live_vs_backtest.py`~~ (fait 2026-05-02 — bug ligne 266 : second appel `load_journal(args.journal)` sans `broker=args.broker`, écrasait la valeur filtrée. Validé : FTMO 14t WR 79% vs GFT 6t WR 0% sur 2026-04-20 → 26.)
+- [ ] **Restart engine pour appliquer `strategy.type: extension`** — `config/settings.yaml` migré 2026-05-02 (`trend` → `extension`). Effet : les nouveaux signaux Extension écriront `strategy: "extension"` dans le journal au lieu de `"trend"`. Aucun impact runtime (BarAggregator + order_dispatcher acceptent les deux). Pas urgent — au prochain restart organique. Restart : `systemctl --user restart arabesque-live.service` (vérifier d'abord qu'il n'y a pas de position fragile).
 - [ ] Augmenter risk quand data suffisante (voir critères ci-dessous)
 
 ### Watchlist `/suivi` — seuils quantifiables à surveiller

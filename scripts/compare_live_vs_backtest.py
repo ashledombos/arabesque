@@ -263,7 +263,7 @@ def main():
     end_str = end_dt.strftime("%Y-%m-%d")
 
     # Charger et filtrer le journal sur la période
-    journal_all = load_journal(args.journal)
+    journal_all = load_journal(args.journal, broker=args.broker)
     journal = journal_all[
         (journal_all["ts_dt"] >= start_dt) & (journal_all["ts_dt"] <= end_dt)
     ]
