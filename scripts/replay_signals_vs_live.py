@@ -10,6 +10,11 @@ Un signal théorique est *manquant* s'il n'a :
 2. Aucun blocage justifié dans ``weekend_crypto_guard.jsonl``.
 3. Aucune ``strategy_broker_exclusions`` qui le couvre par design.
 
+Les signaux consécutifs sur le même instrument (séparés de ≤ 1 barre) sont
+regroupés en une seule "session de signal" — seul le premier représentant
+est conservé. Évite les faux positifs pour les stratégies comme Extension
+dont la condition peut rester vraie plusieurs barres de suite (BB squeeze).
+
 Usage::
 
     python scripts/replay_signals_vs_live.py --since 2026-04-01
@@ -113,7 +118,7 @@ def _replay(strategy: str, tf: str, instrument: str, start: dt.datetime,
         if entry_ts < start or entry_ts > end:
             continue
         entry_ts_list.append(entry_ts)
-    return entry_ts_list
+    return _dedup_sessions(entry_ts_list, tf)
 
 
 def _load_live_entries(since: dt.datetime, until: dt.datetime) -> dict:
@@ -132,6 +137,9 @@ def _load_live_entries(since: dt.datetime, until: dt.datetime) -> dict:
         if ts < since or ts > until:
             continue
         strat = obj.get("strategy") or obj.get("strategy_type") or "?"
+        # "trend" est l'ancien alias loggué pour Extension
+        if strat == "trend":
+            strat = "extension"
         instr = obj.get("instrument") or "?"
         out[(strat, instr)].append(ts)
     return out
@@ -160,6 +168,28 @@ def _load_blocked(since: dt.datetime, until: dt.datetime) -> dict:
     return out
 
 
+def _dedup_sessions(ts_list: list[pd.Timestamp],
+                    tf: str) -> list[pd.Timestamp]:
+    """Regroupe les signaux consécutifs en sessions — retourne un représentant par session.
+
+    Deux signaux consécutifs sur le même instrument appartiennent à la même
+    session si l'écart entre eux est ≤ 1.5 × la durée d'une barre (tolérance
+    pour les weekends/gaps de marché). On garde le premier signal de chaque session.
+    """
+    if not ts_list:
+        return []
+    tf_hours = {"M1": 1/60, "MIN1": 1/60, "H1": 1.0, "1H": 1.0,
+                "H4": 4.0, "4H": 4.0, "D1": 24.0}
+    bar_h = tf_hours.get(tf.upper(), 1.0)
+    gap_threshold = pd.Timedelta(hours=bar_h * 1.5)
+    sorted_ts = sorted(ts_list)
+    sessions: list[pd.Timestamp] = [sorted_ts[0]]
+    for prev, curr in zip(sorted_ts, sorted_ts[1:]):
+        if curr - prev > gap_threshold:
+            sessions.append(curr)
+    return sessions
+
+
 def _match(target_ts: pd.Timestamp, candidates: list[pd.Timestamp],
            tol_hours: float) -> bool:
     if not candidates:
@@ -176,6 +206,12 @@ def main() -> int:
     p.add_argument("--until", default=None,
                    help="ISO date, défaut now")
     p.add_argument("--notify", action="store_true")
+    p.add_argument("--min-missing", type=int, default=10,
+                   help="Seuil de manquants pour notif/alerte (défaut 10). "
+                        "Extension génère ~40-50 manquants/mois sur J-30 même "
+                        "en fonctionnement normal (positions déjà ouvertes, "
+                        "engine down events). Abaisser à 3-5 seulement si on "
+                        "veut détecter un engine aveugle en J-7.")
     args = p.parse_args()
 
     since = pd.Timestamp(args.since, tz="UTC")
@@ -228,7 +264,8 @@ def main() -> int:
                 print(f"    ❌ {m['ts']}  {m['instrument']}  ({m['tf']})")
             if n_miss > 5:
                 print(f"    ... et {n_miss-5} autres")
-            notif_lines.append(f"• {strat} : {n_miss} manquants")
+            if n_miss > args.min_missing:
+                notif_lines.append(f"• {strat} : {n_miss} manquants (seuil={args.min_missing})")
 
     if args.notify and notif_lines:
         try:
@@ -246,7 +283,7 @@ def main() -> int:
         except Exception as e:
             print(f"notif err: {e}")
 
-    return 0 if all(len(s["missing"]) == 0 for s in by_strat.values()) else 1
+    return 0 if all(len(s["missing"]) <= args.min_missing for s in by_strat.values()) else 1
 
 
 if __name__ == "__main__":
