@@ -695,12 +695,146 @@ class LiveEngine:
         else:
             logger.info("[Engine] 📋 Réconciliation: aucune position ouverte")
 
+    async def _reconstruct_exit_from_history(
+        self,
+        broker_id: str,
+        position_id: str,
+        entry_record: dict,
+    ) -> dict:
+        """Reconstruit l'exit d'une position fermée pendant un downtime.
+
+        Sources, par ordre :
+          1. broker.get_closed_position_detail() → vrai prix d'exit + ts
+          2. bars min1 (parquet) entre entry_ts et exit_ts → vrai MFE
+          3. fallback estimé (ancien comportement) si rien de tout cela
+
+        Retourne dict {exit_price, exit_reason, mfe_r, be_set, trailing_tier,
+        source}. Le préfixe "reconciled_*" est conservé sur exit_reason pour
+        identifier les exits non observés en temps réel.
+        """
+        import pandas as pd
+
+        instrument = entry_record.get("instrument", "")
+        side_str = str(entry_record.get("side", "LONG")).upper()
+        entry_price = entry_record.get("entry_price", 0.0)
+        sl = entry_record.get("sl", 0.0)
+        tp = entry_record.get("tp", 0.0)
+        entry_ts_str = entry_record.get("ts", "")
+
+        is_long = side_str == "LONG"
+        R = abs(entry_price - sl) if sl else 0.0
+
+        # 1. Vrai prix d'exit côté broker
+        real_fill = None
+        broker = self._brokers.get(broker_id)
+        if broker:
+            try:
+                real_fill = await broker.get_closed_position_detail(position_id)
+            except Exception as e:
+                logger.debug(
+                    f"[Reconcile] get_closed_position_detail failed for "
+                    f"{position_id}: {e}"
+                )
+        real_exit_price = real_fill.get("exit_price") if real_fill else None
+        real_exit_time = real_fill.get("exit_time") if real_fill else None
+
+        # 2. Reconstruction MFE depuis bars min1
+        mfe_r = 0.0
+        bars_used = 0
+        if R > 0 and entry_ts_str and instrument:
+            try:
+                from arabesque.data.store import load_ohlc
+                entry_ts = pd.Timestamp(entry_ts_str)
+                if entry_ts.tzinfo is None:
+                    entry_ts = entry_ts.tz_localize("UTC")
+                if real_exit_time:
+                    end_ts = pd.Timestamp(real_exit_time)
+                    if end_ts.tzinfo is None:
+                        end_ts = end_ts.tz_localize("UTC")
+                else:
+                    end_ts = pd.Timestamp.now(tz="UTC")
+                start_str = (entry_ts - pd.Timedelta(hours=2)).strftime("%Y-%m-%d")
+                end_str = (end_ts + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                df = load_ohlc(
+                    instrument, interval="1m", start=start_str, end=end_str
+                )
+                if df is not None and len(df) > 0:
+                    df = df[(df.index >= entry_ts) & (df.index <= end_ts)]
+                    bars_used = len(df)
+                    if bars_used > 0:
+                        if is_long:
+                            max_fav = float(df["High"].max())
+                            mfe_r = (max_fav - entry_price) / R
+                        else:
+                            min_fav = float(df["Low"].min())
+                            mfe_r = (entry_price - min_fav) / R
+                        mfe_r = max(mfe_r, 0.0)
+            except Exception as e:
+                logger.debug(
+                    f"[Reconcile] bars reconstruction failed for "
+                    f"{instrument}: {e}"
+                )
+
+        be_set = mfe_r >= 0.3
+
+        # 3. Choisir exit_price + reason
+        if real_exit_price:
+            exit_price = real_exit_price
+            be_target = entry_price + (0.20 * R if is_long else -0.20 * R)
+            tol = 0.30 * R if R > 0 else 0.0
+            tp_hit = (
+                tp > 0 and R > 0 and (
+                    (is_long and exit_price >= tp - tol)
+                    or (not is_long and exit_price <= tp + tol)
+                )
+            )
+            sl_hit = (
+                sl > 0 and R > 0 and (
+                    (is_long and exit_price <= sl + tol)
+                    or (not is_long and exit_price >= sl - tol)
+                )
+            )
+            if tp_hit:
+                exit_reason = "reconciled_take_profit"
+            elif be_set and abs(exit_price - be_target) <= tol:
+                exit_reason = "reconciled_breakeven_exit"
+            elif sl_hit:
+                exit_reason = "reconciled_stop_loss"
+            else:
+                exit_reason = "reconciled_other"
+            source = "broker_detail"
+        elif be_set:
+            # Pas de confirmation broker mais MFE >= 0.3R observé → BE armé
+            # avant la coupure ; SL avait été remonté à entry + 0.20R, donc
+            # exit probable = BE.
+            exit_price = entry_price + (0.20 * R if is_long else -0.20 * R)
+            exit_reason = "reconciled_breakeven_exit"
+            source = "bars_reconstruction"
+        else:
+            # Fallback : pas de broker, pas de MFE significatif → SL plein
+            exit_price = sl
+            exit_reason = "reconciled_stop_loss"
+            source = "estimated_fallback"
+
+        return {
+            "exit_price": exit_price,
+            "exit_reason": exit_reason,
+            "mfe_r": round(mfe_r, 3),
+            "be_set": be_set,
+            "trailing_tier": 0,
+            "source": source,
+            "bars_used": bars_used,
+            "real_fill": bool(real_fill),
+        }
+
     async def _reconcile_missed_exits(self) -> None:
         """Détecte les trades entrés avant le dernier arrêt mais fermés pendant le downtime.
 
         Lit le journal pour trouver les entry sans exit correspondant,
         vérifie si la position existe encore chez le broker, et logue
-        l'exit manquant si la position a disparu.
+        l'exit manquant si la position a disparu. Le vrai prix et le MFE
+        sont reconstruits via broker.get_closed_position_detail() et les
+        bars min1 (parquet) — cf. _reconstruct_exit_from_history().
         """
         import json
         from pathlib import Path
@@ -765,13 +899,9 @@ class LiveEngine:
                 continue
 
             # La position a disparu → fermée pendant le downtime
-            entry_price = entry_record.get("entry_price", 0.0)
-            sl = entry_record.get("sl", 0.0)
-
-            # Estimer le prix et la raison de sortie
-            # Sans données tick, on ne peut que supposer SL touché
-            exit_price = sl
-            exit_reason = "reconciled_stop_loss"
+            recon = await self._reconstruct_exit_from_history(
+                broker_id, position_id, entry_record
+            )
 
             if self._live_monitor:
                 # record_exit attend que le trade soit dans _open_trades,
@@ -785,8 +915,8 @@ class LiveEngine:
                         instrument=entry_record.get("instrument", ""),
                         strategy=entry_record.get("strategy", "unknown"),
                         side=entry_record.get("side", ""),
-                        entry_price=entry_price,
-                        sl=sl,
+                        entry_price=entry_record.get("entry_price", 0.0),
+                        sl=entry_record.get("sl", 0.0),
                         tp=entry_record.get("tp", 0.0),
                         volume=entry_record.get("volume", 0.0),
                         risk_cash=entry_record.get("risk_cash", 0.0),
@@ -799,19 +929,22 @@ class LiveEngine:
                 self._live_monitor.record_exit(
                     broker_id=broker_id,
                     position_id=position_id,
-                    exit_price=exit_price,
-                    exit_reason=exit_reason,
-                    mfe_r=0.0,
-                    be_set=False,
-                    trailing_tier=0,
+                    exit_price=recon["exit_price"],
+                    exit_reason=recon["exit_reason"],
+                    mfe_r=recon["mfe_r"],
+                    be_set=recon["be_set"],
+                    trailing_tier=recon["trailing_tier"],
                 )
 
             reconciled += 1
             logger.warning(
                 f"[Engine] 🔄 Exit manquant réconcilié: "
                 f"{entry_record.get('instrument')} {entry_record.get('side')} "
-                f"entry={entry_price} exit≈{exit_price} "
-                f"reason={exit_reason} ({broker_id}:{position_id})"
+                f"entry={entry_record.get('entry_price', 0.0)} "
+                f"exit={recon['exit_price']} reason={recon['exit_reason']} "
+                f"MFE={recon['mfe_r']:.2f}R BE={'✓' if recon['be_set'] else '✗'} "
+                f"src={recon['source']} bars={recon['bars_used']} "
+                f"({broker_id}:{position_id})"
             )
 
         if reconciled:

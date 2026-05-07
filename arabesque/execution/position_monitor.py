@@ -739,6 +739,16 @@ class LivePositionMonitor:
             except Exception as e:
                 logger.warning(f"[Monitor] Reconcile error for {broker_id}: {e}")
 
+        # Checkpoint : persiste MFE/BE/trail courants pour survivre à un crash
+        # dur (pas seulement SIGTERM). À chaque cycle reconcile (~2 min), le
+        # state file est ré-écrit avec les valeurs en mémoire. Si l'engine
+        # tombe entre deux cycles, au redémarrage `load_state()` restaurera
+        # le dernier MFE connu — au pire 2 min de tracking perdu.
+        try:
+            self.save_state()
+        except Exception as e:
+            logger.debug(f"[Monitor] save_state checkpoint failed: {e}")
+
     def _estimate_exit_reason(self, pos: TrackedPosition) -> str:
         """Estime la raison de sortie basée sur l'état du trailing/BE."""
         if pos.trailing_active and pos.trailing_tier > 0:

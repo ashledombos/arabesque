@@ -117,6 +117,17 @@ C'est **la** question : *l'edge mesuré en backtest tient-il toujours en live ?*
 - **Reprise sans contexte** : si on a perdu la session/le contexte, lire `logs/edge_audit_latest.md` donne immédiatement l'état "edge tient ou pas" pour les 4 stratégies. Pas besoin de tout re-faire tourner.
 - **À inclure dans le bilan** : recopier la table de synthèse + le verdict par stratégie. Si un verdict est `drift_modere` ou pire, l'analyser dans la section "Événements marquants".
 
+#### 2.e Invariants d'exécution (distinct de l'edge — bug ou pas bug ?)
+
+Question : *l'engine fait-il bien son job ?* Indépendant du marché et de l'edge.
+
+- Lance `python scripts/check_execution_invariants.py --since <start> --until <end> --per-broker` (le mode `--per-broker` évalue FTMO et GFT séparément, sinon un bug isolé sur un seul connecteur se dilue ; cf. incident 2026-05-07).
+- Mesure 4 invariants par broker : `reconciled_other_ratio` (fallback ambigu, distinct du reconciled légitime depuis le fix 2026-05-07), `mfe_zero_loser`, `zero_winner_streak`, `be_unarmed_ratio`.
+- Verdict possible : `ok` / `alert` / `critique`.
+- **Règle absolue** : un trigger d'invariant ne s'explique **jamais** par le régime de marché. Un MFE=0 sur un loser franc, un reconciled_ratio > 5%, un BE non armé alors que MFE ≥ 0.3R — ce sont des bugs d'exécution. Si un audit edge classe `regime_defavorable` mais que `check_execution_invariants` est en `alert`/`critique`, le verdict invariant prime.
+- Si `critique` → proposer 🛑 **STOP live** dans la section "Verdicts" du bilan. Pas d'auto-stop ; demander validation user.
+- Cf incident fondateur 2026-05-07 : drift uniforme 30-60pp WR vs backtest sur toutes stratégies. L'edge audit l'a vu en drift_modere, mais 26% reconciled + 17 mfe_zero_loser auraient dû déclencher STOP 6 semaines plus tôt.
+
 ### 3. Anomalies à détecter
 
 - **Protection switches** : CAUTION/DANGER/EMERGENCY déclenchés sur la période

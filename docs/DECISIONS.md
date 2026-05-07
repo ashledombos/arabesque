@@ -430,6 +430,7 @@ Gain estimé : +2-5% d’expectancy via résolution de l’ambiguïté SL vs TP 
 | `compare_live_vs_backtest.py` `NameError` (2026-04-25) | `results` jamais défini, `drifts` non initialisé dans path no-trades. Faisait fail les services systemd `arabesque-report-daily/weekly` depuis 2026-04-19. | Init `drifts: list[str] = []` avant la branche, simplifie `has_drifts = bool(drifts)` |
 | Weekend crypto guard ne bloquait QUE le vendredi (2026-04-26) | `_is_weekend_crypto_blocked` faisait `if now.weekday() != 4: return False`. Conséquence : samedi (`wd=5`) et dimanche (`wd=6`) → guard désactivé → 3 trades crypto FTMO ont passé samedi 2026-04-25 (ALGUSD, MANUSD, IMXUSD — heureusement BE+ tous les 3). Le pendant backtest (`weekend_filter.py`) bloque correctement les 3 cas → divergence live/backtest non détectée. | `arabesque/execution/order_dispatcher.py:_is_weekend_crypto_blocked` : `if wd in (5,6): return True; if wd==4 and hour>=cutoff: return True; return False`. Vérifier ROI du blocage via étape "Weekend guard ROI" de `/bilan` (counterfactual sur blocked events). |
 | Entry loggée avant fill (Cabriole STOP orders, 2026-04-28) | `_on_order_result` appelait `record_entry` dès `result.success=True`, mais pour un STOP/LIMIT placé chez le broker `success=True` ne veut pas dire `filled` — juste `placed`. Cabriole utilise des STOP orders (Donchian breakout), un fill peut prendre 2h+. Le journal contenait alors un event `entry` avec `entry_price=signal.close` (faux) et `position_monitor` cherchait une position inexistante → orphan_cleanup → phantom exit avant que le trade ait commencé. | `_register_position_in_monitor` distingue maintenant fill confirmé (position trouvée dans `get_positions()` après retry) vs pending. Si fill : `record_entry` + `register_position`. Sinon : `record_pending_order` (event JSONL `pending_order`, pas `entry`) + ajout à `_pending_fills` (persisté dans `logs/pending_fills.json`). `_reconcile_loop` poll les pending toutes les 2 min ; quand le STOP touche, on loggue `entry` avec le vrai entry_price broker. Pending > 24h → `pending_expired` + cleanup. Élimine les phantom exits Cabriole. |
+| Reconcile hardcoded `mfe_r=0`, `be_set=False`, `exit_price=sl` (2026-05-07) | `live._reconcile_missed_exits` détectait correctement les positions fermées pendant un downtime, mais journalisait toutes l'exit reason comme `reconciled_stop_loss` avec `mfe_r=0`/`be_set=False`/`exit_price=sl`. Conséquence sur 6 semaines de live : 10 exits reconciled tous classés en losers francs, 17 mfe_zero_loser sur 103 exits, drift 30-60pp WR live vs backtest sur **toutes** les stratégies/brokers (FTMO 24% reconciled, GFT 33%). L'audit edge classait `drift_modere` (interprété "marché difficile"), mais c'était un bug de tracking qui pourrissait silencieusement l'attribution. Détecté 2026-05-07 lors d'un /bilan : 17 mfe_zero_loser → 5 auraient été BE (+0.20R chacun) → +1R brut, et 0 winner sur 20 trades crypto. Live suspendu. | Nouvelle méthode `LiveEngine._reconstruct_exit_from_history()` (`arabesque/execution/live.py`) appelée par `_reconcile_missed_exits` : (1) `broker.get_closed_position_detail(position_id)` → vrai `exit_price`/`exit_time` ; (2) `arabesque.data.store.load_ohlc(instrument, "1m", entry_ts → exit_ts)` → vrai MFE ; (3) classification `reconciled_take_profit`/`_breakeven_exit`/`_stop_loss`/`_other` selon comparaison avec `tp`/`sl`/`be_target`. Si broker indispo mais bars montrent MFE≥0.3R → exit_reason `_breakeven_exit` (BE inferred). Fallback ultime `estimated_fallback` (ancien comportement). `position_monitor.reconcile()` checkpointe désormais `save_state()` à chaque cycle (~2 min) pour survivre aux crashs durs (avant : seulement SIGTERM). Couverture : 7 tests `tests/test_reconcile_exit_reconstruction.py` ; détection précoce via `scripts/check_execution_invariants.py` (4 invariants : reconciled_other_ratio, mfe_zero_loser, zero_winner_streak, be_unarmed_ratio). |
 
 ### ⚠️ Identifiés, non encore corrigés
 
@@ -2662,3 +2663,76 @@ Les seuils daily DD restent inchangés (-2.5% / -3.0% / -3.5%) car FTMO impose -
 **Paramétrage** : cadence (30s), rétention et filtres hard-codés pour l'instant. À rendre paramétrable (`config/settings.yaml`) si l'usage se confirme pertinent après quelques semaines de données.
 
 **Analyse** : script `scripts/review_broker_divergences.py` pour agréger spread médian et écart mid cross-broker par symbole.
+
+---
+
+### Décision : passage rodage ×0.50 → ×0.25 (2026-05-03, défensif)
+
+**Contexte** : DD FTMO -6.33% (au-delà du seuil dd_proximity -4.9%, à 67% du seuil EMERGENCY -9%). Tendance ~-1.3pp/semaine. Sans changement, breach EMERGENCY estimé sous 2 semaines.
+
+**Signaux convergents** :
+- **Cabriole** : 2e audit consécutif `drift_modere`, ΔExp=-0.252R sur n=32. Marge avant `drift_structurel` (-0.30R) = ~1 trade.
+- **Glissade** : `drift_modere` n=8 (small-n, prudence).
+- **Extension** : `regime_defavorable` (live colle au backtest, marché plutôt qu'edge cassé) — pas pénalisé.
+- Cross-broker mean|ΔR|=0.615R sur Cabriole (déjà acté GFT bloqué).
+
+**Décision** : `config/settings.yaml → rodage.risk_multiplier` 0.50 → 0.25. Affecte Glissade + Cabriole + Fouette (Fouette neutre, 0 trade live). Extension (hors rodage) reste à ×1.0 — son edge théorique tient et la baisse est attribuée au régime, pas à un drift d'exécution.
+
+**Effet attendu** : risque effectif Cabriole/Glissade = 0.45% × 0.25 = 0.11% par trade. À ce niveau, même 10 SL consécutifs ne coûtent que ~1.1% du capital. Tampon pour observer le retour ou non d'edge sur 2-3 semaines sans aggraver le DD.
+
+**Critère de relèvement** : retour à ×0.50 si Cabriole audit n=40+ avec ΔExp > -0.20R, OU passage `regime_defavorable`. Retour à ×1.0 (sortie rodage) si critères WF d'origine reconfirmés en live (≥30 trades, IC95 cohérent baseline).
+
+**Critère d'aggravation** : si DD FTMO atteint -7.5% OU Cabriole bascule `drift_structurel` au prochain audit → pause complète Cabriole + Glissade (option 3).
+
+**Implémentation** : modification config seule, prend effet au prochain restart engine. Pas de redémarrage forcé immédiat (les positions ouvertes ne le seraient pas, et il n'y en a aucune actuellement → safe de redémarrer dès que pratique).
+
+**Notif** : Telegram + ntfy envoyée avec résumé/interprétation/plan.
+
+---
+
+## 2026-05-07 — 🛑 SUSPENSION LIVE (toutes stratégies)
+
+**Décision** : `systemctl --user stop arabesque-live.service` à 19:25 UTC le 2026-05-07. Timer suivi-reminder également stoppé (anti-spam pendant pause). Aucune position ouverte au moment du stop (FTMO + GFT vérifiés via `python -m arabesque positions`).
+
+**Motif** : drift uniforme -30 à -60 points de WR vs backtest sur la fenêtre exacte de live (~50 jours), toutes stratégies confondues, toutes catégories confondues.
+
+| Stratégie / Cat | Live n | WR live | WR BT | Δ WR | Live ΣR |
+|---|---|---|---|---|---|
+| Extension forex JPY | 20 | 32% | 76% | -44pp | -4.6R |
+| Extension métal (XAU) | 17 | 29% | 72% | -43pp | -7.9R |
+| Extension crypto | 39 | 38% | 79% | -41pp | -6.6R |
+| Cabriole crypto | 39 | 14% | 77% | -63pp | -25.9R |
+| Glissade crypto | 4 | 25% | 84% | -59pp | -1.7R |
+| Glissade métal | 4 | 50% | 81% | -31pp | +0.6R |
+| Fouetté M1 | 0 | — | 72% | n/a | — (bug BarAggregator) |
+| **Total live** | **123** | **~30%** | — | — | **-46R** |
+
+Le backtest de référence couvre **exactement la même fenêtre** que le live (2026-03-18 → 2026-05-07) sur les **mêmes instruments**. Le drift n'est donc pas un effet de régime de marché : c'est une dégradation structurelle d'exécution qui retourne ~50% des trades théoriquement gagnants en perdants.
+
+**Pourquoi suspendre plutôt qu'attendre** :
+- Le rodage défensif ×0.25 limite la casse mais ne corrige pas la cause
+- Aucune visibilité sur le moment où ça redeviendrait rentable
+- Incompatible avec contraintes prop firm (DD limites, consistance) — chaque journée live ajoute du DD sans signal de fond qui justifie de continuer
+- Mieux : couper, comprendre, refixer, redémarrer avec un edge live démontré
+
+**Investigation à mener avant remise en route** :
+1. **Rejeu trade-par-trade** : prendre 10-20 trades live perdants récents, charger les barres correspondantes, rejouer le générateur de signal sur la même fenêtre, comparer (entry_price live vs BT, MFE atteint, exit live vs SL/TP théorique)
+2. **Hypothèse 1 — slippage/spread** : sensitivity test BT montre que Cabriole bascule en négatif dès 1.5× slippage et Extension perd 30% d'edge. Mesurer le slippage réel par trade (`entry_price live - signal_open`) et le spread moyen au moment des entries
+3. **Hypothèse 2 — bug exécution** : entry/exit sur le mauvais tick (open vs close, mid vs ask, bougie i vs i+1). Le BE 0.3R / offset 0.20R est très sensible au tick
+4. **Hypothèse 3 — sub-bar bias** : documenté à ±0.05R bidirectionnel mais peut-être sous-estimé. Comparer la résolution SL/TP simultanés H/L (BT) vs ordre temporel tick (live)
+5. **Hypothèse 4 — bug backtest trop optimiste** : moins probable vu validation 20 mois 1998 trades, mais à éliminer
+
+**Critère de reprise** :
+- Cause racine identifiée
+- Fix appliqué et validé sur dry-run parquet
+- Edge live démontré (Wilson IC95 > 0 sur ≥ 30 trades) AVANT de rouvrir le risk normal
+
+**Ce qui reste actif (non touché par la suspension)** :
+- Données parquet à jour (fetch automatique inchangé)
+- Backtest et walk-forward toujours opérationnels
+- Bot Telegram (PID 8891) — reste actif pour les notifs
+- Config exclusions/rodage/seuils — inchangés (à reprendre tels quels après fix)
+
+**Implémentation** : `systemctl --user stop arabesque-live.service` + `systemctl --user stop arabesque-suivi-reminder.timer`. Pas de modification config. État du système préservé pour reprise propre après diagnostic.
+
+**Notif** : Telegram + ntfy envoyée avec résumé chiffré et plan.

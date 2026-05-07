@@ -6,14 +6,19 @@
 > 🎯 **OBJECTIF PRINCIPAL : vérifier que l'edge backtest se reproduit en live** (la perf est secondaire).
 > **À lire en premier dans toute session de bilan/suivi : `logs/edge_audit_latest.md`** — état actuel de l'edge par stratégie, sans refaire l'analyse. Rafraîchir si > 24h via `python scripts/audit_edge_live_vs_backtest.py`.
 >
-> Dernière mise à jour : 2026-05-02 (bilan mois avril, dédup signal sessions dans replay, fix --broker dans compare, normalisation strategy.type → extension)
+> Dernière mise à jour : 2026-05-07 — **🛑 LIVE SUSPENDU** suite drift uniforme 30-60pp WR vs backtest sur toutes stratégies/catégories (cf `docs/DECISIONS.md`).
 
 ---
 
 ## État en un coup d'œil
 
 ```
-Live actif (compte ftmo_challenge, account_id 45667282, démo cTrader) :
+🛑 LIVE SUSPENDU 2026-05-07 19:25 UTC — engine arrêté (systemctl stop arabesque-live.service)
+  Motif : drift uniforme -30 à -60pp WR vs backtest sur 50j (Extension/Cabriole/Glissade), ΣR live = -46R
+  0 position ouverte au moment du stop (FTMO + GFT)
+  Investigation à mener avant toute reprise (cf section "Investigation drift exécution")
+
+Stratégies préalablement actives (à reprendre après diagnostic) :
   Extension H1  → XAUUSD, GBPJPY, AUDJPY, CHFJPY (risk 0.45%)
   Extension H4  → 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…) (risk 0.55% via TF multiplier)
   Glissade H1   → XAUUSD, BTCUSD (LIVE — WF 3/3 PASS, WR 83%, Exp +0.147R)
@@ -52,7 +57,8 @@ Testé, edge insuffisant :
   Renversé H1   → sweep + FVG retrace (WR 73% mais Exp +0.006R = breakeven)
 
 WF en cours, non déployé :
-  Révérence H4  → NR7 contraction → expansion (DOGEUSD PASS WR83%, overlap 14% = complémentaire, edge mince)
+  Révérence H4  → NR7 contraction → expansion. WF 2026-05-04 : XAUUSD PASS stable (WR 92%, +0.145R, 25t), EURJPY PASS stable (WR 91%, +0.064R, 11t small-n), USDJPY PASS stable (WR 89%, +0.044R, 9t small-n), DOGEUSD PASS instable. ETHUSD marginal. SOLUSD/BTCUSD/EURUSD/GBPUSD/XAGUSD/GBPJPY FAIL.
+                  Overlap mesuré (±4h) : XAUUSD vs Extension H1 = 13.2%, EURJPY = 6.2%, USDJPY = 8.9%, DOGEUSD = 7.0% ; DOGEUSD vs Cabriole H4 = 34.5%. Complémentaire vs Extension partout. Modéré vs Cabriole crypto.
 
 Concepts non viables :
   Pas de Deux   → pairs trading cointégration (mean-reversion, incompatible boussole)
@@ -137,6 +143,49 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 
 ## Prochaines étapes
 
+### 🛑 BLOQUANT — Investigation drift exécution live vs backtest (avant toute reprise live)
+
+**Verdict 2026-05-07 (rejeu 23 trades, 17 FTMO + 6 GFT)** : ce n'est PAS un slippage (mean +0.009R, négligeable). C'est un bug de **state-tracking exécution** :
+- 8.2% des exits sont `reconciled_*` sur 122 trades de la fenêtre live (24% FTMO, 33% GFT)
+- 17 exits avec `mfe_r=0` malgré loser franc — tracker MFE défaillant
+- 5 trades clés où live MFE=0 mais BT MFE 0.27-2.22R (IMXUSD raté +2.16R)
+- Δr (BT−live) moyen = +0.472R/trade (BT bat live de ~0.5R systématiquement)
+- Le pattern est présent sur **les deux brokers** → bug `position_manager` / boucle reconcile, pas connecteur cTrader/TradeLocker
+
+**Phase 0 (prévention) — fait 2026-05-07** : ajout du script `scripts/check_execution_invariants.py` (4 invariants : reconciled_ratio, mfe_zero_loser, zero_winner_streak, be_unarmed_ratio). Câblé dans `/suivi` watchlist `execution_invariants` et `/bilan` §2.e. **Règle absolue** : un trigger d'invariant ne s'explique jamais par le régime de marché, c'est toujours un bug.
+
+**Phases à exécuter avant reprise live :**
+
+- [x] ~~**PHASE 1 (Opus, lecture seule)**~~ — Audit fait 2026-05-07. Verdict : 3 bugs identifiés.
+  1. `live._reconcile_missed_exits` (live.py:798-806 ancienne version) hardcodait `mfe_r=0`, `be_set=False`, `exit_price=sl`. Cause des 10 reconciled exits + 17 mfe_zero_loser.
+  2. `position_monitor.reconcile()` ne checkpointait son state qu'à SIGTERM → crash dur perdait MFE/BE/trail courants.
+  3. BE est armé engine-side (in-memory), pas broker-side : un crash entre entry et MFE 0.3R perd l'armement BE.
+- [x] ~~**PHASE 2 (Opus, fix)**~~ — Fix appliqué 2026-05-07.
+  1. Nouvelle `LiveEngine._reconstruct_exit_from_history()` (live.py:698) : appelle `broker.get_closed_position_detail(position_id)` pour le vrai exit_price + reconstruit MFE depuis bars min1 parquet entre entry_ts et exit_ts. Classe en `reconciled_take_profit/_breakeven_exit/_stop_loss/_other`. Fallback `bars_reconstruction` (BE inferred si MFE≥0.3R) puis `estimated_fallback`.
+  2. `position_monitor.reconcile()` checkpointe `save_state()` à chaque cycle (~2 min).
+  3. BE physique broker-side **non implémenté** (différé Phase 2.5 — risque mineur tant que reconstruction post-mortem est fiable, mais à faire si crash dur fréquent).
+- [x] ~~**PHASE 3 (validation)**~~ — Validation faite 2026-05-07.
+  - 7 tests unitaires `tests/test_reconcile_exit_reconstruction.py` passent (TP/SL/BE/other/SHORT/fallback complet/régression mfe_zero_loser).
+  - Reconstruction validée offline sur les 17 mfe_zero_loser historiques : 5 auraient été BE = +1R brut récupéré.
+  - `check_execution_invariants.py` mis à jour pour distinguer `reconciled_other` (fallback ambigu, trigger > 2%/5%) du reste (info uptime, trigger > 30%).
+  - Backtest synthétique blackouts (5min/30min/2h) **non exécuté** : la reconstruction étant déterministe (broker_detail + bars), le test unitaire couvre les cas. Si Phase 4 expose un nouveau pattern, ajouter un test à ce moment.
+- [ ] **PHASE 4 (reprise)** — Live réactivé 2026-05-07T23:45 UTC. Risk maintenu à ×0.25 sur ≥ 50 trades de revalidation. Critère go : `python scripts/check_execution_invariants.py --since 2026-05-07T23:45 --per-broker` → `global_verdict=ok` ET `mfe_zero_loser=0` sur les 2 brokers.
+  - **Mécanisme de rappel automatique** : trigger `phase4_revalidation` dans `/suivi` watchlist (compte n_exits depuis 2026-05-07T23:45 ; quand ≥ 50 → lance invariants par broker → notif Telegram avec verdict + propose ramp risk). Tant que < 50, no-op silencieux. Le timer `arabesque-suivi-reminder.timer` (horaire) garantit que `/suivi` est invoqué périodiquement, donc le critère sera évalué automatiquement dès atteinte.
+  - **Action user à la notif** : valider la ramp (×0.25 → ×0.50, puis ×1.0 sur 50 trades supplémentaires) ou demander session de diagnostic si verdict ≠ ok.
+- [ ] **PHASE 2.5 — Bug #3 différé : BE physique broker-side** — Aujourd'hui, le BE est armé in-memory dans `position_monitor.TrackedPosition` quand MFE atteint 0.3R. Le checkpoint `save_state()` à chaque cycle reconcile (~2 min, ajouté 2026-05-07) ramène la fenêtre de vulnérabilité à ≤ 2 min, mais ne ferme pas la porte : un crash dur entre tick et next reconcile peut faire perdre l'armement BE pour une position qui vient juste de toucher 0.3R. Mitigation complète = poser le SL physiquement côté broker (entry + 0.20R LONG / entry - 0.20R SHORT) dès le déclenchement du BE.
+  - **Implémentation** : nouvelle méthode `broker.modify_stop_loss(position_id, new_sl)` à câbler dans cTrader (ProtoOAAmendOrderReq) et TradeLocker (PATCH /positions/{id}). Appelée depuis `position_monitor._maybe_arm_be()` après le set in-memory.
+  - **Pré-requis** : Phase 4 PASS (50 trades revalidation verts). Pas avant.
+  - **Risque** : modification SL broker-side = touche zone ordre, doit être idempotent (re-call = no-op si SL déjà au bon niveau) et resilient à API timeout (retry 3× backoff). Tester sur compte démo avant.
+  - **Health-check à ajouter en parallèle** : sur position ouverte, si `now - last_mfe_update > 30min` → alerte critique (le tracker n'a plus reçu de tick, BE armement compromis).
+
+**Tâches anciennes archivées ci-dessous, à reprendre si Phase 1 les invalide :**
+- [ ] ~~Rejeu trade-par-trade~~ (fait 2026-05-07 — `/tmp/replay_trades.json`, conclusion ci-dessus)
+- [ ] **Mesurer slippage entry/exit réel** — extraire de `trade_journal.jsonl` (event entry) le `entry_price` live, comparer au signal_open théorique (open de la bougie i+1). Distribution par stratégie/instrument. Hypothèse : slippage > 1.5× du modèle BT explique le drift Cabriole et une partie d'Extension.
+- [ ] **Mesurer spread au moment des entries** — interroger `multi_broker_snapshots.jsonl` (cadence 30s) pour le spread bid/ask au moment des entry_ts. Corréler spread élevé ↔ trades perdants.
+- [ ] **Audit code exécution** — vérifier `arabesque/execution/order_dispatcher.py` + `position_monitor.py` : entry/exit sur bon tick (open vs close, mid vs ask, bougie i vs i+1) ? BE 0.3R / offset 0.20R correctement appliqué tick par tick ? **Zone Opus uniquement.**
+- [ ] **Sub-bar bias quantification réelle** — comparer pour les 100 derniers trades live l'ordre de résolution SL/TP (BT utilise H/L simultané, live utilise tick séquentiel). Le bias documenté ±0.05R bidirectionnel est-il sous-estimé sur des setups particuliers ?
+- [ ] **Critère de reprise live** — cause racine identifiée + fix validé sur dry-run parquet + Wilson IC95 > 0 démontré sur ≥ 30 trades simulés tick-by-tick avec le fix.
+
 ### Immédiat
 - [x] ~~Corriger notifications Telegram~~ (fait 2026-03-27 — token manquait préfixe numérique)
 - [x] ~~Fix double-comptage rapports~~ (fait 2026-04-06 — dédupliqué par trade_id dans daily_report, compare_live_vs_backtest, health_check, live_monitor._load_journal)
@@ -164,11 +213,24 @@ Chaque broker référence via `oauth: ctrader_oauth` (pas de duplication).
 - [x] ~~`scripts/audit_edge_live_vs_backtest.py`~~ (fait 2026-04-29 — **objectif principal du système : vérifier que l'edge est conservé**. Pour chaque stratégie active, panorama Live vs Backtest pleine fenêtre vs Baseline 20 mois. Verdicts : edge_intact / drift_modere / drift_structurel / regime_defavorable / small_n_inconclusif. **Persistance** : append à `logs/edge_audit.jsonl` (1 ligne/run) + écrit `logs/edge_audit_latest.md` (Markdown lisible) — ces fichiers résistent au compactage de session, reboot, coupure. Pour relire l'état : `cat logs/edge_audit_latest.md`. Câblé dans `/bilan §2.d` et `/suivi` watchlist `edge_audit_drift`.)
 - [x] ~~Investiguer 8 extension manquants 27/04~~ (fait 2026-05-02 — audit ciblé sur 5 instruments les plus actifs avril : 32 théoriques, 17 matchés + 15 refus position-déjà-ouverte = **0 truly missing**. Le replay générait un signal par barre H1 tant que la condition BB squeeze→breakout restait vraie ; l'engine prend la 1ère, refuse les suivantes. Comportement correct. Le replay surestime grossièrement les manquants.)
 - [x] ~~Amender `replay_signals_vs_live.py`~~ (fait 2026-05-02 — dédup par session `_dedup_sessions()` : signaux consécutifs séparés de ≤ 1.5×TF groupés en 1 session, seul le premier gardé. Remap alias `trend`→`extension`. Ajout `--min-missing N` (défaut 10) pour le seuil trigger. Extension : 201→111 théoriques/mois. Les manquants restants ont des causes légitimes : positions déjà ouvertes, engine restart (W15 DNS), max_open_positions. Trigger `missing_trades_unjustified` dans /suivi : utiliser `--since J-7 --min-missing 5` pour détecter un engine aveugle soudain, pas une analyse de couverture mensuelle.)
-- [ ] **Cabriole** : audit edge 13-29 avril donne ΔExp live vs backtest = -0.309R sur n=27 (sous seuil drift_structurel n≥30 mais juste). Backtest perd aussi (-0.338R vs baseline +0.034R = régime défavorable). Live colle au backtest dans une période rouge — **edge intact, pas de drift d'exécution**. Si l'écart se confirme à n≥30 et reste à -0.30R : action requise (block FTMO ou refonte). Surveiller via `audit_edge_live_vs_backtest`.
-- [ ] **Extension** : audit edge donne ΔExp -0.219R sur n=14, drift modéré. Backtest aussi en perte (régime). À surveiller.
+- [ ] **Cabriole** : audit J-30 2026-05-03 — ΔExp=-0.252R sur n=32, **2e audit consécutif `drift_modere`**. Marge avant `drift_structurel` (-0.30R) ≈ 1 trade. Action prise : rodage ×0.25 (DECISIONS.md 2026-05-03). Critère pause complète : 3e audit `drift_structurel` OU DD FTMO -7.5%.
+- [ ] **Extension** : audit J-30 ΔExp=-0.088R `regime_defavorable` (live colle au backtest, attribué au régime de marché). Pas pénalisé (reste hors rodage à ×1.0). Surveiller.
+- [ ] **Glissade** : audit J-30 ΔExp=-0.201R `drift_modere` n=8 (small-n, prudence — passé ×0.25 par mesure défensive globale).
 - [x] ~~Fix `--broker` flag dans `compare_live_vs_backtest.py`~~ (fait 2026-05-02 — bug ligne 266 : second appel `load_journal(args.journal)` sans `broker=args.broker`, écrasait la valeur filtrée. Validé : FTMO 14t WR 79% vs GFT 6t WR 0% sur 2026-04-20 → 26.)
-- [ ] **Restart engine pour appliquer `strategy.type: extension`** — `config/settings.yaml` migré 2026-05-02 (`trend` → `extension`). Effet : les nouveaux signaux Extension écriront `strategy: "extension"` dans le journal au lieu de `"trend"`. Aucun impact runtime (BarAggregator + order_dispatcher acceptent les deux). Pas urgent — au prochain restart organique. Restart : `systemctl --user restart arabesque-live.service` (vérifier d'abord qu'il n'y a pas de position fragile).
+- [ ] **Restart engine pour appliquer `strategy.type: extension` + rodage ×0.25** — `config/settings.yaml` modifications cumulées 2026-05-02 (`trend` → `extension`) et 2026-05-03 (rodage 0.50 → 0.25). Le rodage est lu au démarrage (cf. order_dispatcher.py:197-204), donc les nouveaux trades Cabriole/Glissade/Fouette ne passeront à ×0.25 qu'**après restart**. Pas urgent (0 position ouverte actuellement = safe), mais à faire dans la journée. Commande : `systemctl --user restart arabesque-live.service`.
+- [x] ~~**Bot Telegram interactif phase 1** (lecture seule)~~ (fait 2026-05-03 — `arabesque/bot/telegram_bot.py` + service systemd user `arabesque-telegram-bot.service`. Commandes : `/start` `/help` `/status` (engine + equity + protection) `/positions` (FTMO + GFT) `/edge` (cat edge_audit_latest.md) `/journal` (queue du fichier mois courant). Auth par whitelist `chat_id` parsé depuis `tgram://` URL apprise dans `config/secrets.yaml → notifications.channels`. Extra chat_ids possibles via `secrets.telegram_bot.extra_chat_ids`. Lib `python-telegram-bot 22.7`.)
+- [ ] **Bot Telegram phase 2** (commandes action + graphiques) — `/equity_chart 30j` (matplotlib PNG sur snapshots), `/suivi_state` (lit dernier `maintenance_state.jsonl`), `/restart_engine` (avec confirmation 2-temps OK→OK). Pas avant que phase 1 soit éprouvée 1 semaine. Skip `/suivi` et `/bilan` car ils nécessitent Claude (pas un bot autonome).
 - [ ] Augmenter risk quand data suffisante (voir critères ci-dessous)
+- [ ] **Décision déploiement Révérence H4 (à valider)** — Backtest+WF 2026-05-04 ressort 4 instruments PASS stable : XAUUSD (le plus solide, n=25, WR 92%, +0.145R), EURJPY/USDJPY (small-n 9-11, edge mince mais stable), DOGEUSD (instable). Overlap vs Extension faible (6-13%) → complémentaire. Décision à prendre : (a) shadow live d'abord 2-4 semaines pour récolter live data, (b) déploiement direct XAUUSD à risk × 0.50 rodage (déjà sur instrument couvert par Extension donc pas de nouveau symbol exposure), (c) attendre fin phase défavorable. Ma reco : **(a) shadow** — pas de risk add maintenant, mais data live précieuse à récolter pendant qu'on attend que les 3 autres stratégies se stabilisent. À valider.
+- [ ] **Bug Fouetté 0 trade live (diagnostic 2026-05-03→04, à valider en session dédiée)** — Investigation complète :
+  - **CONFIRMATION EMPIRIQUE 2026-05-04 20:25** : `journalctl` depuis avril → 2263 logs `EMA shadow` Fouetté, 117 signaux 📈 émis par BarAggregator (tous strat=trend/extension), 0 strat=fouette. `signal.py` détecte donc bien des signaux, mais TOUS sont jetés en aval. Probable retour aux conclusions de l'hypothèse 1 (filter `last_idx`) — à reproduire en isolation avant fix.
+  - Hypothèse 1 (initiale) : `bar_aggregator.py:370-372` filtre `last_idx`. **À RE-VALIDER** par test local avec un fixture M1 réelle. Le shadow log EMA s'imprime exactement à la confirmation de retest, donc `global_i = len(df)-1 = last_idx`. Le filtre `last_idx` accepte ce signal.
+  - Hypothèse 2 (probable) : **cache 300 bars M1 = 5h** (`bar_aggregator.py:53 BAR_CACHE_MAX = 300`) alors que session NY dure 6h30 (14:30→21:00 UTC). Conséquence : passé ~19:30-20:00 UTC, la fenêtre OR (14:30→15:00) est éjectée du cache → `_tag_or_bars` ne trouve plus de bars OR → `len(or_pos) < 2` → `_process_session` retourne None silencieusement. Fouetté ne peut détecter un signal que sur les ~5h après ouverture de session, pas après. Pour XAUUSD London (08:00→14:00 UTC = 6h), même problème.
+  - 917 logs shadow EMA constatés ≠ 0 trade : les 917 ont été émis (shadow non-bloquant), mais probablement filtrés ailleurs OU sur des bougies hors fenêtre cache OR. À vérifier : grep dans `journalctl` pour le compte de signaux Fouetté **après** EMA shadow.
+  - Fix candidat : passer `BAR_CACHE_MAX` à 500 (ou rendre dépendant du timeframe : 500 pour M1, 300 pour H1+). Coût mémoire négligeable, couvre 8h sur M1.
+  - Rejeu 20 mois requis avant fix : si on accepte des signaux plus tardifs dans la session, le profil de trades change. Comparer WR/Exp vs version actuelle.
+  - Zone touchée : `arabesque/execution/bar_aggregator.py` (Opus possible, mais critique). Pas de modif `signal.py`. Validation user nécessaire avant déploiement.
+- [ ] **Analyse "Exp par régime de marché" sur 20 mois de trades** (à planifier hors phase défavorable, pour éviter calibrage biaisé). Script Sonnet, ~1h, sans modif `signal.py`. Pour chaque trade Extension/Cabriole/Glissade backtest : calculer descripteur régime à l'entrée (ADX_14, ATR_14/ATR_90, Choppiness Index sur la bougie de signal). Bucketer trades par bucket de régime, reporter Exp / WR / n par bucket. **Verdict de viabilité d'un filtre de régime** : si séparation nette (`Exp_chop < -0.2R` vs `Exp_trend > +0.2R`) ET tient en walk-forward 3+ fenêtres → filtre crédible (passer en Opus + revalidation 20 mois). Sinon (séparation faible ou s'inverse selon la fenêtre) → confirmer "régime cyclique, pas filtrable proprement", refermer la question. Motif : actuellement Extension `regime_defavorable`, Cabriole `drift_modere` — toutes les stratégies de breakout/divergence souffrent du chop simultanément. Ne PAS calibrer pendant le creux (overfit garanti). Cf. discussion 2026-05-03.
 
 ### Watchlist `/suivi` — seuils quantifiables à surveiller
 
@@ -205,6 +267,17 @@ Rythme : ~10 trades/semaine (hors incident 9-11 avril)
 Note : 68% des wins sont des BE exits (+0.20R), conforme distribution bimodale
 ```
 
+### État Wilson CI (calculé 2026-05-04, live cumulé depuis activation)
+```
+Stratégie    Broker            n    WR     CI95 high   CI99 high   Exp(R)    Palier
+extension    ftmo_challenge    46   ~32%   ~64%        ~70%        -0.27R    < P0
+extension    gft_compte1       13   34.6%  57.6%       64.9%       -0.305R   < P0
+cabriole     ftmo_challenge    28   19.6%  39.5%       45.7%       -0.531R   < P0  (très bas)
+glissade     ftmo_challenge    4    62.5%  85.0%       89.5%       +0.474R   < P0  (small-n)
+fouette      —                 0    —      —           —           —         0 trade (bug à fixer)
+```
+Toutes stratégies live actuellement < P0. Cohérent avec phase défavorable identifiée par edge_audit (regime_defavorable extension, drift_modere cabriole). Rodage ×0.25 défensif justifié empiriquement par le Wilson. Ne RIEN relever tant qu'IC99 WR > 50% n'est pas atteint sur les stratégies (P0 minimum).
+
 | Palier | Condition | Trades estimés | Date estimée | Action |
 |---|---|---|---|---|
 | **P0** | IC99 WR > 50% | ~50 | ~fin avril 2026 | Confirmation edge existe |
@@ -215,6 +288,14 @@ Note : 68% des wins sont des BE exits (+0.20R), conforme distribution bimodale
 **Règle anti-slippage** : ne jamais descendre sous $100/trade de risk.
 En-dessous, le lot rounding (±$5) mange >25% du gain moyen (+0.20R).
 Si DD linéaire donne <$100, appliquer un plancher à $100 ou skip le trade.
+
+### Suggestions d'agencement (observées 2026-05-04, non urgent)
+
+- **`BAR_CACHE_MAX = 300` hardcodé dans `bar_aggregator.py:53`** : limite Fouetté M1 à ~5h de cache, alors que session NY dure 6h30. Devrait être paramétré par timeframe (M1: 500+, H1+: 300 suffisant). Cf TODO bug Fouetté.
+- **Filtre `last_idx` implicite dans `BarAggregator._generate_and_emit`** : convention non documentée, pose problème pour stratégies session-based. Suggestion : ajouter attribut `signal_emission_mode: "last_bar" | "session_window"` sur les signal generators ; le BarAggregator branche en conséquence. Permettrait à Fouetté de fonctionner sans casser Extension/Glissade.
+- **Alias `trend` → `extension` non finalisé dans `trade_journal.jsonl`** : 31 events `strategy=trend` + 15 events `strategy=extension` depuis l'activation, comptés en doublon dans Wilson CI. Le rename code est fait, mais le journal historique garde l'ancien nom. Soit migrer le journal (one-shot), soit l'agrégateur doit explicitement traiter `trend` comme alias d'`extension` (déjà fait dans `compare_live_vs_backtest.py` post-2026-05-02, à vérifier dans tous les autres consommateurs).
+- **`exit` events n'ont pas de `entry_ts` dédié** (juste `ts` = exit timestamp). Pour les analyses cross-strats nécessitant la corrélation entry-time, il faut joindre avec l'event `entry` correspondant via `position_id`. Pénible. Proposition : dénormaliser `entry_ts` dans `exit` pour faciliter les agrégations.
+- **Pas de rotation `trade_journal.jsonl`** : croissance illimitée. À ce rythme (~50 events/semaine), pas critique avant 2027, mais à anticiper. Format suggéré : 1 fichier par mois `trade_journal_YYYY-MM.jsonl`, avec un `trade_journal_latest.jsonl` symlink.
 
 ### Sujets à traiter (prochaine session)
 
