@@ -480,7 +480,9 @@ class LivePositionMonitor:
                             # Notify LiveMonitor — try real fill first
                             exit_reason = self._estimate_exit_reason(pos)
                             exit_price = self._estimate_exit_price(pos, exit_reason)
+                            exit_price_source = "estimated"
                             broker = self._brokers.get(pos.broker_id)
+                            broker_bid_x, broker_ask_x = 0.0, 0.0
                             if broker:
                                 try:
                                     real_fill = await broker.get_closed_position_detail(
@@ -496,6 +498,14 @@ class LivePositionMonitor:
                                                 f"(estimé {exit_price:.5f})"
                                             )
                                         exit_price = real_price
+                                        exit_price_source = "real_fill"
+                                except Exception:
+                                    pass
+                                try:
+                                    tick = await broker.get_quote(pos.symbol)
+                                    if tick:
+                                        broker_bid_x = float(tick.bid or 0)
+                                        broker_ask_x = float(tick.ask or 0)
                                 except Exception:
                                     pass
                             if self._on_position_closed:
@@ -508,6 +518,9 @@ class LivePositionMonitor:
                                         mfe_r=pos.mfe_r,
                                         be_set=pos.breakeven_set,
                                         trailing_tier=pos.trailing_tier,
+                                        broker_bid=broker_bid_x,
+                                        broker_ask=broker_ask_x,
+                                        exit_price_source=exit_price_source,
                                     )
                                 except Exception:
                                     pass
@@ -633,6 +646,7 @@ class LivePositionMonitor:
                     # Determine exit price / reason (réel si dispo, sinon estimé)
                     exit_reason = self._estimate_exit_reason(pos)
                     exit_price = self._estimate_exit_price(pos, exit_reason)
+                    exit_price_source = "estimated"
                     if real_fill and real_fill.get("exit_price"):
                         real_price = real_fill["exit_price"]
                         slippage = abs(real_price - exit_price)
@@ -644,12 +658,24 @@ class LivePositionMonitor:
                                 f"slip={slippage:.5f})"
                             )
                         exit_price = real_price
+                        exit_price_source = "real_fill"
                         # Adjust exit_reason if the real price tells us TP was hit
                         if pos.tp > 0:
                             if pos.side == Side.LONG and real_price >= pos.tp * 0.999:
                                 exit_reason = "take_profit"
                             elif pos.side == Side.SHORT and real_price <= pos.tp * 1.001:
                                 exit_reason = "take_profit"
+
+                    # Snapshot quote courant (peut être ≠ prix d'exécution mais utile
+                    # pour mesurer le spread broker au moment de la détection).
+                    broker_bid_x, broker_ask_x = 0.0, 0.0
+                    try:
+                        tick = await broker.get_quote(pos.symbol)
+                        if tick:
+                            broker_bid_x = float(tick.bid or 0)
+                            broker_ask_x = float(tick.ask or 0)
+                    except Exception:
+                        pass
 
                     logger.info(
                         f"[Monitor] 🗑️ Position {pos.symbol} {pos.position_id} "
@@ -670,6 +696,9 @@ class LivePositionMonitor:
                                 mfe_r=pos.mfe_r,
                                 be_set=pos.breakeven_set,
                                 trailing_tier=pos.trailing_tier,
+                                broker_bid=broker_bid_x,
+                                broker_ask=broker_ask_x,
+                                exit_price_source=exit_price_source,
                             )
                         except Exception as e:
                             logger.warning(

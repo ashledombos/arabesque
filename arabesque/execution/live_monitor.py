@@ -656,8 +656,14 @@ class LiveMonitor:
         entry_price: float,
         volume: float,
         risk_cash: float = 0.0,
+        broker_bid: float = 0.0,
+        broker_ask: float = 0.0,
     ) -> None:
-        """Enregistre une nouvelle entrée de trade."""
+        """Enregistre une nouvelle entrée de trade.
+
+        broker_bid/broker_ask : snapshot du quote broker au moment de l'entry.
+        Permet de mesurer le spread réel et le slippage entrée vs prix signal.
+        """
         key = f"{broker_id}:{position_id}"
 
         trade = LiveTrade(
@@ -677,6 +683,7 @@ class LiveMonitor:
         )
         self._open_trades[key] = trade
 
+        spread_at_entry = (broker_ask - broker_bid) if (broker_bid > 0 and broker_ask > 0) else 0.0
         self._append_journal({
             "event": "entry",
             "ts": trade.ts_entry,
@@ -692,6 +699,9 @@ class LiveMonitor:
             "broker_id": broker_id,
             "position_id": str(position_id),
             "protection_level": self._protection_level.value,
+            "broker_bid_at_entry": broker_bid,
+            "broker_ask_at_entry": broker_ask,
+            "spread_at_entry": round(spread_at_entry, 8),
         })
 
         logger.info(
@@ -714,7 +724,19 @@ class LiveMonitor:
         mfe_r: float = 0.0,
         be_set: bool = False,
         trailing_tier: int = 0,
+        broker_bid: float = 0.0,
+        broker_ask: float = 0.0,
+        exit_price_source: str = "unknown",
     ) -> Optional[LiveTrade]:
+        """Enregistre la sortie d'un trade.
+
+        broker_bid/broker_ask : snapshot du quote broker au moment de l'exit
+        (peut être 0 si le quote n'a pas pu être récupéré).
+        exit_price_source : "real_fill" si le exit_price vient du broker
+        (get_closed_position_detail), "estimated" si on est tombé sur le
+        fallback (sl/tp théorique), "reconciled" si reconstruit post-hoc
+        depuis les bougies historiques.
+        """
         """Enregistre la sortie d'un trade. Retourne le trade ou None."""
         key = f"{broker_id}:{position_id}"
         trade = self._open_trades.pop(key, None)
@@ -765,6 +787,7 @@ class LiveMonitor:
         if len(self._closed_trades) > self._max_closed_history:
             self._closed_trades = self._closed_trades[-self._max_closed_history:]
 
+        spread_at_exit = (broker_ask - broker_bid) if (broker_bid > 0 and broker_ask > 0) else 0.0
         self._append_journal({
             "event": "exit",
             "ts": trade.ts_exit,
@@ -784,6 +807,10 @@ class LiveMonitor:
             "broker_id": broker_id,
             "position_id": str(position_id),
             "protection_level": self._protection_level.value,
+            "broker_bid_at_exit": broker_bid,
+            "broker_ask_at_exit": broker_ask,
+            "spread_at_exit": round(spread_at_exit, 8),
+            "exit_price_source": exit_price_source,
         })
 
         emoji = "🟢" if trade.result_r > 0 else "🔴" if trade.result_r < -0.5 else "🟡"

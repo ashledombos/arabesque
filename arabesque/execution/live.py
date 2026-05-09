@@ -542,6 +542,13 @@ class LiveEngine:
                 stub.tp_indicative = info.get("signal_tp", 0.0)
 
                 if self._live_monitor:
+                    bid_e, ask_e = 0.0, 0.0
+                    try:
+                        tick = await broker.get_quote(info["instrument"])
+                        if tick:
+                            bid_e, ask_e = float(tick.bid or 0), float(tick.ask or 0)
+                    except Exception:
+                        pass
                     self._live_monitor.record_entry(
                         signal=stub,
                         broker_id=broker_id,
@@ -549,6 +556,8 @@ class LiveEngine:
                         entry_price=match.entry_price,
                         volume=match.volume,
                         risk_cash=info.get("risk_cash", 0.0),
+                        broker_bid=bid_e,
+                        broker_ask=ask_e,
                     )
 
                 if self._position_monitor:
@@ -934,6 +943,7 @@ class LiveEngine:
                     mfe_r=recon["mfe_r"],
                     be_set=recon["be_set"],
                     trailing_tier=recon["trailing_tier"],
+                    exit_price_source="reconciled",
                 )
 
             reconciled += 1
@@ -1532,6 +1542,13 @@ class LiveEngine:
 
             # Trade journal entry — la position existe vraiment
             if self._live_monitor:
+                bid_e, ask_e = 0.0, 0.0
+                try:
+                    tick = await broker.get_quote(signal.instrument)
+                    if tick:
+                        bid_e, ask_e = float(tick.bid or 0), float(tick.ask or 0)
+                except Exception:
+                    pass
                 self._live_monitor.record_entry(
                     signal=signal,
                     broker_id=broker_id,
@@ -1539,6 +1556,8 @@ class LiveEngine:
                     entry_price=entry,
                     volume=volume,
                     risk_cash=getattr(result, "risk_cash", 0.0),
+                    broker_bid=bid_e,
+                    broker_ask=ask_e,
                 )
 
             # Position monitor (BE/trailing)
