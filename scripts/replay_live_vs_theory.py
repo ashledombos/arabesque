@@ -40,6 +40,17 @@ INSTRUMENTS = ROOT / "config" / "instruments.yaml"
 INTERVAL_MAP = {"M1": "min1", "H1": "1h", "H4": "4h"}
 STRAT_ALIAS = {"trend": "extension"}
 
+# Pas de bar en minutes pour floor → bar boundary
+TF_MINUTES = {"M1": 1, "H1": 60, "H4": 240}
+
+
+def floor_to_tf(ts: pd.Timestamp, tf: str) -> pd.Timestamp:
+    """Floor un timestamp au début de la bougie de TF donné (UTC)."""
+    minutes = TF_MINUTES.get(tf.upper(), 60)
+    epoch_min = int(ts.timestamp() // 60)
+    floored_min = (epoch_min // minutes) * minutes
+    return pd.Timestamp(floored_min * 60, unit="s", tz="UTC")
+
 
 def parse_since(s: str) -> datetime:
     if s.startswith("J-") or s.startswith("j-"):
@@ -108,9 +119,16 @@ def load_trades(since: datetime | None, until: datetime,
 
 
 def simulate_pure(df: pd.DataFrame, entry_ts: pd.Timestamp, side: str,
-                  entry_price: float, sl: float,
+                  entry_price: float, sl: float, tf: str,
                   max_bars: int = 200) -> dict | None:
-    """Simule un trade pur à partir d'entry_ts. BE 0.3R offset 0.20R, TP 2R."""
+    """Simule un trade pur sur la bougie qui contient entry_ts.
+
+    BE 0.3R offset 0.20R, TP 2R. Le simulateur entre à l'open de la bougie
+    qui contient entry_ts (anti-lookahead : c'est la bougie post-signal,
+    déjà projetée par l'engine). Le risk_distance utilisé reste celui de la
+    consigne live (entry_price → sl), pour mesurer purement la déviation
+    d'exécution post-entry et exposer le slippage d'entrée séparément.
+    """
     if side == "LONG":
         risk = entry_price - sl
         if risk <= 0:
@@ -124,13 +142,19 @@ def simulate_pure(df: pd.DataFrame, entry_ts: pd.Timestamp, side: str,
         tp = entry_price - 2.0 * risk
         be_sl = entry_price - 0.20 * risk
 
-    df_after = df[df.index >= entry_ts]
+    bar_ts = floor_to_tf(entry_ts, tf)
+    df_after = df[df.index >= bar_ts]
     if df_after.empty:
         return None
     df_after = df_after.iloc[:max_bars]
 
+    entry_ts_theo = df_after.index[0]
+    entry_price_theo = float(df_after.iloc[0]["Open"])
+
     cur_sl = sl
     be_armed = False
+    be_armed_ts = None
+    be_armed_price = None
     mfe_r = 0.0
 
     for i, (ts, row) in enumerate(df_after.iterrows()):
@@ -144,6 +168,8 @@ def simulate_pure(df: pd.DataFrame, entry_ts: pd.Timestamp, side: str,
         if not be_armed and mfe_r >= 0.3:
             be_armed = True
             cur_sl = be_sl
+            be_armed_ts = ts
+            be_armed_price = h if side == "LONG" else l
 
         if side == "LONG":
             sl_hit = l <= cur_sl
@@ -154,23 +180,50 @@ def simulate_pure(df: pd.DataFrame, entry_ts: pd.Timestamp, side: str,
 
         if sl_hit:
             r = (cur_sl - entry_price) / risk if side == "LONG" else (entry_price - cur_sl) / risk
-            return {"r_theo": round(r, 3), "mfe_theo": round(mfe_r, 3),
-                    "exit_reason_theo": "be_exit" if be_armed else "stop_loss",
-                    "exit_ts_theo": ts.isoformat(), "n_bars": i + 1,
-                    "be_armed_theo": be_armed}
+            return {
+                "r_theo": round(r, 3),
+                "mfe_theo": round(mfe_r, 3),
+                "exit_reason_theo": "be_exit" if be_armed else "stop_loss",
+                "exit_ts_theo": ts.isoformat(),
+                "exit_price_theo": round(cur_sl, 5),
+                "n_bars": i + 1,
+                "be_armed_theo": be_armed,
+                "be_armed_ts_theo": be_armed_ts.isoformat() if be_armed_ts is not None else None,
+                "be_armed_price_theo": round(be_armed_price, 5) if be_armed_price is not None else None,
+                "entry_ts_theo": entry_ts_theo.isoformat(),
+                "entry_price_theo": round(entry_price_theo, 5),
+            }
         if tp_hit:
-            return {"r_theo": 2.0, "mfe_theo": round(mfe_r, 3),
-                    "exit_reason_theo": "take_profit",
-                    "exit_ts_theo": ts.isoformat(), "n_bars": i + 1,
-                    "be_armed_theo": be_armed}
+            return {
+                "r_theo": 2.0,
+                "mfe_theo": round(mfe_r, 3),
+                "exit_reason_theo": "take_profit",
+                "exit_ts_theo": ts.isoformat(),
+                "exit_price_theo": round(tp, 5),
+                "n_bars": i + 1,
+                "be_armed_theo": be_armed,
+                "be_armed_ts_theo": be_armed_ts.isoformat() if be_armed_ts is not None else None,
+                "be_armed_price_theo": round(be_armed_price, 5) if be_armed_price is not None else None,
+                "entry_ts_theo": entry_ts_theo.isoformat(),
+                "entry_price_theo": round(entry_price_theo, 5),
+            }
 
     last_close = float(df_after.iloc[-1]["Close"])
     r = ((last_close - entry_price) / risk if side == "LONG"
          else (entry_price - last_close) / risk)
-    return {"r_theo": round(r, 3), "mfe_theo": round(mfe_r, 3),
-            "exit_reason_theo": "still_open",
-            "exit_ts_theo": df_after.index[-1].isoformat(),
-            "n_bars": len(df_after), "be_armed_theo": be_armed}
+    return {
+        "r_theo": round(r, 3),
+        "mfe_theo": round(mfe_r, 3),
+        "exit_reason_theo": "still_open",
+        "exit_ts_theo": df_after.index[-1].isoformat(),
+        "exit_price_theo": round(last_close, 5),
+        "n_bars": len(df_after),
+        "be_armed_theo": be_armed,
+        "be_armed_ts_theo": be_armed_ts.isoformat() if be_armed_ts is not None else None,
+        "be_armed_price_theo": round(be_armed_price, 5) if be_armed_price is not None else None,
+        "entry_ts_theo": entry_ts_theo.isoformat(),
+        "entry_price_theo": round(entry_price_theo, 5),
+    }
 
 
 _DF_CACHE: dict[tuple[str, str], pd.DataFrame] = {}
@@ -260,27 +313,75 @@ def main() -> int:
         if df is None:
             continue
 
-        sim = simulate_pure(df, entry_ts, side, entry_price, sl, max_bars=args.max_bars)
+        sim = simulate_pure(df, entry_ts, side, entry_price, sl, tf, max_bars=args.max_bars)
         if sim is None:
             continue
         delta_r = round(r_live - sim["r_theo"], 3)
+
+        # Slippage entrée : (theo − live) × side_sign / risk. Négatif = défavorable au trader.
+        risk_distance = abs(entry_price - sl)
+        side_sign = 1.0 if side == "LONG" else -1.0
+        slip_entry_R = round(
+            (sim["entry_price_theo"] - entry_price) * side_sign / risk_distance, 4
+        ) if risk_distance > 0 else 0.0
+
+        # Délais (minutes) live vs théorie
+        entry_ts_theo_dt = pd.Timestamp(sim["entry_ts_theo"])
+        if entry_ts_theo_dt.tzinfo is None:
+            entry_ts_theo_dt = entry_ts_theo_dt.tz_localize("UTC")
+        delay_entry_min = round((entry_ts - entry_ts_theo_dt).total_seconds() / 60.0, 1)
+
+        exit_ts_live_dt = pd.Timestamp(ext["ts"])
+        if exit_ts_live_dt.tzinfo is None:
+            exit_ts_live_dt = exit_ts_live_dt.tz_localize("UTC")
+        exit_ts_theo_dt = pd.Timestamp(sim["exit_ts_theo"])
+        if exit_ts_theo_dt.tzinfo is None:
+            exit_ts_theo_dt = exit_ts_theo_dt.tz_localize("UTC")
+        delay_exit_min = round((exit_ts_live_dt - exit_ts_theo_dt).total_seconds() / 60.0, 1)
+
         row = {
             "trade_id": t["trade_id"],
             "strategy": strat,
             "instrument": inst,
             "side": side,
             "broker": ent.get("broker_id"),
-            "entry_ts": ent["ts"],
             "tf": tf,
+            # --- Live ---
+            "entry_ts_live": ent["ts"],
+            "entry_price_live": entry_price,
+            "sl": sl,
+            "exit_ts_live": ext["ts"],
+            "exit_price_live": float(ext.get("exit_price", 0)) or None,
             "r_live": r_live,
-            "r_theo": sim["r_theo"],
-            "delta_r": delta_r,
             "mfe_live": mfe_live,
-            "mfe_theo": sim["mfe_theo"],
             "be_set_live": bool(ext.get("be_set", False)),
-            "be_armed_theo": sim["be_armed_theo"],
             "exit_reason_live": ext.get("exit_reason"),
+            # --- Théorie ---
+            "entry_ts_theo": sim["entry_ts_theo"],
+            "entry_price_theo": sim["entry_price_theo"],
+            "be_armed_ts_theo": sim["be_armed_ts_theo"],
+            "be_armed_price_theo": sim["be_armed_price_theo"],
+            "exit_ts_theo": sim["exit_ts_theo"],
+            "exit_price_theo": sim["exit_price_theo"],
+            "r_theo": sim["r_theo"],
+            "mfe_theo": sim["mfe_theo"],
+            "be_armed_theo": sim["be_armed_theo"],
             "exit_reason_theo": sim["exit_reason_theo"],
+            # --- Comparaison ---
+            "delta_r": delta_r,
+            "slip_entry_R": slip_entry_R,
+            "delay_entry_min": delay_entry_min,
+            "delay_exit_min": delay_exit_min,
+            # --- Spread/quote broker (depuis trade_journal, 0 si non instrumenté) ---
+            "spread_at_entry": ent.get("spread_at_entry"),
+            "spread_at_exit": ext.get("spread_at_exit"),
+            "broker_bid_at_entry": ent.get("broker_bid_at_entry"),
+            "broker_ask_at_entry": ent.get("broker_ask_at_entry"),
+            "broker_bid_at_exit": ext.get("broker_bid_at_exit"),
+            "broker_ask_at_exit": ext.get("broker_ask_at_exit"),
+            "exit_price_source": ext.get("exit_price_source"),
+            # alias rétro-compat (anciens consumers du JSONL)
+            "entry_ts": ent["ts"],
         }
         rows.append(row)
         by_strat[strat].append(row)

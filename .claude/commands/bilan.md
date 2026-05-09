@@ -128,6 +128,52 @@ Question : *l'engine fait-il bien son job ?* Indépendant du marché et de l'edg
 - Si `critique` → proposer 🛑 **STOP live** dans la section "Verdicts" du bilan. Pas d'auto-stop ; demander validation user.
 - Cf incident fondateur 2026-05-07 : drift uniforme 30-60pp WR vs backtest sur toutes stratégies. L'edge audit l'a vu en drift_modere, mais 26% reconciled + 17 mfe_zero_loser auraient dû déclencher STOP 6 semaines plus tôt.
 
+#### 2.f Live vs théorie — détail trade-par-trade (replay sur parquet)
+
+C'est la mesure **directe** de l'exécution : pour chaque trade live, retrouver
+la même bougie d'ouverture sur parquet et simuler le trade pur (BE 0.3R offset
+0.20R, TP 2R, SL signal.sl). On obtient `R_theo`, `R_live` et `Δ_R = R_live − R_theo`
+trade par trade. Sépare l'exécution (slippage, spread, BE non armé, fill) du
+régime de marché et du bias backtest.
+
+- Lance `python scripts/replay_live_vs_theory.py --since <start> --until <end>`.
+  Persiste résumé dans `logs/replay_live_vs_theory.jsonl` et **détail par trade**
+  dans `logs/replay_live_vs_theory_trades.jsonl`.
+- Lis `logs/replay_live_vs_theory_trades.jsonl` filtré sur la période
+  (champ `entry_ts_live` dans la fenêtre, ou `audit_ts` du run le plus récent).
+- **Synthèse par stratégie** dans le bilan : `n`, `ΣR_live`, `ΣR_theo`, `meanΔ_R`,
+  `slippage_entrée_moyen` (mean `slip_entry_R`), `n_BE_live` vs `n_BE_theo`.
+- **Tableau détail trade-par-trade** (markdown, à copier dans le journal) :
+
+  ```markdown
+  | trade_id | strat | inst | broker | entry_live (UTC) | entry_$ live | entry_$ theo | slip_R | exit_live (UTC) | exit_$ live | exit_$ theo | exit_reason live | exit_reason theo | R_live | R_theo | Δ_R | BE_live | BE_theo | spread_in | spread_out |
+  |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+  | 3f8e... | extension | XAUUSD | ftmo | 2026-05-07 15:00 | 4763.63 | 4762.57 | -0.03 | 2026-05-07 15:53 | 4731.31 | 4731.57 | stop_loss | stop_loss | -1.01 | -1.00 | -0.01 | False | False | — | — |
+  ```
+
+  Colonnes :
+  - `slip_R` : (theo − live) × side / risk. Négatif = entrée défavorable au trader.
+  - `spread_in/out` : `spread_at_entry/exit` depuis trade_journal (— si non instrumenté).
+  - Tronquer `trade_id` à 8 caractères pour la lisibilité.
+
+- **Triggers à surfacer** (en plus de §2.d audit_edge) :
+  - Si **meanΔ_R < −0.10R sur n ≥ 30** dans une stratégie → exécution mange l'edge,
+    inscrire dans "Événements marquants".
+  - Si **n trades où `live=SL/BE` mais `theo=TP`** ≥ 5 → soit slip TP, soit bias H/L
+    backtest (cf. project_backtest_bias.md). Lister les 3 cas les plus extrêmes.
+  - Si **mean(slip_entry_R) < −0.05R** sur ≥ 20 trades → slippage d'entrée
+    structurel, pointer vers le broker concerné.
+
+- **Format Telegram** (résumé dans `/suivi`, pas de tableau — narratif compact) :
+  ```
+  Cabriole : 31 trades — live -17.9R / théo -11.8R (Δ -0.20R/trade).
+  → exécution propre, le drift restant = régime/bias BT.
+  Extension : 19 trades — live -4.2R / théo -2.2R (Δ -0.10R/trade) — modéré.
+  ```
+  1 ligne par stratégie avec ≥ 10 trades. Pas de table (Telegram ne les rend
+  pas correctement). Si meanΔ_R ∈ [−0.10R, +0.10R] : `exécution propre`. Si
+  ∈ [−0.20R, −0.10R[ : `drift modéré`. Si < −0.20R : `🔶 exécution mange l'edge`.
+
 ### 3. Anomalies à détecter
 
 - **Protection switches** : CAUTION/DANGER/EMERGENCY déclenchés sur la période
@@ -168,6 +214,17 @@ Format pour une semaine (modèle à suivre, pas à copier mot à mot) :
 - **FTMO** : P&L net, ΣR, WR
 - **GFT**  : P&L net, ΣR, WR
 - **Total** : P&L net, ΣR
+
+### Live vs théorie — par stratégie
+| Stratégie | n | ΣR_live | ΣR_theo | meanΔ_R | slip_in moy | exécution |
+|---|---|---|---|---|---|---|
+| cabriole | 31 | -17.9 | -11.8 | -0.20R | -0.02R | drift modéré |
+…
+
+### Live vs théorie — détail trade-par-trade
+(Tableau Markdown 19 colonnes, format §2.f. Tronquer trade_id à 8 char.
+Inclure tous les trades de la période ; si > 50, tronquer les 50 plus
+anciens et noter "(…N trades antérieurs élidés)".)
 
 ### Événements marquants
 - Trade remarquable (winner ou loser signifiant)
