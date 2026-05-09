@@ -123,11 +123,20 @@ def simulate_pure(df: pd.DataFrame, entry_ts: pd.Timestamp, side: str,
                   max_bars: int = 200) -> dict | None:
     """Simule un trade pur sur la bougie qui contient entry_ts.
 
-    BE 0.3R offset 0.20R, TP 2R. Le simulateur entre à l'open de la bougie
-    qui contient entry_ts (anti-lookahead : c'est la bougie post-signal,
-    déjà projetée par l'engine). Le risk_distance utilisé reste celui de la
-    consigne live (entry_price → sl), pour mesurer purement la déviation
-    d'exécution post-entry et exposer le slippage d'entrée séparément.
+    Aligné sur la convention du BT principal (position_manager._check_sl_tp_intrabar
+    + _update_breakeven) :
+    1. **Check SL/TP d'abord** avec le SL courant (avant BE update de cette barre).
+    2. Si SL ET TP touchés sur la même barre → **SL** (convention pessimiste).
+    3. PUIS update MFE et BE pour la barre suivante.
+
+    Sans cette discipline, on assumerait que H vient avant L (LONG) — biais
+    optimiste interdit par la boussole projet.
+
+    BE 0.3R offset 0.20R, TP 2R. Le simulateur entre à l'open de la bougie qui
+    contient entry_ts (anti-lookahead : c'est la bougie post-signal, déjà
+    projetée par l'engine). Le risk_distance utilisé reste celui de la consigne
+    live (entry_price → sl), pour mesurer purement la déviation d'exécution
+    post-entry et exposer le slippage d'entrée séparément.
     """
     if side == "LONG":
         risk = entry_price - sl
@@ -159,18 +168,16 @@ def simulate_pure(df: pd.DataFrame, entry_ts: pd.Timestamp, side: str,
 
     for i, (ts, row) in enumerate(df_after.iterrows()):
         h, l = float(row["High"]), float(row["Low"])
+
+        # 1. MFE tracking (pas d'effet sur le SL de cette barre)
         if side == "LONG":
             mfe_bar = (h - entry_price) / risk
         else:
             mfe_bar = (entry_price - l) / risk
         if mfe_bar > mfe_r:
             mfe_r = mfe_bar
-        if not be_armed and mfe_r >= 0.3:
-            be_armed = True
-            cur_sl = be_sl
-            be_armed_ts = ts
-            be_armed_price = h if side == "LONG" else l
 
+        # 2. Check SL/TP avec cur_sl AVANT update BE de cette barre
         if side == "LONG":
             sl_hit = l <= cur_sl
             tp_hit = h >= tp
@@ -178,6 +185,23 @@ def simulate_pure(df: pd.DataFrame, entry_ts: pd.Timestamp, side: str,
             sl_hit = h >= cur_sl
             tp_hit = l <= tp
 
+        # 3. Ambiguïté SL+TP touchés sur la même barre → SL (pessimiste, BT convention)
+        if sl_hit and tp_hit:
+            r = (cur_sl - entry_price) / risk if side == "LONG" else (entry_price - cur_sl) / risk
+            return {
+                "r_theo": round(r, 3),
+                "mfe_theo": round(mfe_r, 3),
+                "exit_reason_theo": "be_exit" if be_armed else "stop_loss",
+                "exit_ts_theo": ts.isoformat(),
+                "exit_price_theo": round(cur_sl, 5),
+                "n_bars": i + 1,
+                "be_armed_theo": be_armed,
+                "be_armed_ts_theo": be_armed_ts.isoformat() if be_armed_ts is not None else None,
+                "be_armed_price_theo": round(be_armed_price, 5) if be_armed_price is not None else None,
+                "entry_ts_theo": entry_ts_theo.isoformat(),
+                "entry_price_theo": round(entry_price_theo, 5),
+                "ambiguous_bar": True,
+            }
         if sl_hit:
             r = (cur_sl - entry_price) / risk if side == "LONG" else (entry_price - cur_sl) / risk
             return {
@@ -192,6 +216,7 @@ def simulate_pure(df: pd.DataFrame, entry_ts: pd.Timestamp, side: str,
                 "be_armed_price_theo": round(be_armed_price, 5) if be_armed_price is not None else None,
                 "entry_ts_theo": entry_ts_theo.isoformat(),
                 "entry_price_theo": round(entry_price_theo, 5),
+                "ambiguous_bar": False,
             }
         if tp_hit:
             return {
@@ -206,7 +231,15 @@ def simulate_pure(df: pd.DataFrame, entry_ts: pd.Timestamp, side: str,
                 "be_armed_price_theo": round(be_armed_price, 5) if be_armed_price is not None else None,
                 "entry_ts_theo": entry_ts_theo.isoformat(),
                 "entry_price_theo": round(entry_price_theo, 5),
+                "ambiguous_bar": False,
             }
+
+        # 4. BE armement pour la barre SUIVANTE si MFE ≥ 0.3R
+        if not be_armed and mfe_r >= 0.3:
+            be_armed = True
+            cur_sl = be_sl
+            be_armed_ts = ts
+            be_armed_price = h if side == "LONG" else l
 
     last_close = float(df_after.iloc[-1]["Close"])
     r = ((last_close - entry_price) / risk if side == "LONG"
@@ -223,6 +256,7 @@ def simulate_pure(df: pd.DataFrame, entry_ts: pd.Timestamp, side: str,
         "be_armed_price_theo": round(be_armed_price, 5) if be_armed_price is not None else None,
         "entry_ts_theo": entry_ts_theo.isoformat(),
         "entry_price_theo": round(entry_price_theo, 5),
+        "ambiguous_bar": False,
     }
 
 
@@ -377,6 +411,7 @@ def main() -> int:
             "mfe_theo": sim["mfe_theo"],
             "be_armed_theo": sim["be_armed_theo"],
             "exit_reason_theo": sim["exit_reason_theo"],
+            "ambiguous_bar_theo": sim.get("ambiguous_bar", False),
             # --- Comparaison ---
             "delta_r": delta_r,
             "slip_entry_R": slip_entry_R,
