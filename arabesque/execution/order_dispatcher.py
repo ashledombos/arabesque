@@ -192,15 +192,25 @@ class OrderDispatcher:
             )
 
         # Rodage: risk multiplier for strategies in break-in period
+        # Ultra-rodage prioritaire sur rodage normal (×0.10 vs ×0.25 par défaut)
         self._rodage_strategies: set = set()
         self._rodage_multiplier: float = 1.0
+        self._rodage_strategies_ultra: set = set()
+        self._rodage_multiplier_ultra: float = 1.0
         if rodage_config and rodage_config.get("enabled", False):
             self._rodage_strategies = set(rodage_config.get("strategies", []))
             self._rodage_multiplier = rodage_config.get("risk_multiplier", 0.5)
+            self._rodage_strategies_ultra = set(rodage_config.get("strategies_ultra", []))
+            self._rodage_multiplier_ultra = rodage_config.get("risk_multiplier_ultra", 0.10)
             if self._rodage_strategies:
                 logger.info(
                     f"[Dispatcher] 🔬 Rodage actif: {self._rodage_strategies} "
                     f"× {self._rodage_multiplier}"
+                )
+            if self._rodage_strategies_ultra:
+                logger.info(
+                    f"[Dispatcher] 🧪 Ultra-rodage actif: {self._rodage_strategies_ultra} "
+                    f"× {self._rodage_multiplier_ultra}"
                 )
 
         # Signaux en attente, indexés par symbole
@@ -293,8 +303,16 @@ class OrderDispatcher:
             )
 
         # Rodage: risk réduit pour les stratégies en période de rodage
+        # Ultra-rodage prioritaire (×0.10 par défaut), sinon rodage normal (×0.25)
         strat_name = getattr(signal, "strategy_type", "")
-        if strat_name in self._rodage_strategies:
+        if strat_name in self._rodage_strategies_ultra:
+            original = sizing["risk_cash"]
+            sizing["risk_cash"] = round(original * self._rodage_multiplier_ultra, 2)
+            logger.info(
+                f"[Dispatcher] 🧪 Ultra-rodage: {strat_name} {original:.0f}$ × "
+                f"{self._rodage_multiplier_ultra} = {sizing['risk_cash']:.0f}$"
+            )
+        elif strat_name in self._rodage_strategies:
             original = sizing["risk_cash"]
             sizing["risk_cash"] = round(original * self._rodage_multiplier, 2)
             logger.info(

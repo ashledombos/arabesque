@@ -39,11 +39,18 @@ execution:
 # -----------------------------------------------------------------------------
 rodage:
   enabled: true
-  risk_multiplier: 0.50          # ×0.50 = moitié du risque normal
+  risk_multiplier: 0.25          # 2026-05-03 abaissé 0.50→0.25 — DD FTMO -6.33%, Cabriole 2e audit drift_modéré (option 2 défensive)
   strategies:
-    - glissade                   # Activé live 2026-03-22, pas encore validé en live
-    - fouette                    # Activé live 2026-03-28, WF 4/4 PASS
-    - cabriole                   # Activé live 2026-03-28, WF 6/6 PASS (overlap Extension)
+    - glissade                   # Activé live 2026-03-22, drift_modéré J-30 (n=8 small-n)
+    - fouette                    # Activé live 2026-03-28, WF 4/4 PASS (0 trade live, neutre)
+    - cabriole                   # Activé live 2026-03-28, WF 6/6 PASS (drift_modéré 2e audit, n=32, ΔExp=-0.252R)
+  # Ultra-rodage : levier disponible si /suivi détecte un drift suspect mais qu'on
+  # veut continuer à collecter de la donnée live sans risquer le compte.
+  # 0.10% sur compte 100k$ ≈ ~$100/trade — 10 pertes consécutives = 1% du compte.
+  # Une stratégie listée ici prend ×0.10 (priorité sur risk_multiplier ci-dessus).
+  # Vide par défaut. À activer manuellement après lecture du verdict /suivi.
+  risk_multiplier_ultra: 0.10
+  strategies_ultra: []
 
 # -----------------------------------------------------------------------------
 # STRATÉGIE (v3.3 validé: trend-only)
