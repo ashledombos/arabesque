@@ -313,6 +313,16 @@ def main() -> int:
         if df is None:
             continue
 
+        # Sanity guard : si le prix parquet diffère du prix live d'un facteur ≥ 5,
+        # on est face à un mismatch de price_scale (bug data ; ex: paires JPY
+        # stockées en 1e5 au lieu de 1e3). Skipper et tracer.
+        first_bar_open = float(df[df.index >= floor_to_tf(entry_ts, tf)].iloc[0]["Open"]) if not df[df.index >= floor_to_tf(entry_ts, tf)].empty else 0
+        if first_bar_open > 0 and entry_price > 0:
+            ratio = entry_price / first_bar_open
+            if ratio > 5 or ratio < 0.2:
+                print(f"⚠️  scale mismatch {inst} (live={entry_price} parquet={first_bar_open}) → trade ignoré")
+                continue
+
         sim = simulate_pure(df, entry_ts, side, entry_price, sl, tf, max_bars=args.max_bars)
         if sim is None:
             continue
