@@ -67,7 +67,7 @@ Pour chaque item, calcule la métrique à partir de `logs/trade_journal.jsonl` (
 | `cross_broker_divergence` | Aggrège `logs/trade_journal.jsonl` exits par `(strategy, instrument, entry_ts ±5min)` pour paires FTMO/GFT. Si `mean(\|Δ_R\|) > 0.40` sur `n ≥ 5` paires OU `n_inversions ≥ 3` sur `n ≥ 10` paires | Alerte avec broker incriminé. Si pattern net (un broker mange l'edge), suggérer entry dans `strategy_broker_exclusions` (proposer, ne pas auto-appliquer). |
 | `missing_trades_unjustified` | Lance `python scripts/replay_signals_vs_live.py --since J-7 --min-missing 5`. Si `manquants > 5` pour une stratégie sur 7j (hors weekend blocked et `strategy_broker_exclusions`) | Alerte Telegram+ntfy avec liste (stratégie, instrument, ts). Investigue : engine aveugle, drop signal silencieux, filtre trop restrictif. Pas d'auto-fix — diag manuel. **Note** : le script déduplique les clusters (signaux consécutifs sur 1 setup) ; un manquant restant = soit position déjà ouverte sur l'instrument, soit refus engine légitime, soit panne. À J-7 le seuil 5 capte les pannes ponctuelles ; ne pas abaisser sous 3. |
 | `execution_invariants` | **Détection de bugs de tracking** (distinct du drift d'edge). Lance `python scripts/check_execution_invariants.py --since J-7 --per-broker`. Le mode `--per-broker` évalue séparément FTMO + GFT pour ne pas diluer un bug spécifique à un connecteur (cf. incident 2026-05-07 : 24% reconciled FTMO vs 33% GFT). Verdict possible : `ok` / `alert` / `critique` global = max des 2. Capte par broker : `reconciled_other_ratio` (>2%/5% fallback ambigu), `mfe_zero_loser` (≥3 losers avec MFE=0 = tracker cassé), `zero_winner_streak` (0 winner sur ≥20 trades), `be_unarmed_ratio` (>10% des -1R avaient MFE≥0.3R sans BE armé). | Si verdict global `critique` → 🛑 **proposer STOP live** (pas d'auto-stop, demander validation user). Si triggers concentrés sur **un seul broker**, escalader avec lecture brute par broker. Si `alert` → notif Telegram+ntfy + note dans HANDOFF "Investigation à planifier". Ne jamais classer en `regime_defavorable` un trigger d'invariant : un MFE=0 sur un loser n'est jamais explicable par le marché. Cf incident 2026-05-07 (drift uniforme 30-60pp WR + 26% reconciled = bug exécution, pas régime). |
-| `phase4_revalidation` | **Critère go fin Phase 4 (reprise post-fix 2026-05-07)** : compte les exits `logs/trade_journal.jsonl` depuis `2026-05-07T23:45:00+00:00`. Si `n_exits ≥ 50`, lance `python scripts/check_execution_invariants.py --since 2026-05-07T23:45 --per-broker`. | Si verdict global = `ok` → notif Telegram+ntfy : « ✅ 50 trades post-fix, invariants verts → propose ramp risk ×0.25 → ×0.50 (validation user requise) ». Marque la task #6 / Phase 4 comme prête à clore dans HANDOFF. Si verdict ≠ `ok` → 🚨 alerte critique : un nouveau pattern de bug ; **NE PAS** ramper le risk ; déclencher session diagnostic. Si `n_exits < 50` → no-op silencieux (juste logger `phase4_revalidation: n=X/50` dans `maintenance_state.jsonl`). |
+| `phase4_revalidation` | **Critère go fin Phase 4 (reprise post-fix 2026-05-07)** : compte les exits `logs/trade_journal.jsonl` depuis `2026-05-07T23:45:00+00:00`. Si `n_exits ≥ 50`, lance **les 2** : (a) `python scripts/check_execution_invariants.py --since 2026-05-07T23:45 --per-broker` ; (b) `python scripts/replay_live_vs_theory.py --since 2026-05-07T23:45` (mesure exécution vs théorie). Le critère go combine **absence de bug technique ET présence d'edge** : on ne rampe pas le risk juste parce qu'il n'y a pas de bug, il faut aussi vérifier que le live colle à la théorie. | **Verdict combiné** : (1) invariants `ok` ET `meanΔR_global ≥ -0.10R` → ✅ propose ramp ×0.25 → ×0.50 (validation user) ; (2) invariants `ok` ET `meanΔR ∈ [-0.20R, -0.10R[` → ⚠️ recommander rester ×0.25 — drift exécution modéré, attendre 50 trades de plus ; (3) invariants `ok` ET `meanΔR < -0.20R` → 🛠️ recommander **ultra-rodage ×0.10** sur la stratégie la plus dérivante — exécution dévorante malgré pas de bug ; (4) invariants ≠ `ok` → 🚨 alerte critique, NE PAS ramper, session diagnostic. Marque la task #6 ouverte dans HANDOFF avec le verdict obtenu. Si `n_exits < 50` → no-op silencieux (juste logger `phase4_revalidation: n=X/50` dans `maintenance_state.jsonl`). |
 | `stale_bilan` | Pas de modif `logs/journal/YYYY-MM.md` depuis ≥ 8j | Note suggestion : « envisage `/bilan` ». Pas d'action auto. |
 
 **Avant d'auto-appliquer une action** : vérifie que le critère est strictement satisfait (n et WR). En cas de doute (≤ 1 trade de la limite), passe en mode "Proposer" plutôt que "Appliquer".
@@ -107,16 +107,26 @@ if channels:
     asyncio.run(ap.async_notify(body=résumé, title="Arabesque /suivi"))
 ```
 
-**Format du body** (≤ 8 lignes, lisible par un humain qui regarde son tél) :
+**Format du body** (≤ 12 lignes, lisible par un humain qui regarde son tél) :
 ```
 📋 Suivi YYYY-MM-DD HH:MM UTC
 🟢/🛠️/🚨 État global
 • Engine : active (Xh uptime)
 • FTMO -X.X% / GFT -Y.Y% — protection NORMAL
+• Edge replay J-30 : Cabriole +0.02R/31t · Extension -0.10R/19t · Glissade +0.23R/4t
+• Edge decomp : be_missed=N% · résiduel régime=M%   (si ΔExp < -0.20)
+• Phase 4 : N/50 trades · verdict=…              (si Phase 4 active)
 • Watchlist : N triggers (liste si > 0)
-• Actions : … (liste ou "rien")
+• Reco : … (action lisible si trigger : « passe Extension en strategies_ultra », « investigue be_missed », « rien »)
 Prochain suivi : YYYY-MM-DD HH:MM UTC
 ```
+
+**Recommandations actionnables** : quand un trigger se déclenche, la ligne `Reco` doit dire **quoi faire concrètement**, pas juste signaler le problème :
+- `replay_drift_live_vs_theory < -0.20R sur stratégie X` → « `Reco: ajoute X à rodage.strategies_ultra dans config/settings.yaml puis restart engine` »
+- `edge_decomposition be_missed > 10%` → « `Reco: investigue les trades be_set=False mfe≥0.3R dans logs/trade_journal.jsonl` »
+- `edge_audit_drift drift_structurel` → « `Reco: réduire risk de la stratégie d'un cran (×0.50→×0.25, ou ×0.25→×0.10) ; ne pas stopper sans replay confirmant exécution dévorante` »
+- `phase4_revalidation verdict=ok+meanΔR≥-0.10R` → « `Reco: tu peux ramper rodage.risk_multiplier ×0.25 → ×0.50` »
+- `phase4_revalidation verdict=ok+meanΔR<-0.20R` → « `Reco: NE pas ramper. Bascule la stratégie la plus dérivante en strategies_ultra (×0.10), continue collecte 50 trades` »
 
 Modes :
 - `silent` → pas de notif
