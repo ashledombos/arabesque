@@ -82,6 +82,12 @@ class PriceFeedManager:
         self._reconnect_count = 0
         self._start_time: Optional[datetime] = None
 
+        # Alerting : envoie Telegram+ntfy après N reconnexions consécutives
+        # OU sur erreur d'auth (INVALID_REQUEST / not authorized).
+        # Une seule alerte par cycle d'échec — reset à la première reconnexion réussie.
+        self._alert_sent = False
+        self._alert_threshold_reconnects = 3  # ~6 min de retry avant ping
+
     # ------------------------------------------------------------------
     # Factory
     # ------------------------------------------------------------------
@@ -247,12 +253,23 @@ class PriceFeedManager:
     async def _run_loop(self) -> None:
         delay = self.reconnect_delay_s
         while self._running:
+            last_err: Optional[str] = None
             try:
                 await self._connect_and_subscribe()
                 delay = self.reconnect_delay_s  # reset après succès
+                if self._alert_sent:
+                    # Connexion restaurée → reset cycle d'alerte + recovery ping
+                    self._alert_sent = False
+                    await self._send_alert(
+                        f"✅ PriceFeed {self.broker_id} reconnecté "
+                        f"après {self._reconnect_count} tentatives.",
+                        title="Arabesque — feed restauré",
+                    )
+                self._reconnect_count = 0
             except asyncio.CancelledError:
                 break
             except Exception as e:
+                last_err = str(e)
                 logger.error(f"[PriceFeed] Erreur: {e}")
 
             if not self._running:
@@ -264,8 +281,55 @@ class PriceFeedManager:
                 f"[PriceFeed] Reconnexion dans {delay:.0f}s "
                 f"(tentative #{self._reconnect_count})"
             )
+
+            # Alerte immédiate sur erreur d'auth (rare, actionnable directement)
+            auth_err = last_err and (
+                "INVALID_REQUEST" in last_err
+                or "not authorized" in last_err.lower()
+                or "unauthorized" in last_err.lower()
+            )
+            if (
+                not self._alert_sent
+                and (auth_err or self._reconnect_count >= self._alert_threshold_reconnects)
+            ):
+                self._alert_sent = True
+                kind = "auth" if auth_err else f"{self._reconnect_count} reconnexions"
+                await self._send_alert(
+                    f"🚨 PriceFeed {self.broker_id} en échec ({kind}).\n"
+                    f"Dernière erreur : {last_err or 'inconnue'}\n"
+                    f"Engine continue de tourner mais ne reçoit pas de ticks.\n"
+                    f"Action : vérifier docs/STATUS.md (expiration compte / token).",
+                    title="🚨 Arabesque PriceFeed down",
+                )
+
             await asyncio.sleep(delay)
             delay = min(delay * 2, 120.0)  # backoff exponentiel, max 2 min
+
+    async def _send_alert(self, body: str, title: str = "Arabesque") -> None:
+        """Push Telegram+ntfy via apprise. Lit notifications.channels de secrets.yaml.
+
+        Best-effort : silencieux si apprise absent ou config vide. Ne bloque
+        jamais la boucle de reconnexion en cas d'erreur réseau.
+        """
+        try:
+            import yaml
+            from pathlib import Path
+            secrets_path = Path("config/secrets.yaml")
+            if not secrets_path.exists():
+                return
+            secrets = yaml.safe_load(secrets_path.read_text()) or {}
+            channels = (secrets.get("notifications") or {}).get("channels") or []
+            channels = [c for c in channels if isinstance(c, str)]
+            if not channels:
+                return
+            import apprise
+            ap = apprise.Apprise()
+            for ch in channels:
+                ap.add(ch)
+            await ap.async_notify(body=body, title=title)
+            logger.info(f"[PriceFeed] 📨 Alerte envoyée: {title}")
+        except Exception as e:
+            logger.warning(f"[PriceFeed] _send_alert échec: {e}")
 
     async def _connect_and_subscribe(self) -> None:
         # Réutiliser le broker existant s'il est déjà connecté
