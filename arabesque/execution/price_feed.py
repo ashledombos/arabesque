@@ -375,17 +375,13 @@ class PriceFeedManager:
             cbs.extend(self._callbacks.get(symbol, []))
             symbols_and_callbacks[symbol] = cbs
 
-        if already_subscribed:
-            # Après 5 tentatives échouées, forcer un resubscribe TCP complet
-            # car la souscription est probablement perdue pour certains symboles
-            if self._reconnect_count > 5 and self._reconnect_count % 5 == 0:
-                logger.warning(
-                    f"[PriceFeed] 🔄 Tentative #{self._reconnect_count}: "
-                    f"forçage resubscribe TCP complet"
-                )
-                self._broker._subscribed_symbol_ids.clear()
-                self._broker._spot_callbacks.clear()
-                already_subscribed = False
+        # NB: pas de "forçage resubscribe TCP" après N tentatives.
+        # Empiriquement (2026-05-08 et 2026-05-11), clear _subscribed_symbol_ids
+        # puis ré-émettre subscribe_spots provoque
+        # INVALID_REQUEST - Trading account is not authorized côté cTrader,
+        # ce qui fige la session et bloque le feed jusqu'au prochain restart.
+        # Si le feed reste stale après N tentatives, l'alerte _send_alert
+        # (TG+ntfy) ping l'humain → restart manuel propre.
 
         if already_subscribed:
             # Broker déjà souscrit — juste mettre à jour les callbacks Python
