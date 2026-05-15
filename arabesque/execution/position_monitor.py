@@ -319,21 +319,50 @@ class LivePositionMonitor:
                 continue
             pos.last_tick_check = now
 
-            # Prix de référence : bid pour LONG (on vend au bid),
-            # ask pour SHORT (on rachète à l'ask)
-            price = bid if pos.side == Side.LONG else ask
-            if price <= 0:
-                continue
+            await self._process_pos_quote(pos, bid, ask, source="tick")
 
-            # Mettre à jour le MFE en continu
-            pos.update_mfe_tick(price)
+    async def _process_pos_quote(
+        self,
+        pos: TrackedPosition,
+        bid: float,
+        ask: float,
+        source: str = "tick",
+        do_trailing: bool = True,
+    ) -> bool:
+        """Évalue BE (et trailing si activé) pour une position contre un couple bid/ask.
 
-            # 1. Breakeven
-            if not pos.breakeven_set:
-                await self._check_breakeven(pos, price)
+        Méthode commune utilisée par ``on_tick`` (tick PriceFeed, source="tick")
+        et — étape 2 Phase 2.5 — par ``_be_polling_loop`` (quote broker direct,
+        source="polling_backup", do_trailing=False).
 
-            # 2. Trailing
+        Cette méthode N'inclut PAS le throttle tick (responsabilité de l'appelant).
+        Elle suppose que le caller a déjà décidé qu'il était temps de checker.
+
+        Retourne True si le BE vient d'être armé pendant cet appel, False sinon.
+        Le ``source`` est passé en argument pour permettre un audit trail futur
+        (sera consommé par ``_check_breakeven`` quand on instrumentera l'event).
+        """
+        # Prix de référence : bid pour LONG (on vend au bid),
+        # ask pour SHORT (on rachète à l'ask)
+        price = bid if pos.side == Side.LONG else ask
+        if price <= 0:
+            return False
+
+        # Mettre à jour le MFE en continu
+        pos.update_mfe_tick(price)
+
+        # 1. Breakeven
+        be_just_armed = False
+        if not pos.breakeven_set:
+            was_set_before = pos.breakeven_set
+            await self._check_breakeven(pos, price)
+            be_just_armed = pos.breakeven_set and not was_set_before
+
+        # 2. Trailing (désactivable pour le polling backup BE-only en v1)
+        if do_trailing:
             await self._check_trailing(pos, price)
+
+        return be_just_armed
 
     async def _check_breakeven(self, pos: TrackedPosition, current_price: float):
         """Si MFE >= 0.3R → déplacer SL à entry + 0.20R."""
