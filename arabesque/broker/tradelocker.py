@@ -13,7 +13,7 @@ from typing import Optional, List, Dict, Any
 
 from .base import (
     BaseBroker, OrderRequest, OrderResult, OrderSide, OrderType, OrderStatus,
-    Position, PendingOrder, AccountInfo, SymbolInfo, PriceTick,
+    Position, PendingOrder, AccountInfo, SymbolInfo, PriceTick, FreshQuote,
 )
 
 os.environ.setdefault('TRADELOCKER_LOG_LEVEL', 'WARNING')
@@ -260,6 +260,51 @@ class TradeLockerBroker(BaseBroker):
             if bid <= 0 or ask <= 0:
                 return None
             return PriceTick(symbol=symbol, bid=bid, ask=ask)
+        except Exception:
+            return None
+
+    async def get_fresh_quote(
+        self, symbol: str, quote_type: str
+    ) -> Optional[FreshQuote]:
+        """Phase 2.5 — quote fraîche via REST TradeLocker.
+
+        L'API TradeLocker ``get_quotes()`` est déjà un appel REST indépendant
+        de tout stream long-lived, donc il n'y a pas de risque équivalent au
+        bug ALREADY_LOGGED_IN cTrader. L'override consiste essentiellement
+        à exposer le même payload sous forme ``FreshQuote`` plutôt que
+        ``PriceTick``, et à fournir un ``observed_at`` explicite.
+
+        IMPORTANT : TradeLocker ne renvoie pas de timestamp marché côté
+        serveur (pas de champ ``ts`` dans le payload ``get_quotes``).
+        On laisse donc ``market_ts=None`` et le caller utilisera ``observed_at``
+        avec une fiabilité dégradée — il est impossible de distinguer
+        "quote vraiment fraîche" de "quote cached côté broker il y a 10s".
+
+        Si TradeLocker ajoute un timestamp un jour, il faudra le câbler ici.
+        """
+        if not self._api:
+            return None
+        if quote_type not in ("bid", "ask"):
+            return None
+        inst_id = self._get_instrument_id(symbol)
+        if inst_id is None:
+            return None
+        try:
+            q = self._api.get_quotes(inst_id)
+            if not q:
+                return None
+            bid = float(q.get('bp', 0) or 0)
+            ask = float(q.get('ap', 0) or 0)
+            price = bid if quote_type == "bid" else ask
+            if price <= 0:
+                return None
+            return FreshQuote(
+                symbol=symbol,
+                price=price,
+                quote_type=quote_type,
+                market_ts=None,  # TradeLocker n'expose pas de timestamp marché
+                observed_at=datetime.now(timezone.utc),
+            )
         except Exception:
             return None
 
