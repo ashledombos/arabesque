@@ -331,9 +331,32 @@ class LivePositionMonitor:
     ) -> bool:
         """Évalue BE (et trailing si activé) pour une position contre un couple bid/ask.
 
-        Méthode commune utilisée par ``on_tick`` (tick PriceFeed, source="tick")
-        et — étape 2 Phase 2.5 — par ``_be_polling_loop`` (quote broker direct,
-        source="polling_backup", do_trailing=False).
+        Wrapper qui sélectionne le prix pertinent (bid pour LONG, ask pour SHORT)
+        puis délègue à ``_process_pos_from_price``. Utilisé par ``on_tick`` qui
+        dispose d'un PriceTick avec bid ET ask.
+
+        Le polling broker (Phase 2.5 étape 2.5+) appellera plutôt directement
+        ``_process_pos_from_price`` avec le seul côté pertinent — pas besoin de
+        fabriquer un bid/ask factice.
+        """
+        price = bid if pos.side == Side.LONG else ask
+        return await self._process_pos_from_price(pos, price, source, do_trailing)
+
+    async def _process_pos_from_price(
+        self,
+        pos: TrackedPosition,
+        price: float,
+        source: str = "tick",
+        do_trailing: bool = True,
+    ) -> bool:
+        """Évalue BE (et trailing si activé) pour une position contre un prix unique.
+
+        Méthode commune utilisée par ``on_tick`` (via ``_process_pos_quote``)
+        et par le polling broker direct (qui n'a que le côté pertinent, pas
+        besoin de fabriquer un spread complet).
+
+        Le ``price`` doit déjà être le prix pertinent côté position :
+        bid pour LONG (on vend au bid), ask pour SHORT (on rachète à l'ask).
 
         Cette méthode N'inclut PAS le throttle tick (responsabilité de l'appelant).
         Elle suppose que le caller a déjà décidé qu'il était temps de checker.
@@ -342,23 +365,17 @@ class LivePositionMonitor:
         Le ``source`` est passé en argument pour permettre un audit trail futur
         (sera consommé par ``_check_breakeven`` quand on instrumentera l'event).
         """
-        # Prix de référence : bid pour LONG (on vend au bid),
-        # ask pour SHORT (on rachète à l'ask)
-        price = bid if pos.side == Side.LONG else ask
         if price <= 0:
             return False
 
-        # Mettre à jour le MFE en continu
         pos.update_mfe_tick(price)
 
-        # 1. Breakeven
         be_just_armed = False
         if not pos.breakeven_set:
             was_set_before = pos.breakeven_set
             await self._check_breakeven(pos, price)
             be_just_armed = pos.breakeven_set and not was_set_before
 
-        # 2. Trailing (désactivable pour le polling backup BE-only en v1)
         if do_trailing:
             await self._check_trailing(pos, price)
 

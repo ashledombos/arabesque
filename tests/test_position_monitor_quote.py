@@ -132,6 +132,23 @@ def test_process_pos_quote_idempotent_when_be_already_armed():
     assert len(broker.amends) == n_after_first, "Aucun amend supplémentaire attendu"
 
 
+def test_process_pos_from_price_arms_be_with_single_price():
+    """Phase 2.5 étape 2 — point d'entrée bas niveau pour le polling broker.
+
+    Le polling n'a qu'un seul côté (bid LONG ou ask SHORT), pas besoin
+    de fabriquer un faux PriceTick avec bid=ask.
+    """
+    mon, broker = _make_monitor()
+    pos = _register_long(mon)
+    armed = asyncio.run(mon._process_pos_from_price(
+        pos, price=100.31, source="polling_backup", do_trailing=False
+    ))
+    assert armed is True
+    assert pos.breakeven_set
+    assert not pos.trailing_active  # do_trailing=False
+    assert len(broker.amends) == 1
+
+
 def test_process_pos_quote_zero_price_is_noop():
     """price <= 0 (quote dégradée) : ne touche pas la position."""
     mon, broker = _make_monitor()
