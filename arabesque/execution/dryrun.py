@@ -1,5 +1,18 @@
 """
-Arabesque — Parquet Clock (dry-run simulator).
+Arabesque — Parquet Clock (LEGACY execution replay).
+
+⚠️ LEGACY — Ce replay utilise l'ancien pipeline Orchestrator/BrokerAdapter
+(``execution.orchestrator.Orchestrator`` + ``handle_signal(data)``), pas le
+dispatcher live moderne ``BarAggregator → LiveEngine.receive_signal →
+OrderDispatcher → BaseBroker``.
+
+Utile pour détecter biais de signaux et bugs position_manager, mais NE VALIDE
+PAS exactement les guards live (pending orders, weekend guard, exclusions
+strategy/broker, risk multipliers, slippage-at-trigger, multi-broker).
+
+Pour audit live moderne, préférer :
+- ``scripts/replay_signals_vs_live.py`` (signaux théoriques vs entries live)
+- ``scripts/replay_live_vs_theory.py`` (R_live vs R_theo par trade)
 
 Rejoue les barres H1 depuis les parquets locaux, bougie par bougie,
 sans connexion cTrader.

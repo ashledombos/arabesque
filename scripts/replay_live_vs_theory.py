@@ -65,13 +65,18 @@ def parse_since(s: str) -> datetime:
 
 
 def resolve_tf(strategy: str, instrument: str, settings: dict, instr_cfg: dict) -> str:
-    """Détermine le timeframe attendu (H1/H4/M1) pour un (strategy, instrument)."""
+    """Détermine le timeframe attendu (H1/H4/M1) pour un (strategy, instrument).
+
+    IMPORTANT : le live lit `timeframe` (cf. arabesque/execution/live.py),
+    `tf` reste accepté comme alias legacy. Sans cette unification, Extension
+    crypto (timeframe: H4) était évaluée en H1 — Δ_R faussés.
+    """
     sa = settings.get("strategy_assignments", {}).get(strategy, {})
     if sa and instrument in (sa.get("instruments") or []):
         return sa.get("timeframe", "H1").upper()
     if strategy == "extension":
         meta = instr_cfg.get(instrument, {}) or {}
-        return (meta.get("tf") or "H1").upper()
+        return (meta.get("timeframe") or meta.get("tf") or "H1").upper()
     return "H1"
 
 
@@ -262,16 +267,26 @@ def simulate_pure(df: pd.DataFrame, entry_ts: pd.Timestamp, side: str,
 
 _DF_CACHE: dict[tuple[str, str], pd.DataFrame] = {}
 
+# Strict-data mode : refuse les fallbacks Yahoo (source ≠ parquet) sauf
+# --allow-yahoo. Yahoo peut diverger de la source de validation locale.
+_ALLOW_YAHOO: bool = False
+_SKIPPED_NO_PARQUET: set[tuple[str, str]] = set()  # (instrument, tf)
+
 
 def get_df(instrument: str, tf: str, fetch_start: str, fetch_end: str) -> pd.DataFrame | None:
     key = (instrument, tf)
     if key in _DF_CACHE:
         return _DF_CACHE[key]
-    from arabesque.data.store import load_ohlc
+    from arabesque.data.store import load_ohlc, get_last_source_info
     iv = INTERVAL_MAP.get(tf.upper(), tf.lower())
     try:
         df = load_ohlc(instrument, interval=iv, start=fetch_start, end=fetch_end)
     except Exception:
+        _SKIPPED_NO_PARQUET.add((instrument, tf))
+        return None
+    src = get_last_source_info()
+    if not _ALLOW_YAHOO and (src is None or not src.source.startswith("parquet")):
+        _SKIPPED_NO_PARQUET.add((instrument, tf))
         return None
     if df is None or df.empty:
         return None
@@ -290,7 +305,13 @@ def main() -> int:
                    help="Compare à /tmp/replay_trades.json (replay one-shot 2026-05-07)")
     p.add_argument("--max-bars", type=int, default=200,
                    help="Nb max de bougies simulées par trade (200 = ~8j H1, ~1.5mois H4)")
+    p.add_argument("--allow-yahoo", action="store_true",
+                   help="Autoriser le fallback Yahoo si parquet manquant. "
+                        "Par défaut (strict-data), un instrument sans parquet est skippé.")
     args = p.parse_args()
+
+    global _ALLOW_YAHOO
+    _ALLOW_YAHOO = bool(args.allow_yahoo)
 
     settings = yaml.safe_load(SETTINGS.read_text())
     instr_cfg = yaml.safe_load(INSTRUMENTS.read_text()) or {}
@@ -527,6 +548,15 @@ def main() -> int:
                 f.write(json.dumps(r2) + "\n")
         print(f"  Persisté résumé : {OUT_LOG}")
         print(f"  Persisté trades : {per_trade_log}")
+
+    if _SKIPPED_NO_PARQUET:
+        print()
+        print(f"⚠️  Strict-data : {len(_SKIPPED_NO_PARQUET)} (instrument, tf) skippé(s) — pas de parquet local")
+        for instr, tf in sorted(_SKIPPED_NO_PARQUET)[:15]:
+            print(f"    {tf:3s}  {instr}")
+        if len(_SKIPPED_NO_PARQUET) > 15:
+            print(f"    ... et {len(_SKIPPED_NO_PARQUET) - 15} autres")
+        print("    → rejouer avec --allow-yahoo, ou ingérer le parquet manquant.")
 
     return 0
 

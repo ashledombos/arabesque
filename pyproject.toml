@@ -54,3 +54,7 @@ include = ["arabesque*"]
 [tool.setuptools.package-data]
 "arabesque.strategies.extension" = ["params.yaml", "STRATEGY.md"]
 "arabesque.data" = ["instruments.csv"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["tmp", "barres_au_sol", "logs", "reports", "resources", ".venv"]

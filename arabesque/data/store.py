@@ -150,6 +150,17 @@ _CCXT_MAP: dict[str, str] = {
     "VETUSD": "VETUSDT_BINANCE",
     "MANAUSD": "MANAUSDT_BINANCE",
     "BARUSD": "BARUSDT_BINANCE",
+    # Aliases cTrader 6 caractères (config/instruments.yaml — ftmo_ctrader expose les tickers tronqués).
+    # Pointent vers les mêmes parquets Binance que les noms longs.
+    "AAVUSD": "AAVEUSDT_BINANCE",
+    "ALGUSD": "ALGOUSDT_BINANCE",
+    "AVAUSD": "AVAXUSDT_BINANCE",
+    "MANUSD": "MANAUSDT_BINANCE",
+    "NERUSD": "NEARUSDT_BINANCE",
+    "SANUSD": "SANDUSDT_BINANCE",
+    "VECUSD": "VETUSDT_BINANCE",
+    "GALUSD": "GALUSDT_BINANCE",
+    "XTZUSD": "XTZUSDT_BINANCE",
 }
 
 # Mapping instrument → Yahoo symbol
