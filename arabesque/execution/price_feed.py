@@ -560,6 +560,11 @@ class PriceFeedManager:
                 if is_weekend and not crypto_stale and forex_stale:
                     # Forex stale pendant le weekend = normal, on tolère
                     pass
+                elif is_weekend and crypto_stale:
+                    # cTrader ferme les CFD crypto vendredi 22h → dimanche 22h UTC.
+                    # Crypto stale en weekend = par design, surtout pas reconnect
+                    # (sinon boucle ALREADY_LOGGED_IN, cf. incidents 8-9 / 10-11 / 12-13 mai 2026).
+                    pass
                 elif crypto_stale:
                     worst = max(crypto_stale, key=lambda x: x[1])
                     raise ConnectionError(
@@ -583,13 +588,11 @@ class PriceFeedManager:
                     )
 
             # Reconnexion globale : >50% stale
-            # Weekend : ne compter que les crypto (forex fermé = normal)
+            # Weekend : on ne reconnecte JAMAIS (forex+crypto fermés sur cTrader CFD).
+            # La détection global crypto stale weekend déclenchait la cascade
+            # ALREADY_LOGGED_IN (incidents 8-9/10-11/12-13 mai 2026).
             if is_weekend:
-                if crypto_total > 0 and crypto_stale_count / crypto_total > STALE_GLOBAL_PCT:
-                    raise ConnectionError(
-                        f"Feed stale global (weekend/crypto): "
-                        f"{crypto_stale_count}/{crypto_total} cryptos sans tick récent"
-                    )
+                pass
             else:
                 total_stale = len(symbols_stale_major) + len(symbols_stale_minor)
                 if total_symbols > 0 and total_stale / total_symbols > STALE_GLOBAL_PCT:
