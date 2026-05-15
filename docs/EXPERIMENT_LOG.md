@@ -237,6 +237,52 @@ Sur période Oct 2025 → Jan 2026 :
 - **Bilan** : L'emergency a par chance sauvé ~0.6R (IMXUSD/GALUSD allaient au SL), mais a gelé 2 trades gagnants (ALGUSD +0.20R, MANUSD +0.20R)
 - **Leçon** : Le calcul de DD doit être correct avant de l'utiliser pour des fermetures d'urgence
 
+### 2026-05-12→14 — Panne PriceFeed silencieuse + faux exit reconcilié
+- **Symptôme** : Engine `systemctl is-active=active` mais 0 barre BarAggregator fermée pendant 5h30 (12-05 23:01 → 13-05 07:54 UTC) puis 14-05 02:03 → 07:42 UTC + **09:47 → 17:23 UTC** (7h36 de boucle Feed stale ETHUSD permanente, fenêtre élargie révélée par diagnostic ciblé Glissade XAUUSD 2026-05-15). `/suivi` initial répondait "tout va bien".
+- **Cause panne** : cTrader feed FTMO bloqué en boucle `ALREADY_LOGGED_IN` puis `INVALID_REQUEST - Trading account is not authorized`. Bug `_alert_sent` figé à `True` dans `price_feed.py` (raisé `ConnectionError(Feed stale)` 30s après reconnect TCP réussi → `_connect_and_subscribe` ne RETURN jamais cleanly → reset `_alert_sent` jamais exécuté → 1 seule alerte sur 5h30 puis silence).
+- **Cause faux exit** : Au 1er restart 14-05 07:39 UTC pendant que FTMO était encore injoignable, `_reconcile_missed_exits` a inventé un exit ETHUSD SHORT cabriole `reconciled_stop_loss` `src=estimated_fallback bars=880 mfe_r=0 be_set=False`. Position en réalité TOUJOURS ouverte côté broker (confirmée 3min plus tard au 2e restart). Le fallback `estimated_fallback` ne distingue pas "détails broker indispos" de "position vraiment close".
+- **Fix watchdog externe v1 (2026-05-14)** : `scripts/feed_watchdog.py` + timer systemd 5min. Externe au process Python (échappe au bug `_alert_sent`). Détecte `is-active=active` + dernière `BarAggregator Résumé` > 15min → alerte Telegram+ntfy. Pas d'auto-restart (v1 = détection, opérateur décide).
+- **Fix faux exit (manuel, en attente patch)** : event renommé `exit_invalidated_by_bug` dans `logs/trade_journal.jsonl`, ligne `correction_note` appended, backup `.bak.20260514`. Patch à venir dans `live._reconcile_missed_exits` : si broker injoignable (auth error / TCP timeout) → différer reconcile, ne pas inventer (cf. DECISIONS.md §3).
+- **Leçon 1** : `is-active=active` n'est PAS un indicateur de santé. Cas A de `/suivi` doit exiger pré-condition feed crypto vivant (check `g` de la skill).
+- **Leçon 2** : Un alert state-machine doit toujours avoir un chemin de reset hors du chemin "succès complet" — sinon premier échec qui ne raise pas TOUT proprement = silence permanent.
+- **Leçon 3** : Un reconcile doit échouer cleanly quand le broker est injoignable, pas inventer. La couche fallback `estimated_fallback` est dangereuse en l'absence de signal "broker ok mais position vraiment close" vs "broker indispo".
+- **Trades manqués** : 0 attribuable à la panne (les 2 positions cabriole/glissade ouvertes ont été closes côté broker, exits récupérés au restart propre). 2 signaux Fouetté M1 le 2026-05-13 (XAUUSD 17:44, BTCUSD 14:35 UTC) non tirés mais engine actif à ce moment → cause distincte, à investiguer.
+
+### 2026-05-15 — Audit pipeline validation (appliqué)
+- **Source** : `docs/AUDIT_VALIDATION_PIPELINE_2026-05-15.md` (4 findings critiques + 7 recos).
+- **Appliqué (🟢, faible risque) :**
+  - **#1 Timeframe unifié** dans `scripts/replay_signals_vs_live.py` (l.~84) et `scripts/replay_live_vs_theory.py` (`resolve_tf`) : lit `timeframe` (clé live), accepte `tf` comme alias legacy. Sans ce fix, Extension crypto (`timeframe: H4` dans instruments.yaml) était rejouée en H1 → diagnostics ΔR faux.
+  - **#2 _CCXT_MAP étendu** dans `arabesque/data/store.py` : 9 aliases cTrader 6-char ajoutés (AAVUSD→AAVEUSDT, ALGUSD→ALGOUSDT, AVAUSD→AVAXUSDT, MANUSD→MANAUSDT, NERUSD→NEARUSDT, SANUSD→SANDUSDT, VECUSD→VETUSDT, GALUSD→GALUSDT, XTZUSD→XTZUSDT). Vérification : 8/9 résolvent parquet (GALUSD a parquet mais stale post-2026-04-14, à ré-ingérer).
+  - **#5 dryrun.py marqué legacy** : docstring explicite "LEGACY execution replay" pour clarifier que ce replay utilise l'ancien pipeline Orchestrator/BrokerAdapter, pas le dispatcher live moderne.
+  - **#6 pyproject.toml pytest config** : `testpaths = ["tests"]` + `norecursedirs = ["tmp", "barres_au_sol", "logs", "reports", "resources", ".venv"]`. `pytest -q` passe désormais (13 tests, 0.28s).
+- **Vérification d'impact (replay Phase 4 since 2026-05-07T23:45)** :
+  - Avant fix : n=7, meanΔR=-0.178R, glissade XAUUSD pèse fort.
+  - Après fix : n=7, meanΔR=-0.007R global (exécution propre). cabriole -0.014R, extension +0.606R (2 trades), glissade -1.202R (1 trade XAUUSD = celui reconcilié pendant panne).
+  - Lecture : la dérive Phase 4 réelle est concentrée sur le trade glissade XAUUSD lié à la panne PriceFeed (BE non armé car position_monitor sans ticks). Pas un drift exécution structurel.
+- **Appliqué en 2e vague (2026-05-15 soir) :**
+  - **#3 Mode strict data** : `replay_signals_vs_live.py` et `replay_live_vs_theory.py` skippent désormais tout instrument dont `get_last_source_info()` ne retourne pas une source `parquet*`. Flag `--allow-yahoo` pour bypass explicite. Rapport en fin d'exécution listant les targets skippés. Vérifié sur Phase 4 : 1 skip (GALUSD H4 stale post-2026-04-14). [task #35]
+  - **#7 Tests cohérence config live ↔ validation** : `tests/test_config_validation_coherence.py` (7 tests). Vérifie que les instruments `follow: true` ont un parquet au timeframe live, que `_build_targets()` et `resolve_tf()` lisent bien `timeframe` (live) avec `tf` en fallback legacy, et que `strategy_assignments` résolvent un parquet. Suite complète : 20 tests OK en 0.31s. [task #38]
+- **Différé en tasks (🟡, à planifier) :**
+  - #4 CLI backtest Extension config-aware (H4 par défaut si instrument `timeframe: H4`). [task #37]
+  - #5b Migrer dryrun.py vers dispatcher live moderne (long terme post-Phase 4). [task #39]
+  - Ré-ingérer parquet GALUSD. [task #36]
+- **Non touché** : les zones protégées par l'audit (signal.py, position_manager, guards.py, order_dispatcher.py, position_monitor.py, live.py) — pas de modif.
+
+### 2026-05-15 — Diagnostic Glissade XAUUSD 2026-05-14 (outlier Phase 4)
+- **Trade** : `ae845c5d-fb2` XAUUSD LONG glissade, FTMO position 52759859.
+- **Chronologie** :
+  - 08:00 UTC : signal H1 émis, entry GFT à 08:00 (LIMIT immédiat fill 4692.81), entry FTMO pending @ 4693.18 STOP_OR_LIMIT.
+  - 08:02 UTC : **GFT BE armé** (MFE=0.32R → SL 4666.94 → 4697.98 amended ✓), exit 08:06 breakeven_exit propre.
+  - 09:01 UTC : **FTMO fill** détecté en orphan reconcile (le pending order LIMIT s'est rempli côté broker, dispatcher reconcile via "délai de grâce 120s"). Position registered SL=4666.94.
+  - 09:47 UTC : **PriceFeed entre en boucle Feed stale / reconnexion permanente** (`Erreur: Feed stale ETHUSD 305s → Reconnexion → ✅ Connecté → 30s plus tard Erreur Feed stale → ...` toutes les 30s pendant 7h36).
+  - 09:47 → 17:22 UTC : **0 BarAggregator Résumé loggé pendant 7h30** (vérifié journalctl). position_monitor sans ticks → BE jamais armé côté FTMO malgré MFE réel 0.91R atteint sur les barres Binance.
+  - 17:22 UTC : restart engine manuel.
+  - 17:24 UTC : reconcile détecte position close au broker à 4666.89 ≈ SL initial (`src=broker_detail bars=281 MFE=0.91R BE=✓` — `BE=✓` est inféré post-hoc du MFE parquet, PAS un état SL broker réel).
+- **Cause racine confirmée** : 100% panne PriceFeed (boucle infinie 09:47→17:22 UTC). Aucun problème de stratégie ou de signal. GFT s'est exécuté proprement quand le feed marchait encore.
+- **Conséquence sur lecture Phase 4** : Le seul outlier (-1.202R sur glissade XAUUSD) qui faisait passer meanΔR de -0.007R à +0.236R hors outlier est imputable à un incident d'infrastructure documenté, **pas à un drift d'edge**. Sans cet incident, mean ΔR Phase 4 serait positif sur n=6 trades.
+- **Couverture watchdog v1 (déployé 2026-05-15)** : Le pattern de cette panne (BarAggregator silencieux > 15min pendant que `is-active=active`) est exactement ce que détecte le watchdog. Si déployé le 14, il aurait alerté vers 10:02 UTC (15min après le début de la boucle) — empêchant le drift -1R.
+- **Leçon ajoutée** : Documentation HANDOFF initiale parlait de "panne 16:30→17:23 UTC", c'était sous-estimé. La vraie fenêtre commence à 09:47 UTC. Toujours vérifier la première occurrence Feed stale, pas la première fenêtre "silencieuse" totale.
+
 ---
 
 ## Résumé des paramètres testés et rejetés
@@ -455,3 +501,54 @@ De plus, le BE à 0.3R plafonne déjà les gains unitaires, donc l'augmentation 
 - **Fermeture partielle TradeLocker** : supporté par l'API (paramètre `qty` = volume à fermer, `qty=0` = close total). Non implémenté dans `tradelocker.py` — à coder si H8 validé en backtest
 - **Pivots locaux** : déjà dans `indicators.py` (fonction `rsi_divergence`, pivot_window=5). Réutilisable pour H6 (trailing structure-based) mais nécessite une version temps-réel (le pivot est confirmé avec un lag de `pivot_window` barres)
 - **Entrées en retard** : observation structurelle du trend-following — inhérent au modèle. Les filtres BB 3σ (H5) et slippage (H4) peuvent mitiger les cas extrêmes
+
+---
+
+## 10. TP partiel scaling out — analyse what-if (2026-05-04, REJETÉ)
+
+**Contexte** : tester si un TP partiel (sortie de 50% à +0.5R/+0.7R/+1.0R/+1.5R + reste géré par BE+trail) améliore l'edge en phase défavorable.
+
+### Méthode
+
+Replay offline sur les `exit` events du `trade_journal.jsonl` depuis 2026-03-22 (activation rodage). Chaque trade a `mfe_r` et `result_r` réels. Scénario : si `mfe ≥ tp1_thresh` → 50% sort à tp1_thresh, 50% sort au result_r réel. Sinon : 100% sort au result_r réel.
+
+### Résultats Extension live (n=70)
+
+| Scénario | n_partial | ΣR base | ΣR scen | Δ | Exp scen | WR scen |
+|---|---|---|---|---|---|---|
+| Baseline | — | -18.84 | — | — | -0.269R | 10% |
+| TP1=+0.5R x50% | 13 | -18.84 | -18.01 | **+0.82R** | -0.257R | **23%** |
+| TP1=+0.7R x50% | 7 | -18.84 | -18.29 | +0.55R | -0.261R | 16% |
+| TP1=+1.0R x50% | 3 | -18.84 | -18.78 | +0.06R | -0.268R | 10% |
+| TP1=+1.5R x50% | 3 | -18.84 | -18.03 | +0.81R | -0.258R | 10% |
+
+### Résultats Cabriole live (n=38)
+
+**0 trade n'atteint même 0.5R MFE** → aucun bénéfice possible. Stratégie en drift_modere ne capture rien d'exploitable en phase défavorable.
+
+### Résultats Glissade live (n=8, small-n)
+
+| Scénario | Δ |
+|---|---|
+| TP1=+0.5R x50% | **-0.10R** (les trades MFE ≥ 0.5R clôturent en moyenne mieux que 0.5R via trail) |
+| TP1=+1.5R x50% | +0.06R |
+
+### Distribution MFE Extension live vs baseline
+
+| Bucket | Live (phase défavorable) | Baseline backtest 20 mois |
+|---|---|---|
+| <0.3R | **44.3%** | ~25% |
+| 0.3-0.5R | 37.1% | ~30% |
+| 0.5-1R | 14.3% | ~25% |
+| 1-1.5R | 0% | ~10% |
+| >1.5R | 4.3% | ~10% |
+
+### Verdict — REJETÉ
+
+1. **En phase défavorable** : TP1=+0.5R apporte +0.82R sur 70 trades (Exp +0.012R, marginal). Cosmétique pour le WR (10→23%) mais ΣR reste largement négatif.
+2. **En phase normale (baseline 20 mois)** : par construction de la distribution bimodale (cf §9), les trades MFE >1R clôturent en moyenne >1R via le trail. Donc TP1=+1R sécuriserait moins qu'il ne tronquerait → coût certain. Le système Extension dépend des runners (>1R = 159% du P&L net) ; le TP partiel les ampute.
+3. **Glissade** : TP partiel COÛTE -0.10R (les trades qui atteignent 0.5R MFE clôturent en moyenne mieux que 0.5R). Mauvaise idée même en phase défavorable.
+
+**Décision** : ne PAS implémenter TP partiel. La distribution bimodale du système (cf §9) est incompatible avec un TP partiel à seuil fixe. Le bénéfice cosmétique en phase défavorable (+1pp WR) ne justifie pas la complexité système ni le coût en phase normale.
+
+**Item connexe à surveiller** : la distribution MFE live actuelle (44.3% sous 0.3R) confirme la phase défavorable identifiée par edge_audit. Quand la distribution reviendra normale (~25% sous 0.3R), revérifier que le système retrouve l'Exp baseline (+0.130R).

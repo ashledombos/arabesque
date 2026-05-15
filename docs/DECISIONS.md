@@ -440,6 +440,7 @@ Gain estimé : +2-5% d’expectancy via résolution de l’ambiguïté SL vs TP 
 | `EXIT_TRAILING` jamais utilisé | `DecisionType.EXIT_TRAILING` n’est pas appelé dans `_check_sl_tp_intrabar` | Impossible de distinguer pertes réelles et gains via trailing dans les stats | Haute |
 | `tv_close` = `bars[-1]["close"]` | Close de la dernière bougie du cache au lieu de `df.iloc[idx]["Close"]` | RR légèrement faux en replay historique long (rare en live) | Moyenne |
 | `orchestrator.get_status()` exception silencieuse | Exception non capturée en fin de replay | Résumé final balance/equity/nb trades non fiable | Moyenne |
+| `_reconcile_missed_exits` invente exit quand broker injoignable (2026-05-14) | Au 1er restart 2026-05-14 07:39 UTC pendant la panne PriceFeed, FTMO inaccessible (5/5 `ALREADY_LOGGED_IN`+`CANT_ROUTE`). `_reconstruct_exit_from_history` a quand même logué `exit reconciled_stop_loss` ETHUSD SHORT cabriole avec `src=estimated_fallback bars=880` `mfe_r=0.0` `be_set=False`. Position en réalité toujours ouverte côté broker (vérifié au 2e restart 07:42 UTC). Le fallback `estimated_fallback` ne distingue pas "détails broker indisponibles temporairement" de "position vraiment fermée". | Faux exit dans `logs/trade_journal.jsonl` → pollue audit edge, déclenche `8 pertes consécutives` alert à tort, fausse les stats stratégie. Patché manuellement (event renommé `exit_invalidated_by_bug` + correction_note). | **Haute** — peut se redéclencher à chaque restart pendant une panne broker |
 
 ---
 
@@ -2736,3 +2737,36 @@ Le backtest de référence couvre **exactement la même fenêtre** que le live (
 **Implémentation** : `systemctl --user stop arabesque-live.service` + `systemctl --user stop arabesque-suivi-reminder.timer`. Pas de modification config. État du système préservé pour reprise propre après diagnostic.
 
 **Notif** : Telegram + ntfy envoyée avec résumé chiffré et plan.
+
+### Décision : Cabriole → ultra-rodage ×0.10 (2026-05-13, défensif)
+
+**Décision** : ajouter `cabriole` à `rodage.strategies_ultra` dans `config/settings.yaml`. Le risque par trade passe de ×0.25 (rodage normal) à ×0.10 (ultra-rodage), soit ~$45/trade sur compte FTMO ~$93k au lieu de ~$113.
+
+**Mesure factuelle qui motive la décision** :
+- BT pleine fenêtre 2026-04-10 → 2026-05-10 : Exp **-0.345R** (n=55, 6 cryptos H4)
+- Baseline 20 mois : Exp +0.034R, WR 78%
+- Distribution rolling-30j sur baseline 2024-07-01 → 2026-04-10 (89 fenêtres) :
+  - mean +0.047R, médiane +0.051R
+  - **p10 = -0.163R** (pire creux historique sur 20 mois)
+  - **Aucune des 89 fenêtres** n'atteint -0.345R
+- Live -0.664R (n=39) drifte de -0.318R **sous** le BT → drift exécution additionnel par-dessus le régime
+- Persisté : `logs/rolling_baseline_distribution.jsonl`
+
+**Pourquoi ultra-rodage plutôt qu'exclusion totale** :
+- Garder la mesure live = nécessaire pour détecter quand/si le régime revient
+- ×0.10 limite le saignement à ~1% du compte pour 10 pertes consécutives — soutenable
+- Réversible en 1 commit (retirer de `strategies_ultra`) si le régime se redresse
+
+**Pourquoi PAS calibrer la stratégie maintenant** :
+- HANDOFF dit explicitement « pas de calibrage en phase défavorable, overfit garanti »
+- Tâche analyse régime de marché 20 mois reste planifiée hors phase défavorable
+- Si après 1-2 mois le creux persiste hors distribution → soit suspendre cabriole proprement, soit creuser la cause structurelle (changement de régime crypto breakout ? overlap Extension qui mange les signaux propres ?)
+
+**Critère de retour au rodage normal ×0.25** :
+- Audit edge montre BT cabriole revient dans la distribution baseline (rolling-30j Exp > p10 = -0.163R)
+- ET live colle au BT (ΔLive < -0.20R)
+- Réévaluer mensuellement.
+
+**Implémentation** : `cabriole` ajouté à `rodage.strategies_ultra` dans `config/settings.yaml`. Restart engine pour appliquer. Pas de touche au signal.py ni au noyau.
+
+**Notif** : Telegram + ntfy envoyée (registre A — résumé chiffré + interprétation + plan).

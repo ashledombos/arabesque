@@ -50,7 +50,8 @@ rodage:
   # Une stratégie listée ici prend ×0.10 (priorité sur risk_multiplier ci-dessus).
   # Vide par défaut. À activer manuellement après lecture du verdict /suivi.
   risk_multiplier_ultra: 0.10
-  strategies_ultra: []
+  strategies_ultra:
+    - cabriole                   # 2026-05-13 : creux BT hors distribution baseline 20 mois (<p5, pire historique=-0.163R vs actuel=-0.345R) + drift live additionnel -0.32R sous BT. Ultra-rodage ×0.10 pour protéger la courbe sans couper la mesure live. Réévaluer dans 1-2 mois.
 
 # -----------------------------------------------------------------------------
 # STRATÉGIE (v3.3 validé: trend-only)
