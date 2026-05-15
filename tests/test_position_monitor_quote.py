@@ -140,3 +140,56 @@ def test_process_pos_quote_zero_price_is_noop():
     assert armed is False
     assert not pos.breakeven_set
     assert len(broker.amends) == 0
+
+
+class _SlowMockBroker(_MockBroker):
+    """Mock broker dont amend_position_sltp prend N secondes — pour tester
+    qu'un second appel concurrent voit ``_amend_in_progress=True`` et abandonne."""
+
+    def __init__(self, delay_s: float = 0.05):
+        super().__init__()
+        self.delay_s = delay_s
+
+    async def amend_position_sltp(self, position_id: str, stop_loss: float = None,
+                                   take_profit: float = None):
+        await asyncio.sleep(self.delay_s)
+        self.amends.append((position_id, stop_loss))
+        return _AmendResult(success=True, message="mock_ok_slow")
+
+
+def test_concurrent_process_pos_quote_yields_single_amend():
+    """Preuve d'async-safety : 2 appels gather() sur la même position ne
+    doivent produire qu'un seul amend broker (point 7 user).
+
+    Reproduit le cas où ``on_tick`` (PriceFeed) et ``_be_polling_loop`` (futur)
+    tirent simultanément sur la même position pendant la fenêtre d'amend.
+    """
+    cfg = MonitorConfig(min_amend_interval_s=0.0, tick_check_interval_s=0.0)
+    broker = _SlowMockBroker(delay_s=0.05)
+    mon = LivePositionMonitor(brokers={"ftmo": broker}, config=cfg)
+    pos = mon.register_position(
+        broker_id="ftmo", position_id="P_CONC", symbol="TEST",
+        side=Side.LONG, entry=100.0, sl=99.0, tp=102.0,
+        volume=1.0, digits=2,
+    )
+
+    async def _runner():
+        # Deux appels concurrents avec quote suffisante pour armer le BE
+        results = await asyncio.gather(
+            mon._process_pos_quote(pos, bid=100.31, ask=100.33, source="tick"),
+            mon._process_pos_quote(pos, bid=100.31, ask=100.33, source="polling_backup"),
+        )
+        return results
+
+    results = asyncio.run(_runner())
+    # Un seul amend broker doit être enregistré
+    assert len(broker.amends) == 1, (
+        f"Race condition : {len(broker.amends)} amends au lieu de 1 "
+        f"(_amend_in_progress n'a pas sérialisé les appels)"
+    )
+    assert pos.breakeven_set
+    # Un seul des deux appels doit avoir vu be_just_armed=True
+    # (l'autre voit soit _amend_in_progress, soit BE déjà set)
+    assert sum(bool(r) for r in results) <= 1, (
+        f"Plusieurs appels rapportent be_just_armed=True : {results}"
+    )
