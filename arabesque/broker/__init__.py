@@ -10,6 +10,7 @@ from .base import (
     AccountInfo,
     SymbolInfo,
     PriceTick,
+    FreshQuote,
     validate_placed_order,
 )
 from .factory import create_broker, create_all_brokers
@@ -26,6 +27,7 @@ __all__ = [
     "AccountInfo",
     "SymbolInfo",
     "PriceTick",
+    "FreshQuote",
     "validate_placed_order",
     "create_broker",
     "create_all_brokers",

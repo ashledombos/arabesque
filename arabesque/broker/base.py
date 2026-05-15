@@ -201,6 +201,34 @@ class PriceTick:
 
 
 @dataclass
+class FreshQuote:
+    """Quote fraîche obtenue par requête broker explicite (REST/RPC), distincte
+    du stream de ticks PriceFeed.
+
+    Introduit par la Phase 2.5 pour casser la dépendance BE↔PriceFeed :
+    quand le stream cTrader meurt silencieusement (cas 14/05), un polling
+    broker direct via cette interface continue d'armer le BE.
+
+    Champs :
+        symbol      : nom unifié (EURUSD, XAUUSD…)
+        price       : prix unique côté pertinent (bid pour LONG, ask pour SHORT)
+        quote_type  : "bid" ou "ask" — explicite, le caller demande un côté précis
+        market_ts   : timestamp serveur du tick (ex: cTrader ProtoOATickData.timestamp).
+                      None si le broker ne fournit pas de timestamp marché
+                      (ex: TradeLocker REST). Le caller doit alors retomber
+                      sur observed_at avec un flag de fiabilité dégradée.
+        observed_at : timestamp client à la réception — toujours rempli.
+                      Sert de borne supérieure pour la freshness quand
+                      market_ts est absent.
+    """
+    symbol: str
+    price: float
+    quote_type: str
+    market_ts: Optional[datetime] = None
+    observed_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+@dataclass
 class OHLCBar:
     """
     Bougie OHLCV.
@@ -376,6 +404,33 @@ class BaseBroker(ABC):
             ou [] si non disponible / erreur.
         """
         return []
+
+    async def get_fresh_quote(
+        self, symbol: str, quote_type: str
+    ) -> Optional['FreshQuote']:
+        """Quote fraîche obtenue indépendamment du stream PriceFeed.
+
+        Contrat (Phase 2.5) :
+        - INDÉPENDANT du cache de ticks alimenté par le stream du broker.
+          Si le stream est mort, cette méthode doit rester opérationnelle
+          (sinon elle ne sert à rien comme backup).
+        - PAS de fallback silencieux : si l'appel échoue ou ne retourne
+          rien dans la fenêtre, retourner None plutôt qu'un cache stale.
+        - Le caller (boucle de polling BE) inspecte ``market_ts`` (ou
+          ``observed_at`` à défaut) pour décider si la quote est encore
+          fraîche ; il SKIP si stale > seuil (5 min par défaut).
+
+        Args:
+            symbol     : nom unifié (EURUSD, XAUUSD…)
+            quote_type : "bid" (pour LONG) ou "ask" (pour SHORT)
+
+        Returns:
+            FreshQuote ou None. None signifie : pas de quote disponible
+            via ce canal — le polling abandonne ce cycle pour cette position.
+
+        Default : None (broker qui ne supporte pas un canal alternatif).
+        """
+        return None
 
     async def get_closed_position_detail(
         self, position_id: str

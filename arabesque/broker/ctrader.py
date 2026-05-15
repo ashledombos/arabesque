@@ -15,7 +15,7 @@ import threading
 
 from .base import (
     BaseBroker, OrderRequest, OrderResult, OrderSide, OrderType, OrderStatus,
-    Position, PendingOrder, AccountInfo, SymbolInfo, PriceTick,
+    Position, PendingOrder, AccountInfo, SymbolInfo, PriceTick, FreshQuote,
 )
 
 try:
@@ -38,6 +38,8 @@ try:
         ProtoOASubscribeSpotsReq,
         ProtoOAUnsubscribeSpotsReq,
         ProtoOAGetTrendbarsReq,
+        ProtoOAGetTickDataReq,
+        ProtoOAGetTickDataRes,
         ProtoOADealListReq,
     )
     CTRADER_AVAILABLE = True
@@ -128,6 +130,10 @@ class CTraderBroker(BaseBroker):
         # "position_amend", etc.). Sans lock, des appels concurrents écrasent
         # les futures des uns par les autres → fills mal routés.
         self._order_lock = asyncio.Lock()
+        # Lock pour sérialiser get_fresh_quote() — la réponse ProtoOAGetTickDataRes
+        # ne contient ni symbolId ni quote type, on ne peut pas dédupliquer les
+        # requêtes concurrentes. Un seul appel en vol à la fois.
+        self._tick_data_lock = asyncio.Lock()
         # Référence au loop asyncio pour les callbacks thread-safe depuis Twisted
         self._asyncio_loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -457,6 +463,9 @@ class CTraderBroker(BaseBroker):
             elif ptype == "ProtoOAGetTrendbarsRes":
                 # Réponse historique — dispatcher par symbolId
                 self._process_trendbar_response(payload)
+
+            elif ptype == "ProtoOAGetTickDataRes":
+                self._process_tick_data_response(payload)
 
             elif ptype == "ProtoOASpotEvent":
                 self._process_spot_event(payload)
@@ -839,6 +848,129 @@ class CTraderBroker(BaseBroker):
 
     async def get_quote(self, symbol: str) -> Optional[PriceTick]:
         return self.get_last_tick(symbol)
+
+    async def get_fresh_quote(
+        self, symbol: str, quote_type: str
+    ) -> Optional[FreshQuote]:
+        """Phase 2.5 — quote fraîche via ``ProtoOAGetTickDataReq``,
+        indépendante du stream SpotEvent (PriceFeed).
+
+        IMPORTANT — Cette méthode ne lit JAMAIS ``self._price_ticks``.
+        C'est le point clé : si le stream cTrader meurt silencieusement
+        (cas ALREADY_LOGGED_IN du 14/05), ``get_quote()`` retourne un
+        cache stale tandis que ``get_fresh_quote()`` reste opérationnelle.
+
+        Stratégie de fenêtre :
+        - 1ᵉʳ essai : [now-10s, now] — devrait suffire en marché ouvert
+        - 2ᵉ essai si vide : [now-60s, now] — pour symbole peu liquide
+
+        Retourne None si :
+        - non connecté
+        - symbole inconnu
+        - quote_type invalide
+        - aucun tick dans la fenêtre élargie (60s)
+        - timeout ProtoOAGetTickDataReq (5s)
+
+        AUCUN fallback silencieux vers le cache : si Proto ne répond pas
+        ou ne fournit pas de tick, on retourne None et le caller décide
+        de reporter ce cycle de polling.
+        """
+        if not self._connected:
+            return None
+        if quote_type not in ("bid", "ask"):
+            print(f"[cTrader] get_fresh_quote: quote_type invalide '{quote_type}'")
+            return None
+
+        if not self._symbols:
+            await self.get_symbols()
+        symbol_id = self._resolve_symbol_id(symbol)
+        if symbol_id is None:
+            return None
+
+        divisor = self._get_divisor(symbol_id)
+        # Mapping QuoteType : BID=1, ASK=2 (cf. ProtoOAQuoteType)
+        type_code = 1 if quote_type == "bid" else 2
+
+        async def _try_window(window_ms: int) -> Optional[FreshQuote]:
+            now_ms = int(time.time() * 1000)
+            loop = asyncio.get_event_loop()
+            future = loop.create_future()
+            # Clé fixe — un seul appel en vol grâce à _tick_data_lock
+            self._pending_requests["tickdata"] = future
+
+            req = ProtoOAGetTickDataReq()
+            req.ctidTraderAccountId = self.account_id
+            req.symbolId = symbol_id
+            req.type = type_code
+            req.fromTimestamp = now_ms - window_ms
+            req.toTimestamp = now_ms
+
+            self._send_via_reactor(req)
+
+            try:
+                payload = await asyncio.wait_for(future, timeout=5.0)
+            except asyncio.TimeoutError:
+                self._pending_requests.pop("tickdata", None)
+                return None
+            except Exception:
+                self._pending_requests.pop("tickdata", None)
+                return None
+
+            if not payload.tickData:
+                return None
+
+            # cTrader encode tickData en delta : le 1er tick a un prix absolu,
+            # les suivants sont des deltas signés (relatifs au précédent dans
+            # l'ordre de transmission). On reconstruit puis on prend le plus
+            # récent par timestamp.
+            running = 0
+            most_recent_ts_ms = -1
+            most_recent_abs = 0
+            for i, td in enumerate(payload.tickData):
+                if i == 0:
+                    running = td.tick
+                else:
+                    running += td.tick
+                if td.timestamp > most_recent_ts_ms:
+                    most_recent_ts_ms = td.timestamp
+                    most_recent_abs = running
+
+            if most_recent_ts_ms < 0:
+                return None
+
+            price = most_recent_abs / divisor
+            if price <= 0:
+                return None
+
+            market_ts = datetime.fromtimestamp(
+                most_recent_ts_ms / 1000.0, tz=timezone.utc
+            )
+            return FreshQuote(
+                symbol=symbol,
+                price=price,
+                quote_type=quote_type,
+                market_ts=market_ts,
+                observed_at=datetime.now(timezone.utc),
+            )
+
+        async with self._tick_data_lock:
+            # Fenêtre courte d'abord
+            fq = await _try_window(window_ms=10_000)
+            if fq is not None:
+                return fq
+            # Élargissement à 60s
+            return await _try_window(window_ms=60_000)
+
+    def _process_tick_data_response(self, payload):
+        """Résout la future en attente pour ``get_fresh_quote()``.
+
+        Le payload ne contient ni ``symbolId`` ni ``type`` — on s'appuie
+        sur ``_tick_data_lock`` côté caller pour garantir un seul appel
+        en vol et une clé fixe ``tickdata``.
+        """
+        future = self._pending_requests.pop("tickdata", None)
+        if future and not future.done():
+            self._resolve_future(future, payload)
 
     def _process_spot_event(self, payload):
         """Traite un ProtoOASpotEvent reçu du serveur."""
