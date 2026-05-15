@@ -161,6 +161,12 @@ class LiveEngine:
             self._reconcile_task = asyncio.create_task(
                 self._reconcile_loop()
             )
+            # 6d-bis. Phase 2.5 — boucle backup BE indépendante du PriceFeed.
+            # No-op si live.be_polling_backup=false (défaut).
+            try:
+                await self._position_monitor.start_be_polling()
+            except Exception as e:
+                logger.warning(f"[Engine] be_polling start error: {e}")
             # 6e. Snapshots multi-broker des symboles en position
             from arabesque.execution.broker_snapshot import BrokerPriceSnapshotter
             self._snapshotter = BrokerPriceSnapshotter(
@@ -183,6 +189,14 @@ class LiveEngine:
 
     async def stop(self) -> None:
         self._running = False
+        # Phase 2.5 — arrêt propre de la boucle polling BE avant tout
+        # (avant la déconnexion brokers, pour éviter qu'un cycle en vol
+        # tape sur un broker en cours de disconnect).
+        if self._position_monitor:
+            try:
+                await self._position_monitor.stop_be_polling()
+            except Exception as e:
+                logger.warning(f"[Engine] be_polling stop error: {e}")
         # Sauvegarder l'état du position monitor AVANT de déconnecter
         if self._position_monitor:
             try:
@@ -467,12 +481,31 @@ class LiveEngine:
             if self._live_monitor:
                 self._live_monitor.record_exit(**kwargs)
 
+        # Phase 2.5 — audit event JSONL pour BE armé via polling backup
+        def on_audit(payload: dict):
+            if self._live_monitor:
+                self._live_monitor.record_be_polling_armed(payload)
+
+        live_cfg = self.settings.get("live", {}) or {}
+        monitor_cfg = MonitorConfig(
+            be_polling_enabled=bool(live_cfg.get("be_polling_backup", False)),
+            be_polling_interval_s=float(live_cfg.get("be_polling_interval_s", 60.0)),
+            be_polling_freshness_threshold_s=float(
+                live_cfg.get("be_polling_freshness_threshold_s", 300.0)
+            ),
+        )
         monitor = LivePositionMonitor(
             brokers=self._brokers,
-            config=MonitorConfig(),
+            config=monitor_cfg,
             on_position_closed=on_closed,
+            on_audit_event=on_audit,
         )
-        logger.info("[Engine] 📋 Position monitor actif (BE 0.3/0.20R + trailing)")
+        if monitor_cfg.be_polling_enabled:
+            logger.info(
+                "[Engine] 📋 Position monitor actif (BE 0.3/0.20R + trailing + polling backup ON)"
+            )
+        else:
+            logger.info("[Engine] 📋 Position monitor actif (BE 0.3/0.20R + trailing)")
         return monitor
 
     async def _reconcile_loop(self) -> None:

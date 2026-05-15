@@ -33,6 +33,18 @@ execution:
     max_ms: 3000
 
 # -----------------------------------------------------------------------------
+# LIVE — Boucles de fond du moteur (BE polling backup, etc.)
+# -----------------------------------------------------------------------------
+live:
+  # Phase 2.5 — boucle de polling broker indépendante du PriceFeed pour armer
+  # le BE même quand le stream cTrader meurt silencieusement (cf. incident
+  # 14/05 ALREADY_LOGGED_IN). Désactivé par défaut. À n'activer qu'après
+  # validation : tests 2.8 + replay 14/05 doivent passer avant ON.
+  be_polling_backup: false
+  be_polling_interval_s: 60          # tick toutes les 60s
+  be_polling_freshness_threshold_s: 300  # skip quote si > 5min (stale)
+
+# -----------------------------------------------------------------------------
 # RODAGE — Prudence renforcée pour les stratégies non validées en live
 # Multiplicateur appliqué au risk_cash pour les stratégies listées.
 # Retirer une stratégie de la liste une fois son rodage terminé.

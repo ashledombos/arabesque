@@ -648,6 +648,14 @@ class LiveMonitor:
             "reason": reason,
         })
 
+    def record_be_polling_armed(self, payload: dict) -> None:
+        """Phase 2.5 — event BE armé via le canal polling broker (et pas tick).
+
+        Le payload est construit par ``LivePositionMonitor._emit_be_polling_audit``
+        et contient déjà ``event`` + tous les détails de quote nécessaires pour
+        auditer post-hoc. On se contente de relayer vers le journal."""
+        self._append_journal(payload)
+
     def record_entry(
         self,
         signal,

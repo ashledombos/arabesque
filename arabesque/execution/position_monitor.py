@@ -22,8 +22,9 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from arabesque.core.models import Side
 
@@ -109,6 +110,11 @@ class MonitorConfig:
     min_amend_interval_s: float = 5.0  # anti-spam
     # Tick-level monitoring : intervalle min entre deux checks par position
     tick_check_interval_s: float = 10.0  # 10s entre chaque vérif par position
+    # Phase 2.5 — backup BE armé indépendamment du PriceFeed (cf. incident 14/05)
+    # Désactivé par défaut. À n'activer qu'après validation 2.8 + replay 14/05.
+    be_polling_enabled: bool = False
+    be_polling_interval_s: float = 60.0
+    be_polling_freshness_threshold_s: float = 300.0  # 5 min — skip si quote plus vieille
 
 
 class LivePositionMonitor:
@@ -126,16 +132,22 @@ class LivePositionMonitor:
         brokers: Dict,
         config: MonitorConfig | None = None,
         on_position_closed: Optional[callable] = None,
+        on_audit_event: Optional[Callable[[dict], None]] = None,
     ):
         self._brokers = brokers
         self._cfg = config or MonitorConfig()
         self._positions: Dict[str, TrackedPosition] = {}
         self._on_position_closed = on_position_closed
+        # Callback audit JSONL (event détaillé pour BE polling armé, etc.)
+        self._on_audit_event = on_audit_event
         # Trier trailing tiers du plus haut au plus bas
         self._cfg.trailing_tiers.sort(key=lambda t: t[0], reverse=True)
         # Orphan tracking: {broker_id:position_id -> first_seen_timestamp}
         self._orphan_first_seen: Dict[str, float] = {}
         self._ORPHAN_GRACE_S = 120  # 2 min avant auto-close
+        # Phase 2.5 — boucle polling backup BE
+        self._be_polling_task: Optional[asyncio.Task] = None
+        self._be_polling_stop: Optional[asyncio.Event] = None
 
     @property
     def open_positions(self) -> List[TrackedPosition]:
@@ -380,6 +392,247 @@ class LivePositionMonitor:
             await self._check_trailing(pos, price)
 
         return be_just_armed
+
+    # ------------------------------------------------------------------
+    # Phase 2.5 — boucle polling backup BE (indépendante du PriceFeed)
+    # ------------------------------------------------------------------
+
+    async def start_be_polling(self) -> None:
+        """Démarre la boucle backup qui poll les brokers pour armer le BE
+        même si le PriceFeed est mort silencieusement (cas 14/05).
+
+        No-op si ``be_polling_enabled`` est False ou si la boucle tourne déjà.
+        BE-only (do_trailing=False) tant que la v1 n'est pas validée.
+        """
+        if not self._cfg.be_polling_enabled:
+            logger.info("[Monitor] be_polling_backup désactivé (config)")
+            return
+        if self._be_polling_task and not self._be_polling_task.done():
+            return
+
+        self._be_polling_stop = asyncio.Event()
+        self._be_polling_task = asyncio.create_task(
+            self._be_polling_loop(),
+            name="be_polling_loop",
+        )
+        logger.info(
+            f"[Monitor] ⏱  be_polling_backup actif "
+            f"(interval={self._cfg.be_polling_interval_s}s, "
+            f"freshness_max={self._cfg.be_polling_freshness_threshold_s}s, "
+            f"BE-only, do_trailing=False)"
+        )
+
+    async def stop_be_polling(self) -> None:
+        """Annule proprement la boucle (signal + cancel + await)."""
+        task = self._be_polling_task
+        if not task:
+            return
+        if self._be_polling_stop is not None:
+            self._be_polling_stop.set()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.warning(f"[Monitor] be_polling stop : exception ignorée: {e}")
+        self._be_polling_task = None
+        self._be_polling_stop = None
+        logger.info("[Monitor] ⏹  be_polling_backup arrêté")
+
+    async def _be_polling_loop(self) -> None:
+        """Boucle interne. Réveil toutes les ``be_polling_interval_s`` secondes.
+
+        Toute exception levée par une passe est avalée pour ne JAMAIS tuer
+        la boucle : un échec quote/réseau ne doit ni déclencher reconcile,
+        ni close, ni incident sur la position.
+        """
+        interval = self._cfg.be_polling_interval_s
+        threshold_s = self._cfg.be_polling_freshness_threshold_s
+        stop_evt = self._be_polling_stop
+        assert stop_evt is not None
+
+        try:
+            while not stop_evt.is_set():
+                # Sleep interruptible par stop_be_polling
+                try:
+                    await asyncio.wait_for(stop_evt.wait(), timeout=interval)
+                    break  # event set → on sort
+                except asyncio.TimeoutError:
+                    pass  # tick normal
+
+                if stop_evt.is_set():
+                    break
+
+                try:
+                    checked, armed, skipped = await self._be_polling_pass(threshold_s)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.warning(f"[Monitor] be_polling pass error (loop continues): {e}")
+                    continue
+
+                # Log sobre par cycle (debug). Event détaillé seulement si armé.
+                if checked or armed or skipped:
+                    logger.debug(
+                        f"[Monitor] be_polling pass : "
+                        f"checked={checked} armed={armed} skipped={skipped}"
+                    )
+        except asyncio.CancelledError:
+            logger.debug("[Monitor] be_polling loop cancelled")
+            raise
+
+    async def _be_polling_pass(self, freshness_threshold_s: float) -> Tuple[int, int, int]:
+        """Un passage de la boucle. Retourne (checked, armed, skipped).
+
+        - checked : positions pour lesquelles un FreshQuote valide a été obtenu
+                    et passé à _process_pos_from_price
+        - armed   : positions dont le BE vient d'être armé par CE passage
+        - skipped : positions ignorées (quote absente, stale, freshness
+                    indéterminée, broker introuvable…)
+        """
+        checked = 0
+        armed = 0
+        skipped = 0
+        now = datetime.now(timezone.utc)
+
+        # Snapshot pour ne pas itérer sur un dict modifié pendant le polling
+        positions_snapshot = list(self._positions.values())
+
+        for pos in positions_snapshot:
+            if pos.breakeven_set:
+                continue  # déjà BE, rien à faire ici
+            broker = self._brokers.get(pos.broker_id)
+            if broker is None:
+                skipped += 1
+                continue
+
+            quote_type = "bid" if pos.side == Side.LONG else "ask"
+
+            # 1. Récupération quote fraîche — toute exception est avalée
+            try:
+                fq = await broker.get_fresh_quote(pos.symbol, quote_type)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.debug(
+                    f"[Monitor] be_polling get_fresh_quote("
+                    f"{pos.broker_id}, {pos.symbol}, {quote_type}) failed: {e}"
+                )
+                skipped += 1
+                continue
+
+            if fq is None:
+                # Pas de tick frais ou broker non supporté — on attend le
+                # prochain cycle. Pas d'alerte, pas de reconcile.
+                skipped += 1
+                continue
+
+            # 2. Freshness check (différencié par type de timestamp)
+            broker_kind = type(broker).__name__
+            is_ctrader = broker_kind == "CTraderBroker"
+
+            if is_ctrader:
+                # cTrader doit fournir market_ts. Si absent → freshness
+                # indéterminée → skip défensif (l'impl native garantit
+                # market_ts, mais on ne fait pas confiance aux mocks).
+                if fq.market_ts is None:
+                    logger.debug(
+                        f"[Monitor] be_polling skip {pos.symbol} ({pos.broker_id}): "
+                        f"cTrader sans market_ts (freshness indéterminée)"
+                    )
+                    skipped += 1
+                    continue
+                ts_ref = fq.market_ts
+                freshness_kind = "market_ts"
+            else:
+                # TradeLocker (et autres brokers sans timestamp marché) :
+                # on utilise observed_at (transport client), bien marqué
+                # dans l'audit pour qu'on sache que c'est une fiabilité dégradée.
+                ts_ref = fq.observed_at
+                freshness_kind = "transport_observed_at"
+
+            age_s = (now - ts_ref).total_seconds()
+            if age_s > freshness_threshold_s or age_s < -5.0:
+                # age négatif > 5s = horloge marché en avance, suspect → skip
+                logger.debug(
+                    f"[Monitor] be_polling skip {pos.symbol} ({pos.broker_id}): "
+                    f"stale ou suspect (age={age_s:.0f}s, kind={freshness_kind})"
+                )
+                skipped += 1
+                continue
+
+            # 3. Traitement BE-only — _amend_in_progress côté
+            # _process_pos_from_price → _check_breakeven → _try_amend_sl
+            # garantit l'idempotence vs on_tick concurrent.
+            try:
+                be_just_armed = await self._process_pos_from_price(
+                    pos,
+                    fq.price,
+                    source="polling_backup",
+                    do_trailing=False,
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning(
+                    f"[Monitor] be_polling _process_pos_from_price "
+                    f"{pos.symbol} ({pos.broker_id}): {e}"
+                )
+                skipped += 1
+                continue
+
+            checked += 1
+
+            if be_just_armed:
+                armed += 1
+                self._emit_be_polling_audit(
+                    pos=pos,
+                    fq=fq,
+                    age_s=age_s,
+                    freshness_kind=freshness_kind,
+                    broker_kind=broker_kind,
+                )
+
+        return checked, armed, skipped
+
+    def _emit_be_polling_audit(
+        self,
+        pos: TrackedPosition,
+        fq,  # FreshQuote (broker.base) — pas importé pour éviter import cyclique
+        age_s: float,
+        freshness_kind: str,
+        broker_kind: str,
+    ) -> None:
+        """Audit JSONL — un event par BE armé via le polling backup.
+        Inclut tous les détails de la quote pour pouvoir auditer post-hoc
+        si jamais un BE polling se déclenche à un moment incohérent."""
+        if not self._on_audit_event:
+            return
+        try:
+            payload = {
+                "event": "be_polling_armed",
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "broker_id": pos.broker_id,
+                "broker_kind": broker_kind,
+                "position_id": pos.position_id,
+                "symbol": pos.symbol,
+                "side": pos.side.value,
+                "entry": pos.entry,
+                "sl_after_be": pos.sl,
+                "sl_initial": pos.sl_initial,
+                "mfe_r_at_arm": round(pos.mfe_r, 4),
+                "quote_price": fq.price,
+                "quote_type": fq.quote_type,
+                "quote_source": "polling_backup",
+                "quote_market_ts": fq.market_ts.isoformat() if fq.market_ts else None,
+                "quote_observed_at": fq.observed_at.isoformat(),
+                "quote_freshness_kind": freshness_kind,
+                "quote_age_s": round(age_s, 3),
+            }
+            self._on_audit_event(payload)
+        except Exception as e:
+            logger.debug(f"[Monitor] be_polling audit emit error: {e}")
 
     async def _check_breakeven(self, pos: TrackedPosition, current_price: float):
         """Si MFE >= 0.3R → déplacer SL à entry + 0.20R."""
