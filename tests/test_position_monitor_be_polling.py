@@ -167,6 +167,19 @@ def test_pass_arms_be_with_fresh_ctrader_quote():
     assert ev["broker_kind"] == "CTraderBroker"
     assert ev["symbol"] == "TEST"
     assert ev["mfe_r_at_arm"] >= 0.3
+    # Contrat de gate Phase 2.5 — champs obligatoires
+    for key in (
+        "broker_id", "quote_source", "quote_market_ts",
+        "quote_observed_at", "quote_age_s", "old_sl", "new_sl",
+    ):
+        assert key in ev, f"champ {key} manquant dans le payload audit"
+    assert ev["broker_id"] == "ftmo"
+    # old_sl = SL avant amend = sl_initial (pas de trailing préalable)
+    assert ev["old_sl"] == pytest.approx(99.0, abs=1e-9)
+    # new_sl = SL appliqué par le BE (entry + 0.20R), confirmé côté broker
+    assert ev["new_sl"] == pytest.approx(100.20, abs=1e-9)
+    assert ev["old_sl"] != ev["new_sl"]
+    assert ev["quote_age_s"] >= 0.0
 
 
 def test_pass_skips_when_ctrader_market_ts_absent():

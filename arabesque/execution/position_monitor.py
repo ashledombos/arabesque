@@ -565,6 +565,10 @@ class LivePositionMonitor:
             # 3. Traitement BE-only — _amend_in_progress côté
             # _process_pos_from_price → _check_breakeven → _try_amend_sl
             # garantit l'idempotence vs on_tick concurrent.
+            # On capture old_sl AVANT l'amend pour l'audit : c'est le SL
+            # effectif au moment où le polling déclenche le BE (peut
+            # différer de sl_initial si un trailing précédent l'a déjà bougé).
+            old_sl = pos.sl
             try:
                 be_just_armed = await self._process_pos_from_price(
                     pos,
@@ -592,6 +596,7 @@ class LivePositionMonitor:
                     age_s=age_s,
                     freshness_kind=freshness_kind,
                     broker_kind=broker_kind,
+                    old_sl=old_sl,
                 )
 
         return checked, armed, skipped
@@ -603,10 +608,17 @@ class LivePositionMonitor:
         age_s: float,
         freshness_kind: str,
         broker_kind: str,
+        old_sl: float,
     ) -> None:
         """Audit JSONL — un event par BE armé via le polling backup.
-        Inclut tous les détails de la quote pour pouvoir auditer post-hoc
-        si jamais un BE polling se déclenche à un moment incohérent."""
+
+        Le payload respecte le contrat de gate Phase 2.5 : doit contenir
+        ``broker_id``, ``quote_source``, ``market_ts``/``observed_at``,
+        ``quote_age_s``, ``old_sl``, ``new_sl``. ``old_sl`` est le SL
+        juste avant l'amend (peut différer de ``sl_initial`` si un
+        trailing l'a déjà bougé). ``new_sl`` est le SL effectivement
+        appliqué par le BE.
+        """
         if not self._on_audit_event:
             return
         try:
@@ -619,7 +631,8 @@ class LivePositionMonitor:
                 "symbol": pos.symbol,
                 "side": pos.side.value,
                 "entry": pos.entry,
-                "sl_after_be": pos.sl,
+                "old_sl": old_sl,
+                "new_sl": pos.sl,
                 "sl_initial": pos.sl_initial,
                 "mfe_r_at_arm": round(pos.mfe_r, 4),
                 "quote_price": fq.price,
