@@ -38,9 +38,11 @@ execution:
 live:
   # Phase 2.5 — boucle de polling broker indépendante du PriceFeed pour armer
   # le BE même quand le stream cTrader meurt silencieusement (cf. incident
-  # 14/05 ALREADY_LOGGED_IN). Désactivé par défaut. À n'activer qu'après
-  # validation : tests 2.8 + replay 14/05 doivent passer avant ON.
-  be_polling_backup: false
+  # 14/05 ALREADY_LOGGED_IN). Activé 2026-05-16 après validation gates :
+  # tests BE polling (10 tests PASS) + replay incident 14/05 (3 tests PASS,
+  # reproduit bug sans polling + prouve fix avec polling). Rollback simple :
+  # repasser à false et restart engine. Surveillance 24-48h en cours.
+  be_polling_backup: true
   be_polling_interval_s: 60          # tick toutes les 60s
   be_polling_freshness_threshold_s: 300  # skip quote si > 5min (stale)
 
