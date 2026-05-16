@@ -2793,3 +2793,39 @@ Le backtest de référence couvre **exactement la même fenêtre** que le live (
 
 **Implémentation** : `config/settings.yaml` édité. Restart engine requis pour appliquer. Vérification au redémarrage : les logs BarAggregator ne doivent plus mentionner `cabriole`.
 
+---
+
+### Décision : Phase 2.5 BE polling backup activée (2026-05-16 08:44 UTC)
+
+**Décision** : flag `live.be_polling_backup` passé de `false` → `true` dans `config/settings.yaml`. Commit `c6ce149`. Une boucle de polling indépendante du PriceFeed arme désormais le BE côté broker même quand le stream cTrader meurt silencieusement.
+
+**Pourquoi maintenant** : l'incident 14/05 (Glissade XAUUSD LONG, MFE 0.91R, exit -1.002R après 8h23 sur PriceFeed bloqué `ALREADY_LOGGED_IN`) a démontré que le BE est dépendant du tick-engine. Une session cTrader morte = aucun BE armé = pertes pleines sur des trades qui auraient dû être protégés. La Phase 2.5 ferme ce trou opérationnel.
+
+**Gates de validation passées avant flip** :
+- 10 tests unitaires BE polling PASS (idempotence, freshness, cTrader/TradeLocker)
+- 3 tests de replay incident 14/05 PASS :
+  - sans polling → bug reproduit (BE jamais armé, exit -1R)
+  - avec polling → BE armé broker-side (Δ = +1.20R)
+  - audit payload conforme contrat (broker_id, quote_source, market_ts/observed_at, quote_age_s, old_sl, new_sl)
+- `do_trailing=False` strict (BE only, jamais de trailing piloté par le polling)
+- Freshness max 300s (skip quote stale)
+- Polling interval 60s
+
+**Vérification post-restart** :
+- Log `[Monitor] ⏱  be_polling_backup actif (interval=60.0s, freshness_max=300.0s, BE-only, do_trailing=False)` présent
+- 0 position ouverte au démarrage → polling no-op en silence, comportement attendu
+- Cabriole absente des BarAggregators (rollout combiné)
+
+**Surveillance 24-48h — points à vérifier au prochain `/suivi`** :
+1. Aucun amend dupliqué (guard `_amend_in_progress`)
+2. Aucun usage de quote stale (>300s rejeté)
+3. Aucun close/reconcile causé par le polling
+4. Si un BE est armé : event JSONL complet avec `quote_source`, `market_ts`/`observed_at`, `quote_age_s`, `broker_id`, `old_sl`, `new_sl`
+5. Au prochain incident feed : confirmer que le polling continue à protéger les positions ouvertes
+
+**Rollback** : `be_polling_backup: false` + restart engine. Pas de migration de données, pas d'effet sur les events JSONL existants.
+
+**Note d'opportunité** : pendant le restart, 4 min d'`ALREADY_LOGGED_IN` (08:40:59→08:44:11) — exactement le scénario du 14/05. Pas de position ouverte donc pas d'effet réel, mais confirme que la classe d'incident reste vivante et que la protection est utile.
+
+**Hors scope** : ne pas coder plus en Phase 4 bis. La prochaine étape est l'observation propre d'Extension + Glissade sur 50 à 100 exits.
+
