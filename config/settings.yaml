@@ -98,16 +98,23 @@ strategy_assignments:
       - XAUUSD      # London session (08:00 UTC winter / 07:00 summer)
       - BTCUSD      # NY session (14:30 UTC winter / 13:30 summer)
 
-  # Cabriole Donchian 4H — WF PASS 6/6 (rodage ×0.50, overlap Extension)
-  cabriole:
-    timeframe: "H4"
-    instruments:
-      - BTCUSD
-      - ETHUSD
-      - SOLUSD
-      - DOGEUSD
-      - LINKUSD
-      - ADAUSD
+  # Cabriole Donchian 4H — DÉSACTIVÉE 2026-05-16
+  # Drift live persistant (creux BT hors distribution baseline 20 mois, ΔExp
+  # additionnel -0.32R sous BT déjà recalibré pessimiste). Ultra-rodage ×0.10
+  # depuis 2026-05-13 jugé insuffisant : on sort du noyau Phase 4 bis tant que
+  # le drift n'est pas réexpliqué. Cf docs/PHASE4_BIS_CHECKLIST_2026-05-16.md
+  # et docs/DECISIONS.md (2026-05-16).
+  # Entrées rodage.strategies/strategies_ultra et strategy_broker_exclusions
+  # conservées comme trace historique — réactivation = décommenter ce bloc.
+  #cabriole:
+  #  timeframe: "H4"
+  #  instruments:
+  #    - BTCUSD
+  #    - ETHUSD
+  #    - SOLUSD
+  #    - DOGEUSD
+  #    - LINKUSD
+  #    - ADAUSD
 
 # -----------------------------------------------------------------------------
 # PRICE FEED (surveillance prix cTrader)

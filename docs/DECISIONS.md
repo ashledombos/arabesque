@@ -2770,3 +2770,26 @@ Le backtest de référence couvre **exactement la même fenêtre** que le live (
 **Implémentation** : `cabriole` ajouté à `rodage.strategies_ultra` dans `config/settings.yaml`. Restart engine pour appliquer. Pas de touche au signal.py ni au noyau.
 
 **Notif** : Telegram + ntfy envoyée (registre A — résumé chiffré + interprétation + plan).
+
+---
+
+### Décision : Cabriole désactivée du live — Phase 4 bis (2026-05-16)
+
+**Décision** : commenter le bloc `strategy_assignments.cabriole` dans `config/settings.yaml`. Plus aucun nouveau signal Cabriole n'est dispatché à partir du restart. Les positions Cabriole déjà ouvertes seront monitorées normalement jusqu'à exit (vérifié : 0 ouverte au moment de la modif).
+
+**Pourquoi maintenant** : l'ultra-rodage ×0.10 du 2026-05-13 (entrée précédente) n'a pas suffi à expliquer ni résorber le drift. La checklist `docs/PHASE4_BIS_CHECKLIST_2026-05-16.md` exige un noyau **Extension + Glissade** propre sur 50 à 100 exits avant toute remontée de risque. Garder Cabriole active mélangerait l'échantillon de mesure avec une stratégie dont l'edge n'est plus défendable sur la période actuelle (ΔExp -0.345R BT, encore -0.32R sous BT en live, creux hors p10 baseline 20 mois).
+
+**Audits sources** : `docs/AUDIT_PROP_FIRM_REPLAY_2026-05-15.md`, `docs/BACKTEST_LIVE_PARQUET_REVIEW_2026-05-15.md`, `docs/REVIEW_HISTORIQUE_TRADING_2026-05-15.md`.
+
+**Choix minimal volontaire** :
+- Bloc `strategy_assignments.cabriole` commenté (pas supprimé) → réactivation = décommenter.
+- `rodage.strategies`, `rodage.strategies_ultra` et `strategy_broker_exclusions.cabriole` **gardés** comme trace historique et garde-fou si Cabriole revient un jour. Pas de refactor config en même temps que la désactivation, pour ne pas perdre le contexte.
+
+**Critère de retour à l'activation** :
+- Audit edge montre BT Cabriole rolling-30j revient au-dessus de p10 baseline (= -0.163R) ET live colle au BT.
+- Décision séparée nécessaire (pas automatique).
+
+**Hors scope** : aucune touche au signal Cabriole lui-même. Sortie config-only.
+
+**Implémentation** : `config/settings.yaml` édité. Restart engine requis pour appliquer. Vérification au redémarrage : les logs BarAggregator ne doivent plus mentionner `cabriole`.
+
