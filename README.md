@@ -28,12 +28,13 @@ High win rate. Smooth equity curve.
 
 | Strategy | Logic | Timeframe | Status |
 |---|---|---|---|
-| **Extension** | BB squeeze → trend breakout | H1 / H4 | Live |
-| **Glissade** | RSI divergence in trend | H1 | Live |
-| **Fouetté** | Opening Range Breakout | M1 | Validated, not deployed |
-| **Cabriole** | Donchian breakout | H4 | Backup |
+| **Extension** | BB squeeze → trend breakout | H1 / H4 | Live (Phase 4 bis core) |
+| **Glissade** | RSI divergence in trend | H1 | Live (Phase 4 bis core) |
+| **Cabriole** | Donchian breakout | H4 | Disabled (drift to re-explain) |
+| **Fouetté** | Opening Range Breakout | M1 | Validated, paused (cache bug) |
 | **Révérence** | NR7 contraction → expansion | H4 | Testing |
 | **Renversé** | Liquidity sweep + FVG retrace | H1 | Abandoned (edge too thin) |
+| **Pas de Deux** | Pairs trading cointegration | — | Not viable (mean-reversion) |
 
 ---
 

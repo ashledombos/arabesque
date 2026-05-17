@@ -5,7 +5,7 @@
 > ce fichier est la référence rapide pour savoir ce qui tourne, sur quel compte, avec quel paramétrage.
 > **Mettre à jour à chaque changement de compte ou de configuration live.**
 
-Dernière mise à jour : 2026-04-11 (session Opus 4.6)
+Dernière mise à jour : 2026-05-17 (session Opus 4.7 — cleanup docs)
 
 ---
 
@@ -13,34 +13,37 @@ Dernière mise à jour : 2026-04-11 (session Opus 4.6)
 
 | Paramètre | Valeur |
 |---|---|
-| **Statut** | ✅ En marche (redémarré 2026-04-11 21:01 après incident) |
+| **Statut** | ✅ En marche — **Phase 4 bis** depuis 2026-05-16 (noyau Extension + Glissade, Cabriole désactivée) |
+| **Phase** | Phase 4 revalidation (≥ 50 trades à risk ×0.25 depuis 2026-05-07T23:45 UTC) + Phase 2.5 BE polling broker-side actif |
 | **Commande** | `systemctl --user start arabesque-live` (service systemd, auto-restart) |
 | **Log** | `journalctl --user -u arabesque-live -f` |
 | **Comptes actifs** | `ftmo_challenge` (cTrader 45667282) + `gft_compte1` (TradeLocker) |
 | **Type FTMO** | Challenge Phase 1 (2-step, 100k USD) |
 | **Type GFT** | Challenge (150k USD) |
 | **Environnement cTrader** | **Démo** (`is_demo: true` — les challenges FTMO utilisent l'endpoint démo) |
-| **Balance FTMO** | ~$94 494 (DD -5.5%) |
+| **Balance FTMO** | ~$94 309 (DD -5.7%) |
 | **Balance GFT** | ~$142 742 (DD -4.8%) |
-| **Protection FTMO** | LiveMonitor **CAUTION** (risk × 0.5) |
+| **Protection FTMO** | LiveMonitor **NORMAL** (seuils relevés 2026-04-15) |
 | **Protection GFT** | LiveMonitor **NORMAL** |
-| **Notifications** | ntfy ✅, Telegram ✅ |
-| **Dernier incident** | 2026-04-09 → 2026-04-11 : moteur aveugle après reboot (voir DECISIONS.md) |
+| **Notifications** | ntfy ✅, Telegram ✅, **bot Telegram interactif** (lecture seule) ✅ |
+| **Watchdog feed** | ✅ Actif (`arabesque-feed-watchdog.timer`, 5min, détection silent-fail PriceFeed) |
+| **Dernier incident** | 2026-05-14 — boucle Feed stale ETHUSD 9h45→17h23 UTC (Glissade XAUUSD -1R imputable, gate Phase 2.5) |
 
 ---
 
-## Stratégies actives
+## Stratégies actives — Phase 4 bis (2026-05-16)
 
 | Stratégie | Timeframe | Instruments | Mode | Statut |
 |---|---|---|---|---|
-| **Extension** (trend BB) | H1 | XAUUSD, GBPJPY, AUDJPY, CHFJPY | Live plein (0.45%) | ✅ Actif |
-| **Extension** (trend BB) | H4 | 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…) | Live plein (0.55% via ×1.22) | ✅ Actif |
-| **Glissade** (RSI div) | H1 | XAUUSD, BTCUSD | Rodage (0.225% = 0.45% × 0.50) | ✅ Actif (rodage) |
-| **Fouetté** (ORB M1) | M1 | XAUUSD (London), BTCUSD (NY) | Rodage (0.225% = 0.45% × 0.50) | ✅ Actif (rodage) |
-| **Cabriole** (Donchian) | H4 | BTCUSD, ETHUSD, SOLUSD, DOGEUSD, LINKUSD, ADAUSD | Rodage (0.275% = 0.55% × 0.50) | ✅ Actif (rodage) |
+| **Extension** (trend BB) | H1 | XAUUSD, GBPJPY, AUDJPY, CHFJPY | Phase 4 revalidation (risk ×0.25) | ✅ Actif — noyau |
+| **Extension** (trend BB) | H4 | 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…) | Phase 4 revalidation (risk ×0.25) | ✅ Actif — noyau |
+| **Glissade** (RSI div) | H1 | XAUUSD, BTCUSD | Phase 4 revalidation (risk ×0.25) | ✅ Actif — noyau |
+| **Cabriole** (Donchian) | H4 | — | — | 🛑 **Désactivée** (Phase 4 bis — drift `drift_modere` répété, à réexpliquer) |
+| **Fouetté** (ORB M1) | M1 | — | Observation paper seulement | 🟡 0 trade live (bug cache OR bar_aggregator, cf HANDOFF) |
 
-Glissade, Fouetté et Cabriole sont en **rodage** (risk × 0.50) depuis 2026-03-28.
-Retirer de la liste `rodage.strategies` une fois > 100 trades live validés.
+Noyau Phase 4 bis : **Extension + Glissade uniquement** (cf `docs/PHASE4_BIS_CHECKLIST_2026-05-16.md`).
+Risk global ×0.25 maintenu jusqu'à ≥ 50 trades de revalidation depuis 2026-05-07T23:45 UTC.
+Critère go (auto via trigger `phase4_revalidation` dans `/suivi`) : `check_execution_invariants.py --per-broker` = `global_verdict=ok` + `mfe_zero_loser=0`.
 
 ---
 
@@ -68,8 +71,14 @@ Le compte challenge référence `oauth: ctrader_oauth` (pas de duplication de to
 automatiquement le risque. En plus, CAUTION applique ×0.50.
 Le compte GFT est en DD -4.8%, protection NORMAL.
 
-**33 trades live** (au 2026-04-11) : WR=54.5%, Exp=-0.285R — drift vs baseline 75%/+0.10R.
-Échantillon trop petit pour conclure (IC99 très large sur 33 trades).
+**État Wilson CI au 2026-05-04** (cumul live depuis activation, cf HANDOFF.md) :
+- extension FTMO n=46 WR~32% Exp -0.27R, GFT n=13 WR 34.6% Exp -0.305R — < P0
+- cabriole FTMO n=28 WR 19.6% Exp -0.531R — < P0 (très bas, désactivée Phase 4 bis)
+- glissade FTMO n=4 small-n WR 62.5% Exp +0.474R — non concluant
+- fouette n=0 — bug cache OR
+
+Cohérent avec phase défavorable identifiée par `edge_audit` (extension `regime_defavorable`, cabriole `drift_modere`).
+Rodage ×0.25 défensif justifié empiriquement par le Wilson. Ne RIEN relever tant qu'IC99 WR > 50% (P0) n'est pas atteint.
 
 ---
 
@@ -201,6 +210,8 @@ notifications:
 ```
 
 **Statut 2026-03-27** : ntfy ✅, Telegram ✅ (token corrigé — manquait le préfixe numérique du bot ID).
+**Statut 2026-05-03** : **bot Telegram interactif phase 1** ✅ (`arabesque-telegram-bot.service`, lecture seule). Commandes : `/status` `/positions` `/edge` `/journal`. Auth whitelist `chat_id`.
+**Statut 2026-05-16** : services `arabesque-report-daily` + `arabesque-suivi-reminder` repassés `success` (cf `docs/INFRA_SERVICES_FIX_2026-05-16.md` — `health_check --warn-only` exit 0, fallback `_load_apprise()`).
 
 ### Tester les notifications
 ```bash
@@ -268,15 +279,17 @@ Exécuté automatiquement par le timer daily (21h UTC) et weekly (dim 20h UTC).
 
 ---
 
-## Architecture snapshot (v9)
+## Architecture snapshot (v9 — Phase 4 bis 2026-05-16)
 
 ```
 Live actif (compte ftmo_challenge, 45667282, démo cTrader) :
-  Extension H1 → XAUUSD, GBPJPY, AUDJPY, CHFJPY (risk 0.45%)
-  Extension H4 → 27 crypto (risk 0.55% via ×1.22 TF multiplier)
-  Glissade H1  → XAUUSD, BTCUSD (rodage ×0.50) ← activé 2026-03-22
-  Fouetté M1   → XAUUSD London, BTCUSD NY (rodage ×0.50) ← activé 2026-03-28
-  Cabriole 4H  → 6 crypto (rodage ×0.50, overlap Extension) ← activé 2026-03-28
+  Extension H1 → XAUUSD, GBPJPY, AUDJPY, CHFJPY (Phase 4 revalidation, risk ×0.25)
+  Extension H4 → 27 crypto (Phase 4 revalidation, risk ×0.25)
+  Glissade H1  → XAUUSD, BTCUSD (Phase 4 revalidation, risk ×0.25)
+
+Désactivée Phase 4 bis :
+  Cabriole 4H  → drift_modere répété, à réexpliquer avant réactivation
+  Fouetté M1   → bug cache OR bar_aggregator (0 trade live), observation paper
 
 Testé, edge insuffisant :
   Renversé H1  → sweep + FVG retrace (WR 73%, Exp +0.006R = breakeven)
