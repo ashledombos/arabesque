@@ -917,8 +917,17 @@ class LiveEngine:
         if not orphans:
             return
 
-        # Collecter les positions ouvertes chez chaque broker
-        broker_open_ids: dict[str, set[str]] = {}
+        # Collecter les positions ouvertes chez chaque broker.
+        # Distinction CRITIQUE :
+        #   - set() (potentiellement vide) → broker répond, on connaît la liste
+        #     réelle. Une absence dans cette liste signifie "vraiment fermée".
+        #   - None → broker injoignable (auth error, TCP timeout, etc.). On ne
+        #     SAIT PAS si les positions sont ouvertes ou fermées. Différer le
+        #     reconcile, ne JAMAIS inventer un exit (cf. incident 2026-05-14
+        #     ETHUSD cabriole : faux `reconciled_stop_loss` pondu pendant que
+        #     FTMO refusait l'auth, alors que la position était toujours
+        #     ouverte côté broker).
+        broker_open_ids: dict[str, set[str] | None] = {}
         for broker_id, broker in self._brokers.items():
             try:
                 positions = await broker.get_positions()
@@ -927,17 +936,35 @@ class LiveEngine:
                 }
             except Exception as e:
                 logger.warning(
-                    f"[Engine] Réconciliation exits: erreur {broker_id}: {e}"
+                    f"[Engine] Réconciliation exits: broker {broker_id} "
+                    f"injoignable ({type(e).__name__}: {e}) — reconcile "
+                    f"différé pour ce broker (pas de faux exit inventé)"
                 )
-                broker_open_ids[broker_id] = set()
+                broker_open_ids[broker_id] = None  # marqueur "incertain"
 
         reconciled = 0
+        deferred = 0
         for key, entry_record in orphans.items():
             broker_id = entry_record["broker_id"]
             position_id = entry_record["position_id"]
 
+            open_ids = broker_open_ids.get(broker_id)
+            # Broker injoignable → on ne sait pas si la position est close.
+            # On NE crée PAS d'exit, on attendra le prochain boot du moteur
+            # où la fonction sera rappelée. Mieux vaut un orphan persistant
+            # qu'un faux exit dans le journal.
+            if open_ids is None:
+                deferred += 1
+                logger.warning(
+                    f"[Engine] 🕓 Reconcile différé (broker injoignable): "
+                    f"{entry_record.get('instrument')} "
+                    f"{entry_record.get('side')} "
+                    f"({broker_id}:{position_id})"
+                )
+                continue
+
             # Si toujours ouvert, pas d'exit à créer
-            if position_id in broker_open_ids.get(broker_id, set()):
+            if position_id in open_ids:
                 continue
 
             # La position a disparu → fermée pendant le downtime
@@ -993,6 +1020,11 @@ class LiveEngine:
         if reconciled:
             logger.info(
                 f"[Engine] 🔄 Réconciliation: {reconciled} exit(s) manquant(s) récupéré(s)"
+            )
+        if deferred:
+            logger.warning(
+                f"[Engine] 🕓 Réconciliation: {deferred} exit(s) différé(s) "
+                f"(broker injoignable, retry au prochain boot)"
             )
 
     # ------------------------------------------------------------------
