@@ -859,18 +859,24 @@ class LiveEngine:
             source = "estimated_fallback"
 
         # 4. Dériver be_source — sémantique du tracking BE (cf. DECISIONS.md §3
-        # "be_source"). Distinguer "broker a réellement amendé le SL" de "MFE
-        # parquet >= seuil mais aucune preuve broker". Le cas XAUUSD 14-05
-        # 09:47→17:23 UTC en est l'illustration : engine FTMO down 7h36 →
-        # _check_breakeven jamais appelé → amend_position_sltp jamais appelé →
-        # SL reste physiquement à -1R → mfe=0.91 mais broker exit=SL plein.
-        # Le champ be_set (mfe_r >= 0.3) reste pour rétrocompat, mais
-        # be_source fait foi dans les invariants critiques.
+        # "be_source"). Taxonomie STRICTE :
+        #   - broker_armed : RÉSERVÉ au path live (position_monitor.
+        #     _check_breakeven) après succès observé de amend_position_sltp.
+        #     JAMAIS posé dans ce path reconcile post-hoc.
+        #   - broker_evidence : reconcile, broker_detail confirme exit ≈
+        #     be_target → preuve forte indirecte que le SL a été amendé
+        #     (sinon l'exit serait au SL plein ou TP). Distinct de
+        #     broker_armed : on n'a PAS observé l'amend, on le DÉDUIT.
+        #   - inferred_from_mfe : MFE parquet >= seuil sans preuve broker
+        #     (exit ≠ be_target OU pas de broker_detail). Pattern XAUUSD
+        #     14-05 : engine down 7h36 → _check_breakeven jamais appelé →
+        #     SL plein hit malgré MFE=0.91R observé post-hoc.
+        #   - not_armed : ni preuve, ni inférence.
+        # be_set (mfe_r >= 0.3) reste pour rétrocompat, mais be_source fait
+        # foi dans les invariants critiques.
         if real_exit_price:
             if exit_reason == "reconciled_breakeven_exit":
-                # Broker a confirmé exit ≈ be_target ET mfe >= 0.3 → preuve
-                # forte que le SL a été amendé broker-side.
-                be_source = "broker_armed"
+                be_source = "broker_evidence"
             elif be_set:
                 # MFE >= 0.3 mais broker a confirmé exit ailleurs (SL/TP/other).
                 # → SL n'a pas été amendé en pratique (sinon exit aurait été

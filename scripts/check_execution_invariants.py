@@ -12,7 +12,7 @@ Triggers calculés sur fenêtre glissante (défaut 7j) :
 | reconciled_ratio | exits "reconciled_*" / total (info uptime) | > 30% | — |
 | mfe_zero_loser | exits avec mfe_r=0 ET result_r ≤ -0.5R | ≥ 3 sur 7j | ≥ 5 sur 7j |
 | zero_winner_streak | trades consécutifs avec result_r > 0.25 | — | 0 winner sur n≥20 |
-| be_unarmed_ratio | losers (-1R) où be_source ≠ broker_armed alors mfe_r ≥ 0.3R | > 10% | > 25% |
+| be_unarmed_ratio | losers (-1R) où be_source ∉ {broker_armed,broker_evidence} alors mfe_r ≥ 0.3R | > 10% | > 25% |
 | be_inferred_but_loser | exits be_source=inferred_from_mfe ET result_r ≤ -0.5R | ≥ 1 | ≥ 3 |
 
 Depuis le fix 2026-05-07 : reconciled_take_profit/_breakeven_exit/_stop_loss
@@ -46,11 +46,16 @@ JOURNAL = ROOT / "logs" / "trade_journal.jsonl"
 
 
 def _be_was_armed_broker(exit_record: dict) -> bool:
-    """Renvoie True UNIQUEMENT si le SL a été amendé broker-side avec preuve.
+    """Renvoie True si on a une preuve (directe ou indirecte) que le SL a
+    été amendé broker-side.
 
-    Sémantique be_source (cf. DECISIONS.md §3) :
-      - "broker_armed"      → True (SL amendé broker, preuve forte)
-      - "inferred_from_mfe" → False (MFE théorique, aucune preuve broker)
+    Sémantique be_source (cf. DECISIONS.md §3) — taxonomie stricte :
+      - "broker_armed"      → True (preuve DIRECTE : amend_position_sltp
+                                    success observé en live)
+      - "broker_evidence"   → True (preuve INDIRECTE forte : exit broker
+                                    ≈ be_target, déduit post-hoc dans le
+                                    path reconcile)
+      - "inferred_from_mfe" → False (MFE parquet seul, aucune preuve broker)
       - "not_armed"         → False
       - "unknown"/absent    → fallback rétrocompat sur be_set (records pré-fix)
 
@@ -61,7 +66,7 @@ def _be_was_armed_broker(exit_record: dict) -> bool:
     """
     src = exit_record.get("be_source")
     if src and src != "unknown":
-        return src == "broker_armed"
+        return src in ("broker_armed", "broker_evidence")
     # Rétrocompat : ancien record sans be_source, on retombe sur be_set
     return bool(exit_record.get("be_set", False))
 

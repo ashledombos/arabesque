@@ -748,8 +748,13 @@ class LiveMonitor:
         be_set : booléen rétrocompat. Vrai si mfe_r >= seuil BE (peu importe
             la source). NE PAS UTILISER SEUL DANS LES AUDITS CRITIQUES.
         be_source : sémantique précise du BE (cf. DECISIONS.md §3 "be_source") :
-            - "broker_armed" : SL broker amendé avec succès en live
-              (path position_monitor._check_breakeven → amend_position_sltp).
+            - "broker_armed" : SL broker amendé avec succès OBSERVÉ en live
+              (path position_monitor._check_breakeven → amend_position_sltp
+              retourne success). Preuve directe.
+            - "broker_evidence" : path reconcile, broker_detail confirme
+              exit ≈ be_target → preuve forte INDIRECTE que le SL avait été
+              amendé (sinon exit serait au SL plein ou TP). On déduit, on
+              n'observe pas l'amend.
             - "inferred_from_mfe" : MFE parquet >= seuil mais aucune preuve
               broker que le SL a été amendé. Pattern XAUUSD 14-05 :
               engine down → tick 0.3R jamais reçu → SL plein hit malgré

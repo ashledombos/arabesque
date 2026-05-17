@@ -14,8 +14,19 @@ affichait be_set=True (mfe_r=0.91 reconstruit depuis parquet), faisant
 croire que le BE était armé, alors que le broker n'avait jamais été
 amendé (Phase 2.5 BE polling pas active à cette date).
 
-Ce test fige la sémantique attendue : be_source ∈ {broker_armed,
-inferred_from_mfe, not_armed} reflète l'état RÉEL, pas le théorique.
+Ce test fige la sémantique attendue (taxonomie stricte) :
+  - broker_armed : amend_position_sltp success OBSERVÉ en live (path
+    position_monitor._check_breakeven). Preuve directe.
+  - broker_evidence : path reconcile, broker_detail confirme exit ≈
+    be_target → preuve forte INDIRECTE (on déduit l'amend, on ne l'observe
+    pas). N'apparaît jamais dans le path live.
+  - inferred_from_mfe : MFE parquet seul, aucune preuve broker.
+  - not_armed : ni preuve, ni inférence.
+
+Les invariants traitent broker_armed et broker_evidence comme "BE armé
+broker-side" car un exit ≈ be_target côté broker implique nécessairement
+qu'un amend a eu lieu. La distinction sert à la traçabilité d'audit, pas
+à invalider la preuve.
 """
 from __future__ import annotations
 
@@ -115,9 +126,10 @@ def test_xauusd_14may_inferred_from_mfe_not_broker_armed():
 
 # ---------------------------------------------------------------------------
 # Cas 2 : broker_detail dit exit ≈ BE target ET MFE >= 0.3R
-#   → be_source = "broker_armed" (preuve forte que SL amendé broker-side).
+#   → be_source = "broker_evidence" (preuve forte INDIRECTE, pas
+#     "broker_armed" qui est réservé au path live amend_position_sltp).
 # ---------------------------------------------------------------------------
-def test_broker_confirms_be_target_armed():
+def test_broker_evidence_from_exit_price():
     eng = _make_engine()
     entry = _entry()
     R = abs(entry["entry_price"] - entry["sl"])
@@ -137,8 +149,11 @@ def test_broker_confirms_be_target_armed():
 
     assert out["exit_reason"] == "reconciled_breakeven_exit"
     assert out["source"] == "broker_detail"
-    assert out["be_source"] == "broker_armed", (
-        "broker a confirmé exit ≈ be_target → preuve forte SL amendé"
+    assert out["be_source"] == "broker_evidence", (
+        f"path reconcile + broker confirme exit ≈ be_target → "
+        f"be_source='broker_evidence' (preuve indirecte). "
+        f"'broker_armed' est réservé au path live amend success observé. "
+        f"Obtenu : '{out['be_source']}'"
     )
 
 
@@ -245,7 +260,16 @@ def test_invariant_retrocompat_no_be_source():
         "be_source=inferred_from_mfe doit primer sur be_set=True"
     )
 
-    # Nouveau record avec be_source="broker_armed" → vraiment armé
+    # Nouveau record avec be_source="broker_armed" → vraiment armé (live)
     new_armed = {"be_set": True, "be_source": "broker_armed",
                  "result_r": 0.2, "mfe_r": 0.5}
     assert _be_was_armed_broker(new_armed) is True
+
+    # Nouveau record avec be_source="broker_evidence" → preuve indirecte
+    # forte (exit ≈ be_target) → compté comme armé broker pour les invariants.
+    new_evidence = {"be_set": True, "be_source": "broker_evidence",
+                    "result_r": 0.2, "mfe_r": 0.5}
+    assert _be_was_armed_broker(new_evidence) is True, (
+        "broker_evidence (exit broker ≈ be_target) doit compter comme "
+        "armé broker — un exit à be_target implique nécessairement un amend"
+    )
