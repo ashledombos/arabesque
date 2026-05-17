@@ -894,7 +894,7 @@ def main():
     parser.add_argument("--dry-run", action="store_true",
                         help="Preview sans envoi")
     parser.add_argument("--warn-only", action="store_true",
-                        help="N'envoyer que si WARN ou CRIT présents")
+                        help="N'envoyer que si WARN ou CRIT présents ; mode timer sans exit non-zéro")
     args = parser.parse_args()
 
     alerts = run_all_checks()
@@ -908,6 +908,12 @@ def main():
             print("\n(Pas d'alerte WARN/CRIT — notification non envoyée)")
         else:
             asyncio.run(send_notification(report))
+
+    # Le timer quotidien utilise --warn-only comme mode rapport/notification.
+    # Les alertes doivent être visibles dans la notification, mais ne doivent pas
+    # marquer arabesque-report-daily.service en failed à chaque anomalie connue.
+    if args.warn_only:
+        sys.exit(0)
 
     # Exit code: 2 if critical, 1 if warning, 0 if clean
     if any(a.severity == Severity.CRITICAL for a in alerts):

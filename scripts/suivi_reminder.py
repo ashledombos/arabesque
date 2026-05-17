@@ -18,7 +18,6 @@ import json
 import sys
 from pathlib import Path
 
-import apprise
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -26,6 +25,25 @@ STATE = ROOT / "logs" / "maintenance_state.jsonl"
 SECRETS = ROOT / "config" / "secrets.yaml"
 
 REMIND_COOLDOWN_H = 3.0
+
+
+def _load_apprise():
+    try:
+        import apprise
+
+        return apprise
+    except ImportError:
+        pass
+
+    # Le unit déployé doit utiliser .venv/bin/python, mais certains services
+    # existants peuvent encore appeler /usr/bin/env python3. Dans ce cas, on
+    # charge explicitement la dépendance depuis le venv du dépôt.
+    for site_packages in sorted((ROOT / ".venv").glob("lib*/python*/site-packages")):
+        sys.path.insert(0, str(site_packages))
+
+    import apprise
+
+    return apprise
 
 
 def _last_state_line() -> dict | None:
@@ -57,6 +75,7 @@ def _last_reminder_ts() -> dt.datetime | None:
 
 
 def main() -> int:
+    apprise = _load_apprise()
     state = _last_state_line()
     if not state:
         return 0
