@@ -858,11 +858,40 @@ class LiveEngine:
             exit_reason = "reconciled_stop_loss"
             source = "estimated_fallback"
 
+        # 4. Dériver be_source — sémantique du tracking BE (cf. DECISIONS.md §3
+        # "be_source"). Distinguer "broker a réellement amendé le SL" de "MFE
+        # parquet >= seuil mais aucune preuve broker". Le cas XAUUSD 14-05
+        # 09:47→17:23 UTC en est l'illustration : engine FTMO down 7h36 →
+        # _check_breakeven jamais appelé → amend_position_sltp jamais appelé →
+        # SL reste physiquement à -1R → mfe=0.91 mais broker exit=SL plein.
+        # Le champ be_set (mfe_r >= 0.3) reste pour rétrocompat, mais
+        # be_source fait foi dans les invariants critiques.
+        if real_exit_price:
+            if exit_reason == "reconciled_breakeven_exit":
+                # Broker a confirmé exit ≈ be_target ET mfe >= 0.3 → preuve
+                # forte que le SL a été amendé broker-side.
+                be_source = "broker_armed"
+            elif be_set:
+                # MFE >= 0.3 mais broker a confirmé exit ailleurs (SL/TP/other).
+                # → SL n'a pas été amendé en pratique (sinon exit aurait été
+                # à be_target). BE est purement théorique.
+                be_source = "inferred_from_mfe"
+            else:
+                be_source = "not_armed"
+        elif source == "bars_reconstruction":
+            # Pas de broker, MFE >= 0.3 → on suppose BE armé avant coupure.
+            # C'est une INFÉRENCE depuis les bars parquet, pas un état broker.
+            be_source = "inferred_from_mfe"
+        else:
+            # estimated_fallback : ni broker, ni MFE → pas armé
+            be_source = "not_armed"
+
         return {
             "exit_price": exit_price,
             "exit_reason": exit_reason,
             "mfe_r": round(mfe_r, 3),
             "be_set": be_set,
+            "be_source": be_source,
             "trailing_tier": 0,
             "source": source,
             "bars_used": bars_used,
@@ -1002,6 +1031,7 @@ class LiveEngine:
                     exit_reason=recon["exit_reason"],
                     mfe_r=recon["mfe_r"],
                     be_set=recon["be_set"],
+                    be_source=recon["be_source"],
                     trailing_tier=recon["trailing_tier"],
                     exit_price_source="reconciled",
                 )

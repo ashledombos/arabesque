@@ -12,7 +12,8 @@ Triggers calculés sur fenêtre glissante (défaut 7j) :
 | reconciled_ratio | exits "reconciled_*" / total (info uptime) | > 30% | — |
 | mfe_zero_loser | exits avec mfe_r=0 ET result_r ≤ -0.5R | ≥ 3 sur 7j | ≥ 5 sur 7j |
 | zero_winner_streak | trades consécutifs avec result_r > 0.25 | — | 0 winner sur n≥20 |
-| be_unarmed_ratio | losers (-1R) où be_set=False alors mfe_r ≥ 0.3R | > 10% | > 25% |
+| be_unarmed_ratio | losers (-1R) où be_source ≠ broker_armed alors mfe_r ≥ 0.3R | > 10% | > 25% |
+| be_inferred_but_loser | exits be_source=inferred_from_mfe ET result_r ≤ -0.5R | ≥ 1 | ≥ 3 |
 
 Depuis le fix 2026-05-07 : reconciled_take_profit/_breakeven_exit/_stop_loss
 sont reconstruits avec un vrai MFE (bars min1) et un vrai exit_price (broker
@@ -42,6 +43,27 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 JOURNAL = ROOT / "logs" / "trade_journal.jsonl"
+
+
+def _be_was_armed_broker(exit_record: dict) -> bool:
+    """Renvoie True UNIQUEMENT si le SL a été amendé broker-side avec preuve.
+
+    Sémantique be_source (cf. DECISIONS.md §3) :
+      - "broker_armed"      → True (SL amendé broker, preuve forte)
+      - "inferred_from_mfe" → False (MFE théorique, aucune preuve broker)
+      - "not_armed"         → False
+      - "unknown"/absent    → fallback rétrocompat sur be_set (records pré-fix)
+
+    Le champ be_set seul est INSUFFISANT pour les invariants critiques : il
+    mélange "SL réellement amendé broker" et "MFE parquet >= seuil"
+    (cf. incident XAUUSD 14-05 où be_set=True par inférence post-hoc alors
+    que le SL plein avait été touché côté broker).
+    """
+    src = exit_record.get("be_source")
+    if src and src != "unknown":
+        return src == "broker_armed"
+    # Rétrocompat : ancien record sans be_source, on retombe sur be_set
+    return bool(exit_record.get("be_set", False))
 
 
 def _load_exits(
@@ -126,10 +148,13 @@ def _evaluate(exits: list[dict]) -> dict:
         out["triggers"].append(("zero_winner_streak", "CRITIQUE",
             f"0 winner sur {n} trades — edge mort ou exécution cassée"))
 
-    # 4) be_unarmed_ratio : losers -1R alors que mfe_r ≥ 0.3 mais be_set=False
+    # 4) be_unarmed_ratio : losers -1R alors que mfe_r ≥ 0.3 mais BE pas armé
+    #    broker (be_source ≠ "broker_armed"). Lit be_source en priorité,
+    #    fallback be_set pour rétrocompat (cf. _be_was_armed_broker).
     losers_full = [e for e in exits if (e.get("result_r") or 0) <= -0.9]
     be_should = [e for e in losers_full
-                 if (e.get("mfe_r") or 0) >= 0.3 and not e.get("be_set", False)]
+                 if (e.get("mfe_r") or 0) >= 0.3
+                 and not _be_was_armed_broker(e)]
     n_lf = len(losers_full)
     pct = 100.0 * len(be_should) / n_lf if n_lf else 0.0
     out["details"]["be_unarmed"] = {"count": len(be_should),
@@ -138,10 +163,31 @@ def _evaluate(exits: list[dict]) -> dict:
     if n_lf >= 5:
         if pct > 25:
             out["triggers"].append(("be_unarmed_ratio", "CRITIQUE",
-                f"{len(be_should)}/{n_lf} losers -1R avaient MFE≥0.3R sans BE armé ({pct:.1f}%)"))
+                f"{len(be_should)}/{n_lf} losers -1R avaient MFE≥0.3R sans BE armé broker ({pct:.1f}%)"))
         elif pct > 10:
             out["triggers"].append(("be_unarmed_ratio", "ALERT",
-                f"{len(be_should)}/{n_lf} losers -1R avaient MFE≥0.3R sans BE armé ({pct:.1f}%)"))
+                f"{len(be_should)}/{n_lf} losers -1R avaient MFE≥0.3R sans BE armé broker ({pct:.1f}%)"))
+
+    # 5) be_inferred_but_loser : exits be_source=inferred_from_mfe ET loser
+    # significatif. Pattern XAUUSD 14-05 : engine down → tick 0.3R jamais reçu
+    # → SL plein hit alors que MFE 0.91R observé post-hoc en parquet. Chaque
+    # cas est une preuve forte d'un downtime engine pendant lequel le BE
+    # physique n'a pas pu être armé. Distinct de be_unarmed_ratio (ratio
+    # global) car ici on traque le cas SPÉCIFIQUE "BE théorique inféré mais
+    # broker a confirmé exit≠BE". Ne s'active qu'avec records ayant
+    # be_source explicite (pas de reclassification rétroactive).
+    be_inferred_losers = [e for e in exits
+                          if e.get("be_source") == "inferred_from_mfe"
+                          and (e.get("result_r") or 0) <= -0.5]
+    out["details"]["be_inferred_but_loser"] = {"count": len(be_inferred_losers)}
+    if len(be_inferred_losers) >= 3:
+        out["triggers"].append(("be_inferred_but_loser", "CRITIQUE",
+            f"{len(be_inferred_losers)} exits be_source=inferred_from_mfe ET "
+            f"loser significatif — engine downtime récurrent pendant BE arming"))
+    elif len(be_inferred_losers) >= 1:
+        out["triggers"].append(("be_inferred_but_loser", "ALERT",
+            f"{len(be_inferred_losers)} exit(s) be_source=inferred_from_mfe ET "
+            f"loser — BE physique pas armé broker pendant downtime engine"))
 
     # Verdict global
     if any(t[1] == "CRITIQUE" for t in out["triggers"]):
@@ -183,8 +229,12 @@ def _format_human(
         lines.append(f"  mfe=0 losers : {d['mfe_zero_loser']['count']}")
     if "be_unarmed" in d:
         be = d["be_unarmed"]
-        lines.append(f"  BE non armé sur losers -1R : {be['count']}/{be['of_full_losers']} "
+        lines.append(f"  BE non armé broker sur losers -1R : {be['count']}/{be['of_full_losers']} "
                      f"({be['pct']}%)")
+    if "be_inferred_but_loser" in d:
+        bil = d["be_inferred_but_loser"]
+        if bil["count"] > 0:
+            lines.append(f"  BE théorique inféré + loser : {bil['count']} (downtime engine)")
     if "wins" in d:
         lines.append(f"  wins : {d['wins']['count']} ({d['wins']['pct']}%)")
 

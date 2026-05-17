@@ -731,6 +731,7 @@ class LiveMonitor:
         exit_reason: str = "unknown",
         mfe_r: float = 0.0,
         be_set: bool = False,
+        be_source: str = "unknown",
         trailing_tier: int = 0,
         broker_bid: float = 0.0,
         broker_ask: float = 0.0,
@@ -744,6 +745,17 @@ class LiveMonitor:
         (get_closed_position_detail), "estimated" si on est tombé sur le
         fallback (sl/tp théorique), "reconciled" si reconstruit post-hoc
         depuis les bougies historiques.
+        be_set : booléen rétrocompat. Vrai si mfe_r >= seuil BE (peu importe
+            la source). NE PAS UTILISER SEUL DANS LES AUDITS CRITIQUES.
+        be_source : sémantique précise du BE (cf. DECISIONS.md §3 "be_source") :
+            - "broker_armed" : SL broker amendé avec succès en live
+              (path position_monitor._check_breakeven → amend_position_sltp).
+            - "inferred_from_mfe" : MFE parquet >= seuil mais aucune preuve
+              broker que le SL a été amendé. Pattern XAUUSD 14-05 :
+              engine down → tick 0.3R jamais reçu → SL plein hit malgré
+              MFE 0.91R observé post-hoc en parquet.
+            - "not_armed" : ni armé en live, ni inféré (MFE < seuil).
+            - "unknown" : ancien record pré-2026-05-17 sans be_source.
         """
         """Enregistre la sortie d'un trade. Retourne le trade ou None."""
         key = f"{broker_id}:{position_id}"
@@ -810,6 +822,7 @@ class LiveMonitor:
             "pnl_cash": round(trade.pnl_cash, 2),
             "mfe_r": round(mfe_r, 2),
             "be_set": be_set,
+            "be_source": be_source,
             "trailing_tier": trailing_tier,
             "exit_reason": exit_reason,
             "broker_id": broker_id,

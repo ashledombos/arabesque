@@ -822,6 +822,10 @@ class LivePositionMonitor:
                                     pass
                             if self._on_position_closed:
                                 try:
+                                    # be_source : path live, pos.breakeven_set
+                                    # reflète l'état physique broker (True
+                                    # uniquement après amend_position_sltp
+                                    # success — cf. _check_breakeven l.674).
                                     self._on_position_closed(
                                         broker_id=pos.broker_id,
                                         position_id=pos.position_id,
@@ -829,6 +833,11 @@ class LivePositionMonitor:
                                         exit_reason=exit_reason,
                                         mfe_r=pos.mfe_r,
                                         be_set=pos.breakeven_set,
+                                        be_source=(
+                                            "broker_armed"
+                                            if pos.breakeven_set
+                                            else "not_armed"
+                                        ),
                                         trailing_tier=pos.trailing_tier,
                                         broker_bid=broker_bid_x,
                                         broker_ask=broker_ask_x,
@@ -1000,6 +1009,9 @@ class LivePositionMonitor:
                     # Notify LiveMonitor
                     if self._on_position_closed:
                         try:
+                            # be_source : reconcile orphan, pos.breakeven_set
+                            # est l'état physique broker mémorisé en live (True
+                            # uniquement après amend_position_sltp success).
                             self._on_position_closed(
                                 broker_id=broker_id,
                                 position_id=pos.position_id,
@@ -1007,6 +1019,11 @@ class LivePositionMonitor:
                                 exit_reason=exit_reason,
                                 mfe_r=pos.mfe_r,
                                 be_set=pos.breakeven_set,
+                                be_source=(
+                                    "broker_armed"
+                                    if pos.breakeven_set
+                                    else "not_armed"
+                                ),
                                 trailing_tier=pos.trailing_tier,
                                 broker_bid=broker_bid_x,
                                 broker_ask=broker_ask_x,
