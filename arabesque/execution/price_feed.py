@@ -88,6 +88,15 @@ class PriceFeedManager:
         self._alert_sent = False
         self._alert_threshold_reconnects = 3  # ~6 min de retry avant ping
 
+        # Force-reconnect flag (incident BTCUSD stale 2026-05-18) : armé par
+        # ``_run_loop`` après toute exception remontée par ``_watch_connection``.
+        # Le prochain ``_connect_and_subscribe`` détruit alors le broker existant
+        # (cleanup + reset) au lieu de retomber sur la branche "Réutilisation",
+        # qui boucle indéfiniment quand le canal TCP est zombi mais que
+        # ``broker._connected`` reste à True.
+        # Cf. docs/REVIEW_BTCUSD_STALE_EXISTING_BROKER_2026-05-18.md (Option 1).
+        self._force_reconnect = False
+
     # ------------------------------------------------------------------
     # Factory
     # ------------------------------------------------------------------
@@ -271,6 +280,13 @@ class PriceFeedManager:
             except Exception as e:
                 last_err = str(e)
                 logger.error(f"[PriceFeed] Erreur: {e}")
+                # Le flag broker._connected n'est pas fiable après une exception
+                # remontée par _watch_connection : le TCP peut être zombi alors
+                # que le flag reste True. Armer _force_reconnect pour que le
+                # prochain _connect_and_subscribe bypasse la branche
+                # "Réutilisation" et recrée un broker neuf
+                # (cf. docs/REVIEW_BTCUSD_STALE_EXISTING_BROKER_2026-05-18.md).
+                self._force_reconnect = True
 
             if not self._running:
                 break
@@ -332,6 +348,30 @@ class PriceFeedManager:
             logger.warning(f"[PriceFeed] _send_alert échec: {e}")
 
     async def _connect_and_subscribe(self) -> None:
+        # Si _run_loop a armé _force_reconnect (exception feed stale au cycle
+        # précédent), détruire le broker existant avant de retomber dans le
+        # chemin standard. Sans ça, la branche "Réutilisation" boucle
+        # indéfiniment sur un TCP zombi alors que broker._connected reste True.
+        # Le cleanup (unsubscribe + stopService + reset état) ne touche à
+        # aucune position : aucun ordre, close, ou amend n'est envoyé.
+        if self._force_reconnect and self._broker is not None:
+            logger.warning(
+                f"[PriceFeed] force reconnect after stale feed — "
+                f"bypass existing broker ({self.broker_id})"
+            )
+            try:
+                await self._broker._cleanup_for_retry()
+            except Exception as e:
+                logger.warning(
+                    f"[PriceFeed] cleanup_for_retry ignoré: {e}"
+                )
+            self._broker = None
+            self._force_reconnect = False
+        else:
+            # Pas de force reconnect demandé : on consomme le flag même si
+            # _broker était None (cas dégénéré : ne pas le laisser armé).
+            self._force_reconnect = False
+
         # Réutiliser le broker existant s'il est déjà connecté
         already_subscribed = False
         if self._broker and getattr(self._broker, '_connected', False):
