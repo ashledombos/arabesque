@@ -488,11 +488,67 @@ class CTraderBroker(BaseBroker):
         return True
 
     def _stop_client(self):
-        """Arrête le client TCP Twisted (best effort)."""
+        """Arrête le client TCP Twisted (best effort).
+
+        Cleanup minimal pour les chemins non-retry (timeout, erreur autre que
+        ALREADY_LOGGED_IN). Pour le retry sur session fantôme, utiliser
+        ``_cleanup_for_retry`` qui fait aussi unsubscribe + reset état.
+        """
         if self._client:
             from twisted.internet import reactor
             reactor.callFromThread(self._client.stopService)
             self._client = None
+
+    # Délais retry ALREADY_LOGGED_IN (en secondes). Allongés à
+    # [60, 180, 600] (14 min total) pour laisser le temps à cTrader
+    # d'expirer la session côté serveur. Les valeurs précédentes
+    # [30, 60, 120, 120, 120] (7.5 min) étaient sous le TTL serveur et
+    # tous les retries échouaient en cascade (cf. incidents 12-05, 14-05,
+    # 18-05 — boucles ALREADY_LOGGED_IN de 2h à 8h en production).
+    _ALREADY_LOGGED_IN_RETRY_DELAYS = (60, 180, 600)
+
+    async def _cleanup_for_retry(self) -> None:
+        """Cleanup propre avant retry sur ALREADY_LOGGED_IN.
+
+        Équivalent au ``disconnect()`` opérateur (commande manuelle
+        ``systemctl stop`` qui résout systématiquement la boucle session
+        fantôme). Sans ce cleanup, ``_stop_client()`` ferme le socket TCP
+        mais cTrader continue de voir la session comme authentifiée
+        (incidents fondateurs 14-05 et 18-05).
+
+        Étapes :
+          1. UnsubscribeSpotsReq (best-effort) sur les symboles abonnés
+          2. stopService Twisted
+          3. Reset état client/session pour permettre re-connexion propre
+
+        Idempotent : appelable plusieurs fois sans effet de bord.
+        Les exceptions sont avalées (best-effort sur un client à demi-mort).
+        """
+        # 1. Unsubscribe spots si abonnements actifs
+        if self._subscribed_symbol_ids and self._client and self.account_id:
+            try:
+                req = ProtoOAUnsubscribeSpotsReq()
+                req.ctidTraderAccountId = self.account_id
+                for sid in list(self._subscribed_symbol_ids):
+                    req.symbolId.append(sid)
+                self._send_no_response(req)
+                # Laisser le temps au unsubscribe de partir avant stopService
+                await asyncio.sleep(0.3)
+            except Exception as e:
+                print(f"[cTrader] _cleanup_for_retry unsubscribe ignored: {e}")
+
+        # 2. Arrêt service TCP Twisted
+        if self._client:
+            try:
+                from twisted.internet import reactor
+                reactor.callFromThread(self._client.stopService)
+            except Exception as e:
+                print(f"[cTrader] _cleanup_for_retry stopService ignored: {e}")
+
+        # 3. Reset état pour permettre re-connexion propre au prochain retry
+        self._client = None
+        self._connected = False
+        self._subscribed_symbol_ids = set()
 
     async def connect(self) -> bool:
         # Capturer le loop asyncio pour les callbacks thread-safe
@@ -504,9 +560,9 @@ class CTraderBroker(BaseBroker):
 
         self._ensure_reactor_running()
 
-        # Retry avec backoff si la session précédente n'a pas expiré
-        # (ALREADY_LOGGED_IN après coupure de courant, crash, etc.)
-        retry_delays = [30, 60, 120, 120, 120]
+        # Retry avec backoff sur ALREADY_LOGGED_IN uniquement
+        # (session précédente non expirée côté cTrader). Délais ↑ doc class.
+        retry_delays = self._ALREADY_LOGGED_IN_RETRY_DELAYS
         last_error = None
 
         for attempt in range(len(retry_delays) + 1):
@@ -526,9 +582,12 @@ class CTraderBroker(BaseBroker):
                 delay = retry_delays[attempt]
                 print(
                     f"[cTrader] ⏳ Session fantôme détectée, "
-                    f"retry dans {delay}s ({attempt + 1}/{len(retry_delays)})..."
+                    f"cleanup + retry dans {delay}s ({attempt + 1}/{len(retry_delays)})..."
                 )
-                self._stop_client()
+                # Cleanup propre (unsubscribe + stopService + reset état) —
+                # indispensable pour que cTrader libère la session côté
+                # serveur avant le prochain attempt. Cf incidents 14-05/18-05.
+                await self._cleanup_for_retry()
                 await asyncio.sleep(delay)
 
         print(f"[cTrader] ❌ Connection error: {last_error}")
