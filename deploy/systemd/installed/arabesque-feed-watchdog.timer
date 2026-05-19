@@ -1,0 +1,12 @@
+[Unit]
+Description=Watchdog feed Arabesque toutes les 5 minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+RandomizedDelaySec=20
+Unit=arabesque-feed-watchdog.service
+
+[Install]
+WantedBy=timers.target

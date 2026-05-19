@@ -1,0 +1,9 @@
+[Unit]
+Description=Arabesque feed watchdog (détecte engine actif mais feed mort)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/var/home/machine/dev/arabesque
+ExecStart=/var/home/machine/dev/arabesque/.venv/bin/python scripts/feed_watchdog.py
+Nice=10
