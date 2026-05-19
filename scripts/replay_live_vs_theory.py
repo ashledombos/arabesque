@@ -82,11 +82,17 @@ def resolve_tf(strategy: str, instrument: str, settings: dict, instr_cfg: dict) 
 
 def load_trades(since: datetime | None, until: datetime,
                 strategy: str | None, broker: str | None) -> list[dict]:
-    """Charge entries+exits du journal et matche par trade_id."""
+    """Charge entries+exits du journal et matche par (trade_id, broker_id).
+
+    Un même signal pris sur FTMO ET GFT produit deux trades distincts à
+    mesurer : avant le fix 2026-05-19, la clé `trade_id` seule causait
+    l'écrasement du 1er exit par le 2e (35 paires sous-comptées dans le
+    journal, n divisé par ~2 → meanΔR biaisé sur la moitié des données).
+    """
     if not JOURNAL.exists():
         return []
-    entries: dict[str, dict] = {}
-    exits: dict[str, dict] = {}
+    entries: dict[tuple[str, str], dict] = {}
+    exits: dict[tuple[str, str], dict] = {}
     for line in JOURNAL.read_text().splitlines():
         if not line.strip():
             continue
@@ -104,21 +110,28 @@ def load_trades(since: datetime | None, until: datetime,
         e["_strat_norm"] = strat
         if strategy and strat != strategy:
             continue
-        if broker and e.get("broker_id") != broker:
+        bid = e.get("broker_id") or "?"
+        if broker and bid != broker:
             continue
         ts = datetime.fromisoformat(e["ts"].replace("Z", "+00:00"))
         if since and ts < since:
             continue
         if ts > until:
             continue
+        key = (tid, bid)
         if ev == "entry":
-            entries[tid] = e
+            entries[key] = e
         else:
-            exits[tid] = e
+            exits[key] = e
     trades = []
-    for tid, ent in entries.items():
-        if tid in exits:
-            trades.append({"entry": ent, "exit": exits[tid], "trade_id": tid})
+    for key, ent in entries.items():
+        if key in exits:
+            trades.append({
+                "entry": ent,
+                "exit": exits[key],
+                "trade_id": key[0],
+                "broker_id": key[1],
+            })
     trades.sort(key=lambda t: t["entry"]["ts"])
     return trades
 
@@ -409,6 +422,9 @@ def main() -> int:
             "strategy": strat,
             "instrument": inst,
             "side": side,
+            # Clé d'unicité (cf. load_trades) — un trade_id peut apparaître
+            # 2× quand FTMO et GFT prennent le même signal.
+            "broker_id": t.get("broker_id") or ent.get("broker_id"),
             "broker": ent.get("broker_id"),
             "tf": tf,
             # --- Live ---

@@ -179,11 +179,29 @@ def _evaluate(exits: list[dict]) -> dict:
     # cas est une preuve forte d'un downtime engine pendant lequel le BE
     # physique n'a pas pu être armé. Distinct de be_unarmed_ratio (ratio
     # global) car ici on traque le cas SPÉCIFIQUE "BE théorique inféré mais
-    # broker a confirmé exit≠BE". Ne s'active qu'avec records ayant
-    # be_source explicite (pas de reclassification rétroactive).
-    be_inferred_losers = [e for e in exits
-                          if e.get("be_source") == "inferred_from_mfe"
-                          and (e.get("result_r") or 0) <= -0.5]
+    # broker a confirmé exit≠BE".
+    #
+    # Records legacy pré-fix be_source (avant 2026-05-17) : be_source absent
+    # ou None. Sans ce fallback, le cas XAUUSD 14-05 — qui motive justement
+    # cet invariant — passait inaperçu (faux négatif fondateur). Heuristique
+    # de récupération : MFE ≥ 0.3R + loser franc + exit_reason stop_loss /
+    # reconciled_stop_loss → équivaut sémantiquement à inferred_from_mfe.
+    def _is_inferred_loser(e: dict) -> bool:
+        r = e.get("result_r") or 0
+        mfe = e.get("mfe_r") or 0
+        src = e.get("be_source")
+        if r > -0.5:
+            return False
+        if src == "inferred_from_mfe":
+            return True
+        # Fallback legacy : record pré-2026-05-17 sans be_source explicite.
+        if src in (None, "unknown") and mfe >= 0.3:
+            er = str(e.get("exit_reason", ""))
+            if er in ("stop_loss", "reconciled_stop_loss"):
+                return True
+        return False
+
+    be_inferred_losers = [e for e in exits if _is_inferred_loser(e)]
     out["details"]["be_inferred_but_loser"] = {"count": len(be_inferred_losers)}
     if len(be_inferred_losers) >= 3:
         out["triggers"].append(("be_inferred_but_loser", "CRITIQUE",

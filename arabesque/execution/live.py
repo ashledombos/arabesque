@@ -1410,13 +1410,30 @@ class LiveEngine:
                     )
 
     async def _account_refresh_loop(self) -> None:
+        # Task fire-and-forget (cf. _start line ~149) : toute exception non
+        # rattrapée tue la boucle silencieusement. Incident 2026-05-18 :
+        # health_report n'a plus été émis pendant 16h après un restart parce
+        # qu'un await intérieur levait. Désormais on isole CHAQUE await pour
+        # que ni le refresh ni le report ne puisse condamner la boucle.
         while self._running:
             await asyncio.sleep(120)  # Toutes les 2 minutes (positions changent vite)
-            if self._running:
+            if not self._running:
+                break
+            try:
                 await self._refresh_account_state()
-                # Health report périodique
+            except Exception as e:
+                logger.warning(
+                    f"[Engine] _refresh_account_state error (loop kept alive): {e}"
+                )
+            # Health report périodique — isolé pour ne pas tuer la boucle
+            # si emit_health_report lève (ex: append_journal IO error).
+            try:
                 if self._live_monitor and self._live_monitor.should_emit_health_report():
                     self._live_monitor.emit_health_report()
+            except Exception as e:
+                logger.warning(
+                    f"[Engine] emit_health_report error (loop kept alive): {e}"
+                )
 
     async def _notify_startup_state(self) -> None:
         """Envoie un résumé Telegram de l'état de chaque broker au démarrage."""

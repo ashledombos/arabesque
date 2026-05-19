@@ -28,7 +28,11 @@ def _fake_journal(tmp_path: Path) -> Path:
     """
     p = tmp_path / "trade_journal.jsonl"
     rows = []
-    # FTMO : tous winners ou losers cohérents (mfe non nul)
+    # FTMO : tous winners ou losers cohérents (mfe non nul).
+    # be_source explicite "broker_armed" sur les losers : depuis le patch P3
+    # (2026-05-19), l'absence de be_source + mfe>=0.3 + SL hit déclenche le
+    # fallback legacy be_inferred_but_loser. Ici on simule des trades propres
+    # post-fix où le BE a vraiment été armé broker-side → pas un faux positif.
     for i in range(10):
         rows.append({
             "ts": f"2026-05-08T{10+i:02d}:00:00+00:00",
@@ -37,6 +41,7 @@ def _fake_journal(tmp_path: Path) -> Path:
             "result_r": 1.0 if i % 2 == 0 else -1.0,
             "mfe_r": 1.5 if i % 2 == 0 else 0.4,
             "be_set": True,
+            "be_source": "broker_armed",
             "exit_reason": "take_profit" if i % 2 == 0 else "stop_loss",
         })
     # GFT : 5 mfe_zero losers (pattern bug)

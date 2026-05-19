@@ -2831,3 +2831,33 @@ Le backtest de référence couvre **exactement la même fenêtre** que le live (
 
 **Hors scope** : ne pas coder plus en Phase 4 bis. La prochaine étape est l'observation propre d'Extension + Glissade sur 50 à 100 exits.
 
+---
+
+### Décision : Phase 4 bis = scope Extension + Glissade only pour la métrique de revalidation (2026-05-19)
+
+**Décision** : le critère de ramp risk de la Phase 4 (n ≥ 50 exits depuis `2026-05-07T23:45 UTC`, verdict invariants `ok`) est **redéfini** pour la fenêtre Phase 4 bis (depuis `2026-05-16 08:44 UTC`, désactivation Cabriole) : compter **uniquement Extension + Glissade**. Les exits Cabriole (et toute future stratégie trend legacy désactivée) sont exclus du compteur n et du verdict `meanΔR`.
+
+**Pourquoi maintenant** : la décision du 2026-05-16 (entrée précédente, désactivation Cabriole noyau Extension + Glissade) implique que le **noyau mesuré** a changé. Garder Cabriole dans le compteur revient à :
+1. Mélanger des trades pré-désactivation avec la fenêtre d'observation post-désactivation → on mesure deux régimes différents dans le même n.
+2. Atteindre le seuil n=50 plus vite via du Cabriole déjà condamné, donc rampe le risque sur la base d'un échantillon dont une part n'est plus produite.
+3. Brouiller le verdict `meanΔR` du replay live vs théorie : Cabriole tirait son drift d'un régime BT défavorable (rolling-30j sous p5 baseline, cf `project_baseline_rolling_distribution.md`), pas de l'exécution.
+
+Le **noyau actif** depuis 2026-05-16 est Extension + Glissade. C'est lui qu'on doit revalider, pas l'historique.
+
+**Modalités de comptage** :
+- Fenêtre Phase 4 (drift exécution post-fix) : reste `since=2026-05-07T23:45 UTC`, scope **toutes stratégies actives à l'époque** (Extension + Glissade + Cabriole). Métrique informationnelle, **plus de critère ramp** dessus.
+- Fenêtre Phase 4 **bis** (revalidation noyau) : `since=2026-05-16T08:44 UTC` (commit `5fd9b24` désactivation Cabriole), scope **strategy ∈ {extension, glissade}**. Seuil ramp = n ≥ 50 exits sur ce filtre.
+- `meanΔR` du replay live vs théorie : reporté séparément Phase 4 (3 stratégies) et Phase 4 bis (2 stratégies). Le verdict ramp s'appuie sur Phase 4 bis uniquement.
+- Si Cabriole revient un jour : la fenêtre Phase 4 bis se ferme et une nouvelle Phase 4 ter démarre avec scope mis à jour.
+
+**Mécanisme** : ajustement à l'usage des scripts `replay_live_vs_theory.py` et `check_execution_invariants.py` via le filtre `--strategy` et `--since`. Pas de changement de code (les scripts acceptent déjà ces filtres). La skill `/suivi` (trigger `phase4_revalidation`) doit appliquer ce scope quand elle évalue le critère ramp.
+
+**Hors scope** :
+- Aucun changement signal / risk / execution / order.
+- Pas de refactor des scripts (les filtres existent).
+- Pas de modification des invariants — `check_execution_invariants.py` reste global multi-stratégies par défaut ; seul le critère ramp est restreint Extension + Glissade.
+
+**Rollback** : décision documentaire, rien à dérouler. Si Cabriole est réactivée, ouvrir une nouvelle décision « Phase 4 ter » avec scope mis à jour.
+
+**Lien observabilité** : cette décision suit le patch observabilité du même jour (P1 dédup multi-broker `replay_live_vs_theory.py`, P2 résilience `_account_refresh_loop`, P3 fallback legacy `be_inferred_but_loser` pour records pré-2026-05-17). Une fois les mesures fiables, les seuils ramp doivent porter sur le périmètre courant, pas sur un historique mélangé.
+
