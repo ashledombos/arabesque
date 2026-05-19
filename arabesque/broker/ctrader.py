@@ -193,19 +193,29 @@ class CTraderBroker(BaseBroker):
         self._reactor_running = True
         time.sleep(0.5)
 
-    def _refresh_access_token(self) -> bool:
+    def _refresh_access_token(self, force_http: bool = False) -> bool:
+        """Rafraîchit l'access_token cTrader.
+
+        Si ``force_http=True``, bypass la branche d'adoption du sibling token
+        cached dans ``_shared_tokens`` et force un vrai appel HTTP vers
+        ``/apps/token``. Utile après CH_ACCESS_TOKEN_INVALID : le sibling
+        vient d'être purgé par ``on_message`` ; ``force_http`` garantit qu'on
+        ne ré-adopte pas un token re-rempli entre-temps par un autre chemin
+        (cf. incident 2026-05-19 — boucle infinie d'adoption d'un token mort).
+        """
         if not self.refresh_token:
             print("[cTrader] ⚠️  No refresh token available")
             return False
 
         with CTraderBroker._token_lock:
-            # Vérifier si un autre broker du même client_id a déjà refreshé
-            shared = CTraderBroker._shared_tokens.get(self.client_id)
-            if shared and shared[0] != self.access_token:
-                # Un sibling a déjà refreshé — réutiliser ses tokens
-                self.access_token, self.refresh_token = shared
-                print(f"[cTrader] ♻️  Réutilisation token sibling pour {self.broker_id}")
-                return True
+            if not force_http:
+                # Vérifier si un autre broker du même client_id a déjà refreshé
+                shared = CTraderBroker._shared_tokens.get(self.client_id)
+                if shared and shared[0] != self.access_token:
+                    # Un sibling a déjà refreshé — réutiliser ses tokens
+                    self.access_token, self.refresh_token = shared
+                    print(f"[cTrader] ♻️  Réutilisation token sibling pour {self.broker_id}")
+                    return True
 
             old_access_token = self.access_token
             old_refresh_token = self.refresh_token
@@ -396,6 +406,23 @@ class CTraderBroker(BaseBroker):
             if isinstance(payload, ProtoOAErrorRes):
                 error_msg = f"cTrader Error: {payload.errorCode} - {payload.description}"
                 print(f"[cTrader] ❌ {error_msg}")
+                # P1 (incident 2026-05-19) — token invalidé côté serveur :
+                # purger le cache ``_shared_tokens[client_id]`` pour empêcher
+                # tout prochain attempt d'adopter ce token mort, et reset
+                # ``_token_refreshed`` pour autoriser un vrai refresh HTTP.
+                # ``connect()`` détecte la même erreur en str(e) et déclenche
+                # un retry unique avec ``_refresh_access_token(force_http=True)``.
+                if getattr(payload, "errorCode", "") == "CH_ACCESS_TOKEN_INVALID":
+                    purged = (
+                        CTraderBroker._shared_tokens.pop(self.client_id, None)
+                        is not None
+                    )
+                    self._token_refreshed = False
+                    if purged:
+                        print(
+                            f"[cTrader] 🧹 _shared_tokens[{self.client_id}] "
+                            f"purgé (token serveur invalide)"
+                        )
                 if not connect_future.done():
                     self._reject_future(connect_future, Exception(error_msg))
                 return
@@ -560,12 +587,17 @@ class CTraderBroker(BaseBroker):
 
         self._ensure_reactor_running()
 
-        # Retry avec backoff sur ALREADY_LOGGED_IN uniquement
-        # (session précédente non expirée côté cTrader). Délais ↑ doc class.
+        # Retry handlers (compteurs séparés pour éviter qu'un type d'erreur
+        # consomme les slots d'un autre) :
+        #   - ALREADY_LOGGED_IN : 3 retries avec backoff (60, 180, 600) — cf
+        #     patch A+B 2026-05-18 (incidents session fantôme).
+        #   - CH_ACCESS_TOKEN_INVALID : 1 seul retry, immédiat, après refresh
+        #     HTTP forcé — cf patch P1 2026-05-19 (incident token cache).
         retry_delays = self._ALREADY_LOGGED_IN_RETRY_DELAYS
-        last_error = None
+        already_logged_attempts = 0
+        token_invalid_retried = False
 
-        for attempt in range(len(retry_delays) + 1):
+        while True:
             try:
                 return await self._connect_once()
             except asyncio.TimeoutError:
@@ -573,25 +605,53 @@ class CTraderBroker(BaseBroker):
                 self._stop_client()
                 return False
             except Exception as e:
-                last_error = e
-                is_already_logged = "ALREADY_LOGGED_IN" in str(e)
-                if not is_already_logged or attempt >= len(retry_delays):
-                    print(f"[cTrader] ❌ Connection error: {e}")
-                    self._stop_client()
-                    return False
-                delay = retry_delays[attempt]
-                print(
-                    f"[cTrader] ⏳ Session fantôme détectée, "
-                    f"cleanup + retry dans {delay}s ({attempt + 1}/{len(retry_delays)})..."
-                )
-                # Cleanup propre (unsubscribe + stopService + reset état) —
-                # indispensable pour que cTrader libère la session côté
-                # serveur avant le prochain attempt. Cf incidents 14-05/18-05.
-                await self._cleanup_for_retry()
-                await asyncio.sleep(delay)
+                err_str = str(e)
+                is_already_logged = "ALREADY_LOGGED_IN" in err_str
+                is_token_invalid = "CH_ACCESS_TOKEN_INVALID" in err_str
 
-        print(f"[cTrader] ❌ Connection error: {last_error}")
-        return False
+                # P1 — CH_ACCESS_TOKEN_INVALID : 1 retry avec refresh HTTP forcé.
+                # ``on_message`` a déjà purgé ``_shared_tokens[client_id]``,
+                # ``force_http=True`` garantit que le refresh appelle bien le
+                # endpoint OAuth (et n'adopte pas un token re-rempli par un
+                # sibling entre-temps). Si le refresh échoue (refresh_token
+                # mort, réseau, etc.), on abandonne proprement — pas de boucle.
+                if is_token_invalid and not token_invalid_retried:
+                    print(
+                        "[cTrader] 🔄 CH_ACCESS_TOKEN_INVALID — "
+                        "force refresh HTTP + retry unique..."
+                    )
+                    self._stop_client()
+                    if not self._refresh_access_token(force_http=True):
+                        print(
+                            "[cTrader] ❌ Refresh HTTP forcé échoué — "
+                            "abandon (pas de boucle infinie)"
+                        )
+                        return False
+                    self._token_refreshed = True
+                    token_invalid_retried = True
+                    continue
+
+                # ALREADY_LOGGED_IN : chemin patch A+B (cleanup propre +
+                # backoff long pour laisser cTrader expirer la session).
+                if is_already_logged and already_logged_attempts < len(retry_delays):
+                    delay = retry_delays[already_logged_attempts]
+                    already_logged_attempts += 1
+                    print(
+                        f"[cTrader] ⏳ Session fantôme détectée, "
+                        f"cleanup + retry dans {delay}s "
+                        f"({already_logged_attempts}/{len(retry_delays)})..."
+                    )
+                    # Cleanup propre (unsubscribe + stopService + reset état) —
+                    # indispensable pour que cTrader libère la session côté
+                    # serveur avant le prochain attempt. Cf incidents 14-05/18-05.
+                    await self._cleanup_for_retry()
+                    await asyncio.sleep(delay)
+                    continue
+
+                # Erreur fatale : token déjà retried, ALREADY épuisé, ou autre.
+                print(f"[cTrader] ❌ Connection error: {e}")
+                self._stop_client()
+                return False
 
     async def disconnect(self):
         if self._subscribed_symbol_ids and self._client:

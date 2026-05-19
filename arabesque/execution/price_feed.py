@@ -8,7 +8,9 @@ prix, et la distribution vers les consommateurs (stratégie, guards, etc.).
 
 Fonctionnalités :
   - Connexion et reconnexion automatique (backoff exponentiel)
-  - Refresh préventif du token cTrader toutes les 60h (token valide ~3-4 jours)
+  - Refresh préventif du token cTrader toutes les 12h (mesure empirique
+    incident 2026-05-19 : access_token effectif ~22h sur FTMO demo, donc
+    60h initial était trop long ; 12h donne ~2 marges avant expiration).
   - Bus de ticks thread-safe : les consommateurs s'abonnent via subscribe()
   - Dernier tick accessible immédiatement via get_last_tick(symbol)
   - Support multi-symboles depuis config/settings.yaml [price_feed.symbols]
@@ -48,7 +50,10 @@ class PriceFeedManager:
     broker_cfg  : dict de config mergée (settings + secrets + instruments_mapping)
     symbols     : liste de symboles unifiés à surveiller (ex: ["EURUSD", "XAUUSD"])
     reconnect_delay_s : délai initial de reconnexion (doublé à chaque tentative, max 120s)
-    token_refresh_interval_h : intervalle de refresh préventif du token (défaut 60h)
+    token_refresh_interval_h : intervalle de refresh préventif du token
+        (défaut 12h — réduit depuis 60h suite à l'incident 2026-05-19,
+        où l'access_token FTMO demo a expiré côté serveur cTrader en ~22h
+        alors que le refresh préventif n'avait pas encore tourné).
     """
 
     def __init__(
@@ -57,7 +62,7 @@ class PriceFeedManager:
         broker_cfg: dict,
         symbols: List[str],
         reconnect_delay_s: float = 5.0,
-        token_refresh_interval_h: float = 60.0,
+        token_refresh_interval_h: float = 12.0,
         existing_broker=None,
     ):
         self.broker_id = broker_id
