@@ -59,6 +59,7 @@ class TrackedPosition:
     _amend_in_progress: bool = False  # Guard contre les amends concurrents
     _skip_count: int = 0              # Compteur de skips (anti-spam log)
     missing_cycles: int = 0           # Cycles reconcile consécutifs où la position est absente de get_positions()
+    last_amend_alert_time: float = 0.0  # Dernière notif "ABANDONED" envoyée (anti-spam)
 
     @property
     def R(self) -> float:
@@ -115,6 +116,10 @@ class MonitorConfig:
     be_polling_enabled: bool = False
     be_polling_interval_s: float = 60.0
     be_polling_freshness_threshold_s: float = 300.0  # 5 min — skip si quote plus vieille
+    # Étage 0 (incident DASHUSD 2026-05-21) — notif Telegram+ntfy à chaque
+    # "ABANDONED" amend SL, avec cooldown 30 min par position pour éviter le
+    # spam quand le canal trading reste mort pendant des heures.
+    amend_alert_cooldown_s: float = 1800.0
 
 
 class LivePositionMonitor:
@@ -133,6 +138,7 @@ class LivePositionMonitor:
         config: MonitorConfig | None = None,
         on_position_closed: Optional[callable] = None,
         on_audit_event: Optional[Callable[[dict], None]] = None,
+        on_amend_abandoned: Optional[Callable[[dict], None]] = None,
     ):
         self._brokers = brokers
         self._cfg = config or MonitorConfig()
@@ -140,6 +146,12 @@ class LivePositionMonitor:
         self._on_position_closed = on_position_closed
         # Callback audit JSONL (event détaillé pour BE polling armé, etc.)
         self._on_audit_event = on_audit_event
+        # Étage 0 — callback déclenché quand un amend SL est abandonné après
+        # max_amend_retries échecs consécutifs (incident DASHUSD 2026-05-21).
+        # Payload: {broker_id, position_id, symbol, target_sl, last_error,
+        # amend_failures, mfe_r}. Le callback est responsable du cooldown
+        # cross-position ; le monitor gère seulement le cooldown par position.
+        self._on_amend_abandoned = on_amend_abandoned
         # Trier trailing tiers du plus haut au plus bas
         self._cfg.trailing_tiers.sort(key=lambda t: t[0], reverse=True)
         # Orphan tracking: {broker_id:position_id -> first_seen_timestamp}
@@ -870,6 +882,32 @@ class LivePositionMonitor:
                 f"attempts: {pos.symbol} {pos.position_id} target_sl={new_sl} "
                 f"last_error=[{last_error}]"
             )
+            # Étage 0 — notif Telegram+ntfy avec cooldown 30 min par position.
+            # On alerte à chaque ABANDONED, mais pas plus d'une fois toutes les
+            # 30 min sur la même position (sinon spam si le canal trading reste
+            # mort pendant des heures, cf. incident DASHUSD 2026-05-21).
+            if self._on_amend_abandoned is not None:
+                now_alert = time.time()
+                if now_alert - pos.last_amend_alert_time >= self._cfg.amend_alert_cooldown_s:
+                    pos.last_amend_alert_time = now_alert
+                    try:
+                        self._on_amend_abandoned({
+                            "broker_id": pos.broker_id,
+                            "position_id": pos.position_id,
+                            "symbol": pos.symbol,
+                            "side": pos.side.value,
+                            "target_sl": new_sl,
+                            "current_sl": pos.sl,
+                            "last_error": last_error,
+                            "amend_failures": pos.amend_failures,
+                            "mfe_r": pos.mfe_r,
+                            "breakeven_set": pos.breakeven_set,
+                            "trailing_tier": pos.trailing_tier,
+                        })
+                    except Exception as cb_exc:
+                        logger.warning(
+                            f"[Monitor] on_amend_abandoned callback failed: {cb_exc}"
+                        )
             return False
         finally:
             pos._amend_in_progress = False

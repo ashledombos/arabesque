@@ -486,6 +486,32 @@ class LiveEngine:
             if self._live_monitor:
                 self._live_monitor.record_be_polling_armed(payload)
 
+        # Étage 0 (incident DASHUSD 2026-05-21) — notif Telegram+ntfy quand un
+        # amend SL est abandonné (max_amend_retries échoués). Cooldown 30 min
+        # par position géré dans LivePositionMonitor.
+        def on_amend_abandoned(payload: dict):
+            if not self._live_monitor:
+                return
+            sym = payload.get("symbol", "?")
+            pid = payload.get("position_id", "?")
+            bid = payload.get("broker_id", "?")
+            target = payload.get("target_sl", 0.0)
+            current = payload.get("current_sl", 0.0)
+            err = payload.get("last_error", "")
+            mfe = payload.get("mfe_r", 0.0)
+            tier = payload.get("trailing_tier", 0)
+            be = payload.get("breakeven_set", False)
+            msg = (
+                f"🚨 SL amend ABANDONED — {sym} ({bid})\n"
+                f"position_id={pid} side={payload.get('side', '?')}\n"
+                f"SL courant broker={current:.5f} cible={target:.5f}\n"
+                f"MFE={mfe:.2f}R BE={'oui' if be else 'non'} trail_tier={tier}\n"
+                f"erreur: {err}\n"
+                f"→ canal trading injoignable, vérifier journalctl + reconnect"
+            )
+            asyncio.ensure_future(self._live_monitor._notify_telegram(msg))
+            asyncio.ensure_future(self._live_monitor._notify_ntfy(msg))
+
         live_cfg = self.settings.get("live", {}) or {}
         monitor_cfg = MonitorConfig(
             be_polling_enabled=bool(live_cfg.get("be_polling_backup", False)),
@@ -499,6 +525,7 @@ class LiveEngine:
             config=monitor_cfg,
             on_position_closed=on_closed,
             on_audit_event=on_audit,
+            on_amend_abandoned=on_amend_abandoned,
         )
         if monitor_cfg.be_polling_enabled:
             logger.info(

@@ -166,6 +166,18 @@ class CTraderBroker(BaseBroker):
         #   lots = volume / _lot_size_cents[symbol_id]
         self._lot_size_cents: Dict[int, int] = {}
 
+        # Étage 1 (incident DASHUSD 2026-05-21) — reconnect-on-demand avant
+        # chaque retour "Not connected" sur place_order / cancel_order /
+        # amend_position_sltp / close_position. Anti-boucle :
+        #  - cooldown 30s entre 2 tentatives consécutives
+        #  - max 3 tentatives glissantes sur 60s (au-delà, on laisse étage 0
+        #    alerter et on n'épuise pas la session côté serveur cTrader).
+        self._reconnect_cooldown_s: float = 30.0
+        self._reconnect_window_s: float = 60.0
+        self._reconnect_window_max: int = 3
+        self._last_reconnect_attempt: float = 0.0
+        self._reconnect_attempts_window: List[float] = []
+
     # ------------------------------------------------------------------
     # Token management
     # ------------------------------------------------------------------
@@ -665,6 +677,59 @@ class CTraderBroker(BaseBroker):
             from twisted.internet import reactor
             reactor.callFromThread(self._client.stopService)
         self._connected = False
+
+    async def _try_reconnect_for_order(self, reason: str) -> bool:
+        """Étage 1 (incident DASHUSD 2026-05-21) — tentative de reconnexion
+        on-demand quand un ordre/amend/close veut partir mais ``_connected``
+        est False.
+
+        Réutilise ``self.connect()`` qui gère déjà :
+          - refresh OAuth si nécessaire (via ``_should_refresh_token``)
+          - retries ALREADY_LOGGED_IN (3x backoff)
+          - retry CH_ACCESS_TOKEN_INVALID (1x avec force HTTP refresh)
+
+        Anti-boucle (pour ne pas marteler cTrader si le canal trading est
+        durablement mort) :
+          - cooldown 30s entre 2 attempts consécutifs
+          - max 3 attempts glissants sur 60s
+
+        Retourne True si reconnect réussi (caller peut continuer), False sinon
+        (caller retourne "Not connected" comme avant le patch).
+        """
+        now = time.time()
+
+        # Anti-boucle : cooldown 30s
+        if now - self._last_reconnect_attempt < self._reconnect_cooldown_s:
+            return False
+
+        # Anti-boucle : fenêtre glissante 3/60s
+        self._reconnect_attempts_window = [
+            t for t in self._reconnect_attempts_window
+            if now - t < self._reconnect_window_s
+        ]
+        if len(self._reconnect_attempts_window) >= self._reconnect_window_max:
+            print(
+                f"[cTrader] ⏸ Reconnect bloqué (anti-boucle "
+                f"{self._reconnect_window_max}/{self._reconnect_window_s:.0f}s) "
+                f"— laisse l'étage 0 alerter"
+            )
+            return False
+
+        self._last_reconnect_attempt = now
+        self._reconnect_attempts_window.append(now)
+
+        print(f"[cTrader] 🔄 Reconnect trading session (raison={reason})")
+        try:
+            ok = await self.connect()
+        except Exception as e:
+            print(f"[cTrader] ❌ Reconnect exception: {e}")
+            return False
+
+        if ok and self._connected:
+            print("[cTrader] ✅ Reconnect réussi — l'ordre peut repartir")
+            return True
+        print("[cTrader] ❌ Reconnect échoué — retour 'Not connected'")
+        return False
 
     # ------------------------------------------------------------------
     # Historical bars
@@ -1590,7 +1655,8 @@ class CTraderBroker(BaseBroker):
 
     async def place_order(self, order: OrderRequest) -> OrderResult:
         if not self._connected:
-            return OrderResult(success=False, message="Not connected")
+            if not await self._try_reconnect_for_order("place_order"):
+                return OrderResult(success=False, message="Not connected")
 
         broker_symbol = order.broker_symbol or self.map_symbol(order.symbol)
         if not broker_symbol:
@@ -1698,7 +1764,8 @@ class CTraderBroker(BaseBroker):
 
     async def cancel_order(self, order_id: str) -> OrderResult:
         if not self._connected:
-            return OrderResult(success=False, message="Not connected")
+            if not await self._try_reconnect_for_order("cancel_order"):
+                return OrderResult(success=False, message="Not connected")
         loop = asyncio.get_event_loop()
         async with self._order_lock:
             future = loop.create_future()
@@ -1740,7 +1807,8 @@ class CTraderBroker(BaseBroker):
     ) -> OrderResult:
         """Modify SL/TP on an open position via ProtoOAAmendPositionSLTPReq."""
         if not self._connected:
-            return OrderResult(success=False, message="Not connected")
+            if not await self._try_reconnect_for_order("amend_position_sltp"):
+                return OrderResult(success=False, message="Not connected")
 
         # Arrondir aux digits du symbole pour éviter TRADING_BAD_STOPS
         sym_id = self._get_symbol_id_for_position(position_id)
@@ -1784,7 +1852,8 @@ class CTraderBroker(BaseBroker):
         the position's current volume via get_positions().
         """
         if not self._connected:
-            return OrderResult(success=False, message="Not connected")
+            if not await self._try_reconnect_for_order("close_position"):
+                return OrderResult(success=False, message="Not connected")
 
         # Si pas de volume fourni, récupérer celui de la position
         if volume is None:

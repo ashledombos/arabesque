@@ -2861,3 +2861,71 @@ Le **noyau actif** depuis 2026-05-16 est Extension + Glissade. C'est lui qu'on d
 
 **Lien observabilité** : cette décision suit le patch observabilité du même jour (P1 dédup multi-broker `replay_live_vs_theory.py`, P2 résilience `_account_refresh_loop`, P3 fallback legacy `be_inferred_but_loser` pour records pré-2026-05-17). Une fois les mesures fiables, les seuils ramp doivent porter sur le périmètre courant, pas sur un historique mélangé.
 
+---
+
+### Décision : lecture ratio live/théo Extension sur sessions dédupées + audit régime W3 (2026-05-20)
+
+**Décision** : pour Extension (et tout générateur émettant plusieurs bougies signal consécutives sur un même setup), le **ratio live/théorique se lit sur sessions dédupées**, pas sur bougies brutes. Cible normale en régime calme : **30-35 % live/sessions**. Dédup = signaux consécutifs ≤ 1.5×TF, même side, même instrument, regroupés en 1 session ; seul le premier est compté. Implémentation déjà en place dans `scripts/replay_signals_vs_live.py` (`_dedup_sessions`, tolérance match live↔théo H1=±2h / H4=±6h / M1=±0.5h).
+
+**Pourquoi maintenant** : un audit fréquence 2026-05-20 sur W3 (2026-05-01 → 2026-05-20) avait produit un ratio apparent 14 % live/bougies, faussement interprétable comme drift d'exécution. La ventilation détaillée (`tmp/ventile_extension_nonlive.py`) a remis le bon dénominateur : **8 live entries / 25 sessions = 32 %**, parfaitement aligné W1/W2 (~33 %). Aucun signal inexpliqué (`unexplained = 0` sur W3 et W4). Sans cette règle de lecture, le prochain `/bilan` ou `/suivi` aurait pu déclencher une alerte drift fantôme.
+
+**Faits actés (audit 2026-05-20)** :
+- **W3 (2026-05-01 → 2026-05-20)** : 44 bougies théoriques brutes → 25 sessions dédupées → 8 ts uniques en live → ratio 32 % live/sessions.
+- **W4 (Phase 4 bis, 2026-05-16 → 2026-05-20)** : 5 brutes → 2 sessions → 1 live (CHFJPY 18-05 09:00) ; petit n, dans la fourchette.
+- **Ventilation des 22 non-live W3** : `engine_off_likely` 64 % (gaps journal 36h le 5 mai, 80h le 8-10 mai), `source_missing` 23 % (feed crypto dégradé 5 mai + 2 règles cross-stratégie SOLUSD/BTCUSD), `weekend_crypto_guard` 9 %, `broker_specific` 5 % (ICPUSD GFT raté), `unexplained` 0 %.
+- **Cause racine baisse fréquence Extension** : régime — `recent_squeeze` chute de 50 % des bougies en W1/W2 à 34 % en W3 et 10 % en W4. Tous les autres filtres (bb_expanding, adx, EMA, CMF, breakout BB) gardent des taux de passage stables. Pas de guard caché, pas de filtre devenu restrictif. Cohérent avec Cabriole (sans pré-squeeze) qui aurait produit 54/12 signaux théoriques en W3/W4 dans le même régime — confirmé par audit fréquence séparé. Cabriole reste désactivée (décision 2026-05-16), reportée à titre informatif uniquement.
+
+**Conséquence pour `/suivi` et `/bilan`** :
+- Lire le ratio Extension sur **sessions**, pas bougies. Cible normale **30-35 %** ; en dessous, vérifier d'abord `event_silence_gap_h_p95` (engine down) avant de soupçonner l'edge.
+- Le 14 % apparent W3 ne signale pas un drift edge mais un trou de **disponibilité engine** (gaps cumulés ≥ 30 % du temps en silence > 2h sur W3). Ce trou précède l'incident token cTrader du 2026-05-19 (patch P1+P2 commit `79007cf`) et n'avait pas été observé.
+
+**Hors scope (volontaire)** :
+- Pas de modification de `signal.py`, `scripts/replay_signals_vs_live.py`, config ou logs.
+- Pas de nouveau script ; les artefacts du diagnostic (`tmp/audit_extension_freq.py`, `tmp/ventile_extension_nonlive.py`, JSON bruts) restent disponibles pour rejouer si besoin mais ne sont pas versionnés.
+
+**Backlog observabilité (à activer plus tard, pas urgent)** :
+- `recent_squeeze_rate` hebdomadaire dans `scripts/rolling_baseline_distribution.py` — indicateur avancé du régime (si le rate sort sous p5 historique 20 mois, on sait pourquoi Extension ne tire pas, sans avoir à re-débugger).
+- `event_silence_gap_h_p95` sur `trade_journal.jsonl` — métrique de disponibilité engine, utile si on recroise un ratio live/théo bas.
+
+À activer uniquement si un futur `/suivi` montre que ces deux questions reviennent. Pas de pré-implémentation.
+
+**Lien mémoire** : règle de lecture sauvegardée dans `memory/project_live_theo_ratio_reading.md` (réutilisable cross-session).
+
+### Décision : résilience canal trading cTrader — étages 0+1 (2026-05-21)
+
+**Décision** : implémenter immédiatement les étages 0 (alerte amend abandoned) et 1 (reconnect-on-demand) dans `arabesque/execution/position_monitor.py` et `arabesque/broker/ctrader.py`. Différer la décision sur les étages 2/3/4 (healthcheck proactif, auto-restart systemd, anti-boucle guard) après 24-48 h d'observation du comportement post-déploiement.
+
+**Pourquoi maintenant** : incident DASHUSD 2026-05-20T22:00 → 2026-05-21T01:42 UTC. Position #53110148 (FTMO, BUY DASHUSD @ 49.40, SL 46.70, TP 54.70) ouverte. Canal Protobuf trading cTrader passé silencieusement à `_connected=False` entre l'entry et le premier amend BE — sans erreur loguée (ni ALREADY_LOGGED_IN, ni CH_ACCESS_TOKEN_INVALID, ni feed_stale). Le canal **feed** (quote) est resté vivant : le monitor recevait toujours les ticks, calculait MFE jusqu'à **1.82R** (peak 54.33), tentait de remonter le SL à BE (49.94) puis trailing tier 3 (52.44), mais chaque `amend_position_sltp` retournait `OrderResult(success=False, message="Not connected")` immédiatement, sans tentative de reconnexion. Résultat : 10 h de SL non amendé (resté à 46.70 initial), MFE retombé à -5.08$ flottant. Le patch token P1+P2 (commit `79007cf`, 2026-05-20) ne couvre **pas** ce cas : il traite la perte d'auth au login, pas la perte silencieuse de session en cours de route.
+
+**Pourquoi 0+1 d'abord, 2/3/4 après observation** :
+- Hypothèse forte : perte de session Protobuf trading récupérable par un simple re-login (tokens OAuth déjà en cache, pas besoin de refresh HTTP). L'étage 1 réutilise `self.connect()` qui gère déjà les retries patches existants (ALREADY_LOGGED_IN x3, CH_ACCESS_TOKEN_INVALID x1).
+- Étage 1 couvre ~95 % des cas attendus. Étages 2/3/4 cibleraient les 5 % résiduels (canal mort non récupérable par reconnect).
+- 24-48 h d'observation post-déploiement = critère factuel pour décider 2/3/4 : si zéro alerte `ABANDONED` répétée → suffisant ; sinon → activer 2 puis 3+4.
+- Évite l'over-engineering : pas de 2e watchdog systemd + flags + anti-boucle tant que pas démontré nécessaire.
+
+**Étage 0 — alerte (position_monitor.py)** :
+- `MonitorConfig.amend_alert_cooldown_s = 1800.0` (30 min)
+- `TrackedPosition.last_amend_alert_time: float`
+- `LivePositionMonitor.__init__(on_amend_abandoned: Optional[Callable[[dict], None]] = None)`
+- Dans `_try_amend_sl`, juste après le `logger.error(... ABANDONED ...)`, si cooldown OK : appel callback avec `{symbol, position_id, broker_id, side, target_sl, current_sl, last_error, amend_failures, mfe_r, breakeven_set, trailing_tier}`, puis update `last_amend_alert_time`. try/except pour ne pas casser l'amend si la notif plante.
+- Branchement dans `live.py._make_position_monitor` : callback appelle `live_monitor._notify_telegram` + `_notify_ntfy` via `asyncio.ensure_future`.
+
+**Étage 1 — reconnect-on-demand (ctrader.py)** :
+- Init : `_reconnect_cooldown_s=30.0`, `_reconnect_window_s=60.0`, `_reconnect_window_max=3`, `_last_reconnect_attempt`, `_reconnect_attempts_window`.
+- Méthode `async def _try_reconnect_for_order(reason: str) -> bool` : anti-boucle (cooldown 30s + fenêtre glissante 3/60s), puis `await self.connect()`. Retourne True/False selon succès.
+- Appelée avant chaque retour `OrderResult(success=False, message="Not connected")` dans `place_order`, `cancel_order`, `amend_position_sltp`, `close_position`.
+- Log explicite à chaque tentative : `[cTrader] 🔄 Reconnect trading session (raison=...)` → trace audit garantie au prochain incident.
+
+**Tests** :
+- `tests/test_position_monitor_amend_abandoned_alert.py` (6 tests) : callback déclenché avec payload complet, cooldown 30 min par position, indépendance cross-position, exception callback non bloquante, rétro-compatibilité `on_amend_abandoned=None`.
+- `tests/test_ctrader_reconnect_on_demand.py` (11 tests) : reconnect réussi/échoué/exception, cooldown 30s, fenêtre glissante 3/60s, purge des attempts hors fenêtre, intégration sur les 4 méthodes (place/cancel/amend/close).
+- Suite complète **110/110 verts**.
+
+**Hors scope (volontaire)** :
+- Pas de modification de `core/*`, `position_manager.py`, ni des `signal.py` validés (zones Opus-only, étages 0+1 strictement broker + monitor).
+- Pas d'auto-restart systemd (étage 3, différé).
+- Pas de healthcheck proactif côté trading (étage 2, différé).
+- Pas de modification du patch token P1+P2 (commit `79007cf`) — orthogonal.
+
+**Suivi vivant** : doc dossier `docs/INCIDENT_DASHUSD_RESILIENCE_BROKER_2026-05-21.md` mis à jour au fur et à mesure (état post-restart, premier incident éventuel, décision finale étages 2/3/4). À relire au prochain `/suivi`.
+
