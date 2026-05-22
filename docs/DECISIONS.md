@@ -2929,3 +2929,27 @@ Le **noyau actif** depuis 2026-05-16 est Extension + Glissade. C'est lui qu'on d
 
 **Suivi vivant** : doc dossier `docs/INCIDENT_DASHUSD_RESILIENCE_BROKER_2026-05-21.md` mis à jour au fur et à mesure (état post-restart, premier incident éventuel, décision finale étages 2/3/4). À relire au prochain `/suivi`.
 
+---
+
+### Trace : incident feed FTMO refresh_token désynchro mémoire/disque (2026-05-22)
+
+**Contexte** : observation 24-48h des étages 0+1 court-circuitée. Le canal **feed** Protobuf cTrader FTMO est tombé à 22:59 UTC le 21/05 (4h30 après le restart du patch), reste mort jusqu'à 18:55 UTC le 22/05 (19h54). Cause sous-jacente : `ACCESS_DENIED Access denied. Make sure the credentials are valid.` sur l'endpoint OAuth refresh, alors que `config/secrets.yaml` a été rafraîchi à 05:12 UTC le 22/05 (origine externe — commande CLI ou rotation manuelle) et que les tokens disque restent valides (`python -m arabesque positions --account ftmo_challenge` réussit).
+
+**Diagnostic** : désynchro entre le `refresh_token` in-memory de l'engine (figé sur une valeur invalidée) et celui sur disque (frais). Le patch P1+P2 (commit `79007cf`) traite `CH_ACCESS_TOKEN_INVALID` via refresh HTTP, mais si le refresh HTTP lui-même retourne `ACCESS_DENIED` (refresh_token mort), il n'existe pas de fallback de relecture disque. Le watchdog systemd `arabesque-feed-watchdog.service` a alerté ntfy+Telegram dès 07:22 UTC, mais aucun /suivi assistant n'a été déclenché entre 22:59 UTC le 21/05 et 18:51 UTC le 22/05 → 19h54 où l'utilisateur a porté seul la charge de surveillance.
+
+**Impact** :
+- Position DASHUSD #53110148 (FTMO, BUY @ 49.40, SL 46.70) clôturée broker-side pendant l'incident : balance 93554.87 → 93298.21 = **−256.66$ ≈ −1R**. MFE +1.86R jamais converti en BE (prix bid n'a jamais franchi 49.94 = entry + 0.20R offset). Reconciled au restart 18:55 UTC : `R=-1.02 reason=reconciled_stop_loss src=broker_detail`.
+- Pas un échec du patch étages 0+1 (qui couvre le canal trading, pas le canal feed). Pas un échec de la protection SL initial (le SL 46.70 côté broker a tenu — c'est l'invariant fondamental).
+- Verdict patch 0+1 sur la fenêtre 11:50→22:59 UTC le 21/05 (11h09) : **invariant tenu**, 0 trigger trading.
+
+**Action immédiate (2026-05-22 18:55 UTC)** : restart engine (PID 1150053 → 1435589), feed reconnecté avec les tokens frais disque, BarAggregators préchargés (M1/fouette, H1/extension, H1/glissade, H4/extension/27crypto), `Token refresh planifié toutes les 12h` ✓.
+
+**Actions ouvertes** :
+- Task **#32** : investiguer/patcher le fallback `relire secrets.yaml` sur `ACCESS_DENIED` après refresh HTTP (avant abandon). Tests à ajouter.
+- Task **#33** : brancher `feed_stale` dans la watchlist `/suivi` avec escalade 🚨 critique sur persistance > 30 min, ou auto-trigger /suivi via wakeup.
+- Task **#31** : ré-observer 24-48h après le restart du 22/05 dans des conditions feed propres avant de décider étages 2/3/4.
+
+**Hors scope** : pas de modification de `core/*`, ni des `signal.py` validés. Patch P1+P2 reste en l'état (la rotation 12h fonctionne, le fallback manquant est en aval). Pas d'auto-restart engine sur feed_stale (l'utilisateur garde le contrôle, restart manuel).
+
+**Boussole** : un crash feed silencieux 19h54 sans alerte assistant est inacceptable. Ce n'est pas un drift d'edge, c'est un trou d'observabilité de niveau systémique.
+

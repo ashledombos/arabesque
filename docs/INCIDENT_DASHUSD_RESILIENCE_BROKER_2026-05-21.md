@@ -63,25 +63,65 @@ Le patch token P1+P2 (commit 79007cf, 2026-05-20) ne couvre **pas** ce cas : il 
 
 ### Déploiement
 - [x] Suite pytest verte (110/110)
-- [ ] Commit + push
-- [ ] Restart engine après merge
-- [ ] Vérif log `[cTrader] 🔄 Reconnect trading session` au prochain incident (sera absent en régime normal)
-- [ ] Notif Telegram+ntfy "Patch résilience broker déployé"
+- [x] Commit + push (`0b5ee78`, branche `main`)
+- [x] Restart engine après merge (PID 778032 → 866011 → 1150053)
+- [ ] Vérif log `[cTrader] 🔄 Reconnect trading session` au prochain incident (sera absent en régime normal — c'est l'invariant)
+- [x] Notif Telegram+ntfy "Patch résilience broker déployé"
 
 ## 6. Observation post-déploiement
 
 (à compléter au fil de l'eau dans les 24-48 h suivant le restart)
 
-- Date restart engine :
-- PID engine post-restart :
-- Premier incident `ABANDONED` post-patch :
-- Reconnect tenté ? Réussi ? Latence ?
-- Position DASHUSD : SL aligné ? Sortie ?
+- Date restart engine : **2026-05-21T11:50:30 UTC** (CEST 13:50:30)
+- PID engine post-restart : **1150053**
+- Commit chargé : **`0b5ee78`** (vérifié via `_try_reconnect_for_order` + `MonitorConfig.amend_alert_cooldown_s=1800.0`)
+- Token refresh planifié toutes les 12h : ✅ (log `[PriceFeed] Token refresh planifié toutes les 12h` à 13:51:21 CEST)
+- Position DASHUSD réconciliée : ✅ #53110148 entry 49.40 SL 46.70, MFE 1.82R préservé via `position_monitor_state.json`
+- Premier incident `ABANDONED` post-patch : aucun (canal trading restauré par le restart)
+- Reconnect-on-demand déclenché : non observé (régime normal, attendu)
+
+### État DASHUSD post-restart
+
+- SL côté broker : **46.70** (toujours initial)
+- BE 49.94 skip cause `new_sl > bid=47.21` (prix replié sous le BE cible — c'est la garde anti-`TRADING_BAD_STOPS`, comportement attendu, pas un bug)
+- Trailing tier 3 SL=52.44 calculé mais skip pour la même raison
+- P&L flottant : -5.08$
+- Issue attendue :
+  - prix > 49.94 → BE armé (gain neutre)
+  - prix > 52.44 → trailing tier 3 armé (~+0.97R)
+  - prix < 46.70 → SL touché (perte standard ~-1R)
+
+### Surveillance continue
+
+- **2026-05-21T18:28 UTC** (T+6h38min après restart) : ✅ canal trading stable. 0 occurrence `Not connected` / `Reconnect trading session` / `ABANDONED` depuis le restart 11:50:30 UTC. BarAggregator log toutes les 2-3 min (M5), trailing tier 3 DASHUSD émis ~6/min en continu mais skip silencieux (prix bid ~47 < cible SL 52.44 = garde anti-`TRADING_BAD_STOPS` normale, pas un bug). Position #53110148 toujours ouverte, SL 46.70, P&L -5.08$. Patch invariant respecté : **silence = canal trading sain**.
+- **2026-05-21T22:59 UTC** : 🚨 **nouvel incident, indépendant du patch étages 0+1**. Le canal **feed** Protobuf (PriceFeed cTrader) commence à émettre `force reconnect after stale feed`. Tentative #1. Cause sous-jacente apparente dès la 1ère reconnexion : `❌ No access token in response: ACCESS_DENIED Access denied. Make sure the credentials are valid.` puis `CH_ACCESS_TOKEN_INVALID`. Le patch P1+P2 (commit 79007cf) gère `CH_ACCESS_TOKEN_INVALID` via refresh HTTP, mais le refresh HTTP lui-même échoue (`ACCESS_DENIED`) → abandon sans boucle infinie. Tentatives toutes les 120s.
+- **2026-05-22T05:12 UTC** : `config/secrets.yaml` rafraîchi (origine externe : commande `arabesque positions` CLI ou rotation manuelle). Tokens disque désormais frais, mais **engine in-memory toujours sur l'ancien refresh token mort** → désynchro. L'engine continue à échouer.
+- **2026-05-22T07:22 UTC** : début des alertes Telegram+ntfy `arabesque-feed-watchdog.service` (timer toutes les 6 min).
+- **2026-05-22T18:28 → 18:51 UTC** : `/suivi` invoqué par user, diagnostic posé. Position DASHUSD **clôturée broker-side** entre-temps (balance 93554.87 → 93298.21 = **−256.66$ ≈ −1R**, SL initial 46.70 touché). MFE +1.82R jamais converti en BE car prix bid n'a jamais franchi 49.94 (entry+0.20R) — même si le feed avait été vivant, le garde anti-`TRADING_BAD_STOPS` aurait skipé jusqu'au bout.
+- **2026-05-22T18:55 UTC** : restart engine (PID 1150053 → 1435589). Patch P1+P2 chargé (`Token refresh planifié toutes les 12h` ✓). DASHUSD réconcilié au démarrage : `R=-1.02 reason=reconciled_stop_loss MFE=1.86R src=broker_detail bars=2076 (ftmo_challenge:53110148)`.
+
+### Verdict patch étages 0+1 (DASHUSD)
+
+**Invariant tenu** : 0 `ABANDONED` / 0 `Reconnect trading session` / 0 `Not connected` du restart 11:50 UTC au crash feed 22:59 UTC. Le patch protégeait le canal **trading** ; il ne couvre pas le canal **feed** (qui est tombé pour une cause différente : refresh token in-memory invalidé).
+
+**La position DASHUSD n'a pas été sauvée par le patch**, mais ce n'était pas son rôle : le BE 49.94 n'a jamais été déclenchable (bid sous l'entry 49.40 tout du long). La protection ultime (SL initial 46.70 côté broker) a tenu — c'est l'invariant fondamental qui a évité une perte plus grande.
+
+**Pas de décision étages 2/3/4** : l'observation 24-48h n'a pas pu se faire dans des conditions normales (incident feed parallèle a faussé l'invariant "silence post-restart"). Différer encore, ré-observer 24-48h après le restart 18:55 UTC du 22/05 dans des conditions feed propres.
 
 ## 7. Décision finale étages 2/3/4
 
-(à compléter après 24-48 h d'observation)
+- **Verdict 2026-05-22** : différé (observation 24-48h impossible — crash feed 22:59 UTC le 21/05 a court-circuité la mesure).
+- **Justification** : entre 11:50 UTC (restart) et 22:59 UTC (crash feed), 0 trigger trading observé. Mais la fenêtre 22:59 → 18:55 UTC le 22/05 (20h) est inexploitable car feed mort → ni amend, ni reconnect, ni ticks. Pas de signal pour décider 2/3/4.
+- **Action prise** : ré-observer 24-48h après le restart 2026-05-22T18:55 UTC dans des conditions feed propres. Task #31 reste en pending. Deux nouvelles tasks ouvertes :
+  - **#32** : investiguer désynchro `refresh_token` engine in-memory vs disque (cause racine du crash feed du 21/05 soir).
+  - **#33** : brancher `feed_stale` dans la watchlist `/suivi` (le watchdog systemd a alerté, mais aucun /suivi n'a été déclenché entre 22:59 UTC et 18:51 UTC → 20h silencieuses côté assistant).
 
-- Verdict :
-- Justification :
-- Action prise :
+## 8. Bilan élargi
+
+Cet incident dépasse le périmètre initial du dossier (résilience canal trading). Il révèle deux trous distincts :
+
+1. **Couvert par étages 0+1** : amend SL échouant car canal trading déconnecté silencieusement → notif + reconnect-on-demand. **Tenu** sur la fenêtre observée (silence).
+2. **Non couvert** : canal feed déconnecté avec refresh token invalidé alors que le refresh token disque est frais → désynchro mémoire/disque. **Tâche #32** ouverte.
+3. **Non couvert non plus** : aucun mécanisme assistant ne s'auto-réveille sur alerte watchdog feed_stale persistant > 30 min. L'utilisateur a porté la charge de surveillance pendant 20h. **Tâche #33** ouverte.
+
+La position DASHUSD #53110148 sort à −1R standard (SL initial 46.70 côté broker). Pas un échec du système — c'est exactement la protection ultime conçue pour ce scénario. Le manque, c'est l'absence d'opportunité d'armer le BE (prix bid jamais > 49.94) + 20h de feed mort en background.
