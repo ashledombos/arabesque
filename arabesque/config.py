@@ -222,6 +222,49 @@ def _resolve_secret_refs(secrets: dict) -> None:
 # update_broker_tokens — persistance des tokens rafraîchis
 # =============================================================================
 
+def load_broker_tokens(
+    broker_id: str,
+    secrets_path: str | Path = "config/secrets.yaml",
+) -> tuple[str, str] | None:
+    """Relit ``access_token`` et ``refresh_token`` directement depuis le fichier.
+
+    Utilisé comme fallback quand l'engine a un refresh_token in-memory invalidé
+    (``ACCESS_DENIED`` sur l'endpoint OAuth) alors qu'un processus externe
+    (autre commande CLI, rotation manuelle) a écrit des tokens frais sur disque.
+    Incident fondateur : 2026-05-21T22:59 → 2026-05-22T18:55 UTC (19h54
+    de feed FTMO mort, fix par restart). Cf ``docs/INCIDENT_DASHUSD_RESILIENCE_BROKER_2026-05-21.md``.
+
+    Retourne ``(access_token, refresh_token)`` ou ``None`` si fichier absent,
+    illisible, ou tokens introuvables pour le ``broker_id`` demandé.
+    Supporte les deux structures du secrets.yaml (oauth shared / inline).
+    """
+    secrets_path = Path(secrets_path)
+    if not secrets_path.exists():
+        return None
+    try:
+        with open(secrets_path) as f:
+            data = yaml.safe_load(f) or {}
+    except Exception as e:
+        logger.warning(f"[load_broker_tokens] lecture {secrets_path} échouée : {e}")
+        return None
+
+    broker_data = data.get(broker_id, {})
+    if not isinstance(broker_data, dict):
+        return None
+
+    oauth_ref = broker_data.get("oauth")
+    if oauth_ref and oauth_ref in data and isinstance(data[oauth_ref], dict):
+        section = data[oauth_ref]
+    else:
+        section = broker_data
+
+    access = section.get("access_token")
+    refresh = section.get("refresh_token")
+    if not access or not refresh:
+        return None
+    return access, refresh
+
+
 def update_broker_tokens(
     broker_id: str,
     access_token: str,

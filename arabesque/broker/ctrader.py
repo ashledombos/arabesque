@@ -205,7 +205,11 @@ class CTraderBroker(BaseBroker):
         self._reactor_running = True
         time.sleep(0.5)
 
-    def _refresh_access_token(self, force_http: bool = False) -> bool:
+    def _refresh_access_token(
+        self,
+        force_http: bool = False,
+        _disk_fallback_done: bool = False,
+    ) -> bool:
         """Rafraîchit l'access_token cTrader.
 
         Si ``force_http=True``, bypass la branche d'adoption du sibling token
@@ -214,6 +218,13 @@ class CTraderBroker(BaseBroker):
         vient d'être purgé par ``on_message`` ; ``force_http`` garantit qu'on
         ne ré-adopte pas un token re-rempli entre-temps par un autre chemin
         (cf. incident 2026-05-19 — boucle infinie d'adoption d'un token mort).
+
+        Fallback disque (incident 2026-05-22) : si la réponse HTTP retourne
+        ``ACCESS_DENIED`` ou status 400/401 (refresh_token in-memory mort),
+        on relit ``config/secrets.yaml`` une fois — un autre processus
+        (CLI manuelle, rotation externe) peut y avoir écrit un refresh_token
+        plus frais. Si le disque diffère, on adopte et retente l'appel HTTP
+        une unique fois (``_disk_fallback_done`` empêche la double tentative).
         """
         if not self.refresh_token:
             print("[cTrader] ⚠️  No refresh token available")
@@ -221,27 +232,35 @@ class CTraderBroker(BaseBroker):
 
         with CTraderBroker._token_lock:
             if not force_http:
-                # Vérifier si un autre broker du même client_id a déjà refreshé
                 shared = CTraderBroker._shared_tokens.get(self.client_id)
                 if shared and shared[0] != self.access_token:
-                    # Un sibling a déjà refreshé — réutiliser ses tokens
                     self.access_token, self.refresh_token = shared
                     print(f"[cTrader] ♻️  Réutilisation token sibling pour {self.broker_id}")
                     return True
 
-            old_access_token = self.access_token
-            old_refresh_token = self.refresh_token
-            token_url = "https://openapi.ctrader.com/apps/token"
-            payload = {
-                "grant_type": "refresh_token",
-                "refresh_token": self.refresh_token,
-                "client_id": self.client_id,
-                "client_secret": self.client_secret
-            }
+            # Boucle bornée à 2 itérations max (initial + retry disk fallback).
+            # On évite la récursion pour ne pas redemander _token_lock (non-réentrant).
+            disk_fallback_done = _disk_fallback_done
+            for attempt in range(2):
+                old_access_token = self.access_token
+                old_refresh_token = self.refresh_token
+                token_url = "https://openapi.ctrader.com/apps/token"
+                payload = {
+                    "grant_type": "refresh_token",
+                    "refresh_token": self.refresh_token,
+                    "client_id": self.client_id,
+                    "client_secret": self.client_secret
+                }
 
-            try:
-                print(f"[cTrader] Refreshing access token ({self.broker_id})...")
-                response = requests.post(token_url, data=payload, timeout=15)
+                try:
+                    print(f"[cTrader] Refreshing access token ({self.broker_id})...")
+                    response = requests.post(token_url, data=payload, timeout=15)
+                except Exception as e:
+                    print(f"[cTrader] ❌ Token refresh error: {e}")
+                    self.access_token = old_access_token
+                    self.refresh_token = old_refresh_token
+                    return False
+
                 if response.status_code == 200:
                     data = response.json()
                     if not data:
@@ -249,29 +268,62 @@ class CTraderBroker(BaseBroker):
                         return False
                     new_access = data.get("accessToken") or data.get("access_token")
                     new_refresh = data.get("refreshToken") or data.get("refresh_token")
-                    if not new_access:
-                        err = data.get("errorCode", "")
-                        desc = data.get("description", "")
-                        print(f"[cTrader] ❌ No access token in response: {err} {desc}")
-                        return False
-                    self.access_token = new_access
-                    if new_refresh:
-                        self.refresh_token = new_refresh
-                    # Partager avec les siblings
-                    CTraderBroker._shared_tokens[self.client_id] = (
-                        self.access_token, self.refresh_token
-                    )
-                    print(f"[cTrader] ✅ Token refreshed successfully")
-                    self._save_tokens_to_config()
-                    return True
+                    if new_access:
+                        self.access_token = new_access
+                        if new_refresh:
+                            self.refresh_token = new_refresh
+                        CTraderBroker._shared_tokens[self.client_id] = (
+                            self.access_token, self.refresh_token
+                        )
+                        print(f"[cTrader] ✅ Token refreshed successfully")
+                        self._save_tokens_to_config()
+                        return True
+                    err = data.get("errorCode", "")
+                    desc = data.get("description", "")
+                    print(f"[cTrader] ❌ No access token in response: {err} {desc}")
+                    if err == "ACCESS_DENIED" and not disk_fallback_done:
+                        if self._try_disk_token_fallback():
+                            disk_fallback_done = True
+                            continue
+                    return False
                 else:
                     print(f"[cTrader] ❌ Token refresh failed: {response.status_code}")
+                    if response.status_code in (400, 401) and not disk_fallback_done:
+                        if self._try_disk_token_fallback():
+                            disk_fallback_done = True
+                            continue
                     return False
-            except Exception as e:
-                print(f"[cTrader] ❌ Token refresh error: {e}")
-                self.access_token = old_access_token
-                self.refresh_token = old_refresh_token
-                return False
+            return False
+
+    def _try_disk_token_fallback(self) -> bool:
+        """Relit ``config/secrets.yaml`` et adopte les tokens disque s'ils
+        diffèrent de l'in-memory.
+
+        Retourne ``True`` si une adoption a eu lieu (caller doit retenter),
+        ``False`` si le disque est absent, illisible, ou identique à l'in-memory
+        (inutile de retenter — même token mort).
+        """
+        try:
+            from arabesque.config import load_broker_tokens
+            disk = load_broker_tokens(self.broker_id)
+        except Exception as e:
+            print(f"[cTrader] ⚠️  Disk token fallback échec lecture : {e}")
+            return False
+        if not disk:
+            print(f"[cTrader] ⚠️  Disk token fallback : tokens introuvables pour {self.broker_id}")
+            return False
+        disk_access, disk_refresh = disk
+        if disk_refresh == self.refresh_token:
+            print(f"[cTrader] ⚠️  Disk token fallback : refresh_token identique (rien à adopter)")
+            return False
+        print(
+            f"[cTrader] 🔄 ACCESS_DENIED — refresh_token disque diffère, "
+            f"adoption + retry unique pour {self.broker_id}"
+        )
+        self.access_token = disk_access
+        self.refresh_token = disk_refresh
+        CTraderBroker._shared_tokens[self.client_id] = (disk_access, disk_refresh)
+        return True
 
     def _save_tokens_to_config(self):
         try:

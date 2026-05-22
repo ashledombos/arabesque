@@ -2945,7 +2945,7 @@ Le **noyau actif** depuis 2026-05-16 est Extension + Glissade. C'est lui qu'on d
 **Action immédiate (2026-05-22 18:55 UTC)** : restart engine (PID 1150053 → 1435589), feed reconnecté avec les tokens frais disque, BarAggregators préchargés (M1/fouette, H1/extension, H1/glissade, H4/extension/27crypto), `Token refresh planifié toutes les 12h` ✓.
 
 **Actions ouvertes** :
-- Task **#32** : investiguer/patcher le fallback `relire secrets.yaml` sur `ACCESS_DENIED` après refresh HTTP (avant abandon). Tests à ajouter.
+- Task **#32** : ~~investiguer/patcher le fallback `relire secrets.yaml` sur `ACCESS_DENIED`~~ → **FERMÉE 2026-05-22 soir**. Patch `_refresh_access_token` (cTrader) : sur `ACCESS_DENIED` (HTTP 200 + errorCode ou status 400/401), appel `_try_disk_token_fallback` qui relit `config/secrets.yaml` via nouveau helper `arabesque.config.load_broker_tokens(broker_id)`. Si refresh_token disque diffère de l'in-memory, adoption + retry HTTP unique. **Anti-récursion** via paramètre `_disk_fallback_done`, boucle bornée à 2 itérations max — contrainte forte : `_token_lock` est `threading.Lock` (non-réentrant), une vraie récursion = deadlock (vérifié lors de la première implémentation). 12 tests ajoutés (`tests/test_ctrader_token_disk_fallback.py`), 122/122 suite verte.
 - Task **#33** : brancher `feed_stale` dans la watchlist `/suivi` avec escalade 🚨 critique sur persistance > 30 min, ou auto-trigger /suivi via wakeup.
 - Task **#31** : ré-observer 24-48h après le restart du 22/05 dans des conditions feed propres avant de décider étages 2/3/4.
 
