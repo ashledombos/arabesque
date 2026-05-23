@@ -65,6 +65,8 @@ def _build_broker_stub() -> CTraderBroker:
     broker._reconnect_window_max = 3
     broker._last_reconnect_attempt = 0.0
     broker._reconnect_attempts_window = []
+    # Hot Path #5 — couche 1 pré-câblage (task #39)
+    broker._reconnect_failures_window = []
     return broker
 
 

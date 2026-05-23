@@ -177,6 +177,11 @@ class CTraderBroker(BaseBroker):
         self._reconnect_window_max: int = 3
         self._last_reconnect_attempt: float = 0.0
         self._reconnect_attempts_window: List[float] = []
+        # Hot Path #5 (task #39) — pré-câblage couche 1 : compteur d'échecs
+        # passif. Le watchdog le consommera plus tard pour escalader vers un
+        # restart service quand le canal trading cTrader est durablement mort
+        # (≥ 2 échecs en 5 min en mode hot). Aujourd'hui : juste de la mesure.
+        self._reconnect_failures_window: List[float] = []
 
     # ------------------------------------------------------------------
     # Token management
@@ -751,6 +756,8 @@ class CTraderBroker(BaseBroker):
         now = time.time()
 
         # Anti-boucle : cooldown 30s
+        # (Skip volontaire, pas un échec — ne compte pas dans
+        # _reconnect_failures_window pour ne pas polluer le signal #39.)
         if now - self._last_reconnect_attempt < self._reconnect_cooldown_s:
             return False
 
@@ -765,6 +772,8 @@ class CTraderBroker(BaseBroker):
                 f"{self._reconnect_window_max}/{self._reconnect_window_s:.0f}s) "
                 f"— laisse l'étage 0 alerter"
             )
+            # Compté comme échec : 3 tentatives en 60s sans succès = canal mort.
+            self._reconnect_failures_window.append(now)
             return False
 
         self._last_reconnect_attempt = now
@@ -775,13 +784,34 @@ class CTraderBroker(BaseBroker):
             ok = await self.connect()
         except Exception as e:
             print(f"[cTrader] ❌ Reconnect exception: {e}")
+            self._reconnect_failures_window.append(now)
             return False
 
         if ok and self._connected:
             print("[cTrader] ✅ Reconnect réussi — l'ordre peut repartir")
             return True
         print("[cTrader] ❌ Reconnect échoué — retour 'Not connected'")
+        self._reconnect_failures_window.append(now)
         return False
+
+    def recent_reconnect_failures_count(self, window_s: float = 300.0) -> int:
+        """Hot Path #5 (task #39) — couche 1 pré-câblage.
+
+        Retourne le nombre d'échecs de ``_try_reconnect_for_order`` survenus
+        dans les ``window_s`` dernières secondes. Pur read-only : ne mute pas
+        la liste interne (la purge des entrées anciennes se fait à l'écriture
+        plus tard, quand la couche 2 sera câblée — pour l'instant la liste
+        grossit lentement, taille négligeable en pratique).
+
+        Un "échec" couvre 3 cas :
+          - ``connect()`` retourne False ou laisse ``_connected=False`` ;
+          - ``connect()`` lève une exception ;
+          - anti-boucle 3/60s saturée (3 tentatives sans succès = canal mort).
+
+        Un cooldown 30s skip ne compte PAS (c'est juste une attente).
+        """
+        now = time.time()
+        return sum(1 for t in self._reconnect_failures_window if now - t < window_s)
 
     # ------------------------------------------------------------------
     # Historical bars
