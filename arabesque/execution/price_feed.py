@@ -264,10 +264,60 @@ class PriceFeedManager:
     # Boucle principale avec reconnexion
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Helpers réduction bruit weekend (incident 2026-05-22, task #34)
+    # ------------------------------------------------------------------
+
+    WEEKEND_RECONNECT_DELAY_S = 300.0  # 5 min entre retry en weekend (vs 120s)
+    NORMAL_RECONNECT_DELAY_MAX_S = 120.0  # backoff exponentiel hors weekend
+
+    @staticmethod
+    def _is_market_likely_closed(now: datetime) -> bool:
+        """Fenêtre où le marché cTrader (CFD forex+crypto) est probablement fermé.
+
+        Élargie à vendredi 21:00 UTC (au lieu de 22:00 officiel) car le feed
+        crypto se ferme parfois ~1h avant la fermeture de session, déclenchant
+        un `Feed stale (majeur crypto)` et la cascade de retry weekend
+        (cf. incident 2026-05-22 21:00 UTC : 4200+ lignes WARNING/ERROR sur 47h).
+        """
+        weekday = now.weekday()  # 0=lundi, 4=vendredi, 5=samedi, 6=dimanche
+        hour = now.hour
+        return (
+            (weekday == 4 and hour >= 21)
+            or weekday == 5
+            or (weekday == 6 and hour < 22)
+        )
+
+    @staticmethod
+    def _next_reconnect_delay(current_delay: float, is_weekend: bool) -> float:
+        """Calcule le prochain délai de reconnexion.
+
+        - Weekend : délai fixe long (300s) — cTrader refuse les nouvelles
+          connexions pendant les heures de fermeture, retry rapide inutile.
+        - Hors weekend : backoff exponentiel × 2, plafonné à 120s.
+        """
+        if is_weekend:
+            return PriceFeedManager.WEEKEND_RECONNECT_DELAY_S
+        return min(current_delay * 2, PriceFeedManager.NORMAL_RECONNECT_DELAY_MAX_S)
+
+    @staticmethod
+    def _reconnect_log_level(is_weekend: bool) -> int:
+        """Niveau de log pour les messages de reconnexion.
+
+        En weekend, downgrade à INFO pour ne pas polluer `journalctl | grep
+        WARNING` et masquer les vrais incidents (ex: 8h ALREADY_LOGGED_IN du
+        2026-05-13 noyée si bruit weekend).
+        """
+        return logging.INFO if is_weekend else logging.WARNING
+
     async def _run_loop(self) -> None:
         delay = self.reconnect_delay_s
         while self._running:
             last_err: Optional[str] = None
+            now = datetime.now(timezone.utc)
+            weekend_mode = self._is_market_likely_closed(now)
+            log_level = self._reconnect_log_level(weekend_mode)
+
             try:
                 await self._connect_and_subscribe()
                 delay = self.reconnect_delay_s  # reset après succès
@@ -284,7 +334,7 @@ class PriceFeedManager:
                 break
             except Exception as e:
                 last_err = str(e)
-                logger.error(f"[PriceFeed] Erreur: {e}")
+                logger.log(log_level, f"[PriceFeed] Erreur: {e}")
                 # Le flag broker._connected n'est pas fiable après une exception
                 # remontée par _watch_connection : le TCP peut être zombi alors
                 # que le flag reste True. Armer _force_reconnect pour que le
@@ -298,21 +348,26 @@ class PriceFeedManager:
 
             self._connected = False
             self._reconnect_count += 1
-            logger.warning(
+            delay = self._next_reconnect_delay(delay, weekend_mode)
+            logger.log(
+                log_level,
                 f"[PriceFeed] Reconnexion dans {delay:.0f}s "
-                f"(tentative #{self._reconnect_count})"
+                f"(tentative #{self._reconnect_count})",
             )
 
-            # Alerte immédiate sur erreur d'auth (rare, actionnable directement)
+            # Alerte immédiate sur erreur d'auth (rare, actionnable directement).
+            # En weekend, on skip l'alerte ≥3 reconnexions (bruit attendu) mais
+            # on garde l'alerte auth (un token invalidé doit toujours pinger).
             auth_err = last_err and (
                 "INVALID_REQUEST" in last_err
                 or "not authorized" in last_err.lower()
                 or "unauthorized" in last_err.lower()
             )
-            if (
-                not self._alert_sent
-                and (auth_err or self._reconnect_count >= self._alert_threshold_reconnects)
-            ):
+            should_alert_reconnect = (
+                not weekend_mode
+                and self._reconnect_count >= self._alert_threshold_reconnects
+            )
+            if not self._alert_sent and (auth_err or should_alert_reconnect):
                 self._alert_sent = True
                 kind = "auth" if auth_err else f"{self._reconnect_count} reconnexions"
                 await self._send_alert(
@@ -324,7 +379,6 @@ class PriceFeedManager:
                 )
 
             await asyncio.sleep(delay)
-            delay = min(delay * 2, 120.0)  # backoff exponentiel, max 2 min
 
     async def _send_alert(self, body: str, title: str = "Arabesque") -> None:
         """Push Telegram+ntfy via apprise. Lit notifications.channels de secrets.yaml.
@@ -360,9 +414,13 @@ class PriceFeedManager:
         # Le cleanup (unsubscribe + stopService + reset état) ne touche à
         # aucune position : aucun ordre, close, ou amend n'est envoyé.
         if self._force_reconnect and self._broker is not None:
-            logger.warning(
+            log_level = self._reconnect_log_level(
+                self._is_market_likely_closed(datetime.now(timezone.utc))
+            )
+            logger.log(
+                log_level,
                 f"[PriceFeed] force reconnect after stale feed — "
-                f"bypass existing broker ({self.broker_id})"
+                f"bypass existing broker ({self.broker_id})",
             )
             try:
                 await self._broker._cleanup_for_retry()

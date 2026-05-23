@@ -171,10 +171,12 @@ def test_stale_force_reconnect_cleanups_and_resets_broker(caplog):
     # Stub la suite de _connect_and_subscribe (qui va créer un nouveau broker
     # et lever ConnectionError parce qu'on n'a pas patché CTraderBroker).
     # On capte juste l'état après le bloc bypass via une exception artificielle.
+    # Capture niveau INFO car le log "force reconnect" est downgradé à INFO
+    # en weekend (task #34, réduction bruit journalctl).
     with patch(
         "arabesque.broker.ctrader.CTraderBroker",
         side_effect=AssertionError("STOP: new broker creation reached"),
-    ), caplog.at_level(logging.WARNING, logger="arabesque.live.price_feed"):
+    ), caplog.at_level(logging.INFO, logger="arabesque.live.price_feed"):
         with pytest.raises(AssertionError, match="STOP"):
             asyncio.run(feed._connect_and_subscribe())
 
