@@ -1,0 +1,406 @@
+"""Watchdog feed Arabesque — étages 3+4 résilience (auto-restart + anti-boucle).
+
+Incident fondateur : 2026-05-21T22:59 → 2026-05-22T18:55 UTC (19h54 de feed
+FTMO mort, refresh_token in-memory désynchro disque). Le watchdog v1 alertait
+toutes les 30 min mais ne faisait rien — l'utilisateur portait seul la charge
+de surveillance pendant 19h54. Cf docs/INCIDENT_DASHUSD_RESILIENCE_BROKER_2026-05-21.md.
+
+Étages livrés (task #31 + task #33) :
+  - Étage 3 : auto-restart systemctl --user stop+sleep+start si feed_stale
+    persiste > 30 min.
+  - Étage 4 : anti-boucle — max 2 restarts/heure ; le 3e bascule en alerte
+    critique distincte (URGENT) sans relancer.
+
+Invariants verrouillés :
+  1. `feed_stale_since_ts` enregistré au 1er passage stale, persisté entre
+     invocations watchdog.
+  2. Persistance < 30 min → pas de restart (notif standard).
+  3. Persistance ≥ 30 min + 0-1 restart récent → auto-restart + notif urgent.
+  4. Persistance ≥ 30 min + ≥ 2 restarts récents → escalade anti-boucle
+     (pas de 3e restart, notif distincte).
+  5. `engine_inactive` reset le tracker feed_stale (pas du fait du feed).
+  6. `weekend_guard` reset le tracker (marché fermé, pas un feed mort).
+  7. `no_bar_data_in_window` (fenêtre vide) ≠ feed_stale → pas de restart.
+  8. Restart historique persistant dans `logs/watchdog_restart_history.jsonl`
+     (append-only, lisible par les invocations suivantes).
+"""
+from __future__ import annotations
+
+import datetime as dt
+import importlib
+import json
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+
+@pytest.fixture
+def watchdog(tmp_path, monkeypatch):
+    """Charge feed_watchdog avec STATE et RESTART_HISTORY redirigés vers tmp_path.
+
+    Évite la pollution du fichier réel `logs/feed_watchdog_state.json` qui
+    sert au timer systemd en production.
+    """
+    import scripts.feed_watchdog as wd
+    importlib.reload(wd)
+    monkeypatch.setattr(wd, "STATE", tmp_path / "feed_watchdog_state.json")
+    monkeypatch.setattr(wd, "RESTART_HISTORY", tmp_path / "restart_history.jsonl")
+    monkeypatch.setattr(wd, "SECRETS", tmp_path / "secrets.yaml")
+    # Pas de sleep réel pendant les tests (RESTART_STOP_SLEEP_S=60s par défaut)
+    monkeypatch.setattr(wd, "RESTART_STOP_SLEEP_S", 0)
+    return wd
+
+
+def _no_weekend_now() -> dt.datetime:
+    """Mardi midi UTC — clairement hors weekend guard."""
+    return dt.datetime(2026, 5, 19, 12, 0, 0, tzinfo=dt.timezone.utc)
+
+
+def _engine_active_true(wd):
+    return lambda: True
+
+
+def _make_state_fixture(wd, state: dict) -> None:
+    wd.STATE.parent.mkdir(parents=True, exist_ok=True)
+    wd.STATE.write_text(json.dumps(state))
+
+
+# ---------------------------------------------------------------------------
+# 1. Tracker feed_stale_since_ts : posé au 1er passage stale
+# ---------------------------------------------------------------------------
+
+def test_feed_stale_tracker_initialized_first_pass(watchdog):
+    wd = watchdog
+    now = _no_weekend_now()
+
+    sent_alerts = []
+
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: 20 * 60), \
+         patch.object(wd, "_send_alert",
+                      lambda body, title, urgent=False: sent_alerts.append((title, urgent)) or True), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(now)):
+        wd.main()
+
+    state = json.loads(wd.STATE.read_text())
+    assert "feed_stale_since_ts" in state, "1er passage stale doit poser le tracker"
+    assert state["feed_stale_since_ts"] == now.isoformat()
+    # Pas de restart (persistance = 0 min < 30 min)
+    assert not wd.RESTART_HISTORY.exists() or wd.RESTART_HISTORY.read_text() == ""
+    assert len(sent_alerts) == 1
+    assert sent_alerts[0][1] is False, "1er passage = notif normale, pas urgent"
+
+
+# ---------------------------------------------------------------------------
+# 2. Persistance < 30 min → pas d'auto-restart
+# ---------------------------------------------------------------------------
+
+def test_no_restart_when_persistence_below_threshold(watchdog):
+    wd = watchdog
+    # 1er passage il y a 20 min, on est encore sous le seuil 30
+    twenty_min_ago = _no_weekend_now() - dt.timedelta(minutes=20)
+    _make_state_fixture(wd, {
+        "feed_stale_since_ts": twenty_min_ago.isoformat(),
+        # Pas de last_alert_ts → cooldown OK pour le test
+    })
+
+    restart_calls = []
+    sent_alerts = []
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: 30 * 60), \
+         patch.object(wd, "_attempt_auto_restart",
+                      lambda now, reason: restart_calls.append(reason) or (True, "")), \
+         patch.object(wd, "_send_alert",
+                      lambda body, title, urgent=False: sent_alerts.append((title, urgent)) or True), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(_no_weekend_now())):
+        wd.main()
+
+    assert restart_calls == [], "Persistance 20 min < 30 min → pas de restart"
+    assert len(sent_alerts) == 1
+    assert sent_alerts[0][1] is False, "Persistance sous seuil = notif normale"
+
+
+# ---------------------------------------------------------------------------
+# 3. Persistance ≥ 30 min → auto-restart (étage 3)
+# ---------------------------------------------------------------------------
+
+def test_autorestart_triggers_after_30min_persistence(watchdog):
+    wd = watchdog
+    now = _no_weekend_now()
+    stale_since = now - dt.timedelta(minutes=35)
+    _make_state_fixture(wd, {"feed_stale_since_ts": stale_since.isoformat()})
+
+    restart_calls = []
+    sent_alerts = []
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: 35 * 60), \
+         patch.object(wd, "_attempt_auto_restart",
+                      lambda now_, reason: restart_calls.append(reason) or (True, "ok")), \
+         patch.object(wd, "_send_alert",
+                      lambda body, title, urgent=False: sent_alerts.append((title, urgent, body)) or True), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(now)):
+        wd.main()
+
+    assert len(restart_calls) == 1, "Persistance > 30 min doit déclencher 1 restart"
+    assert len(sent_alerts) == 1
+    title, urgent, body = sent_alerts[0]
+    assert urgent is True, "Auto-restart = notif URGENT"
+    assert "auto-restart" in title.lower()
+    assert "Auto-restart engine" in body
+    # Tracker doit être reset post-restart pour ne pas re-trigger immédiatement
+    state = json.loads(wd.STATE.read_text())
+    assert "feed_stale_since_ts" not in state, "Tracker reset après restart réussi"
+
+
+# ---------------------------------------------------------------------------
+# 4. Anti-boucle (étage 4) : 3e restart bloqué + notif distincte
+# ---------------------------------------------------------------------------
+
+def test_loop_guard_blocks_third_restart_within_hour(watchdog):
+    wd = watchdog
+    now = _no_weekend_now()
+    # 2 restarts récents dans l'historique
+    wd.RESTART_HISTORY.parent.mkdir(parents=True, exist_ok=True)
+    history = [
+        {"ts": (now - dt.timedelta(minutes=50)).isoformat(), "outcome": "ok", "reason": "test1"},
+        {"ts": (now - dt.timedelta(minutes=20)).isoformat(), "outcome": "ok", "reason": "test2"},
+    ]
+    wd.RESTART_HISTORY.write_text("\n".join(json.dumps(e) for e in history) + "\n")
+
+    stale_since = now - dt.timedelta(minutes=35)
+    _make_state_fixture(wd, {"feed_stale_since_ts": stale_since.isoformat()})
+
+    restart_calls = []
+    sent_alerts = []
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: 35 * 60), \
+         patch.object(wd, "_attempt_auto_restart",
+                      lambda now_, reason: restart_calls.append(reason) or (True, "ok")), \
+         patch.object(wd, "_send_alert",
+                      lambda body, title, urgent=False: sent_alerts.append((title, urgent, body)) or True), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(now)):
+        wd.main()
+
+    assert restart_calls == [], (
+        "Anti-boucle : 3e restart dans l'heure ne doit PAS être tenté"
+    )
+    assert len(sent_alerts) == 1
+    title, urgent, body = sent_alerts[0]
+    assert urgent is True, "Anti-boucle = notif URGENT distincte"
+    assert "anti-boucle" in title.lower() or "anti-boucle" in body.lower()
+    assert "DECLENCHEE" in body
+
+    # L'event skipped doit être loggué dans l'historique pour audit
+    history_lines = [json.loads(l) for l in wd.RESTART_HISTORY.read_text().splitlines() if l.strip()]
+    skipped = [e for e in history_lines if e["outcome"] == "skipped_loop_guard"]
+    assert len(skipped) == 1, "skipped_loop_guard doit être loggué"
+
+
+# ---------------------------------------------------------------------------
+# 5. Restarts hors fenêtre 1h ne comptent pas
+# ---------------------------------------------------------------------------
+
+def test_old_restarts_outside_window_do_not_block(watchdog):
+    wd = watchdog
+    now = _no_weekend_now()
+    wd.RESTART_HISTORY.parent.mkdir(parents=True, exist_ok=True)
+    history = [
+        # 2 restarts mais il y a > 1h → hors fenêtre
+        {"ts": (now - dt.timedelta(hours=2)).isoformat(), "outcome": "ok", "reason": "old1"},
+        {"ts": (now - dt.timedelta(hours=3)).isoformat(), "outcome": "ok", "reason": "old2"},
+    ]
+    wd.RESTART_HISTORY.write_text("\n".join(json.dumps(e) for e in history) + "\n")
+
+    stale_since = now - dt.timedelta(minutes=35)
+    _make_state_fixture(wd, {"feed_stale_since_ts": stale_since.isoformat()})
+
+    restart_calls = []
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: 35 * 60), \
+         patch.object(wd, "_attempt_auto_restart",
+                      lambda now_, reason: restart_calls.append(reason) or (True, "ok")), \
+         patch.object(wd, "_send_alert", lambda body, title, urgent=False: True), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(now)):
+        wd.main()
+
+    assert len(restart_calls) == 1, (
+        "Restarts > 1h ne comptent pas dans la fenêtre anti-boucle"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 6. Engine inactive → reset tracker
+# ---------------------------------------------------------------------------
+
+def test_engine_inactive_resets_feed_stale_tracker(watchdog):
+    wd = watchdog
+    now = _no_weekend_now()
+    _make_state_fixture(wd, {
+        "feed_stale_since_ts": (now - dt.timedelta(minutes=10)).isoformat()
+    })
+
+    with patch.object(wd, "_engine_active", lambda: False), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(now)):
+        wd.main()
+
+    state = json.loads(wd.STATE.read_text())
+    assert state["last_status"] == "engine_inactive"
+    assert "feed_stale_since_ts" not in state, (
+        "engine_inactive ≠ feed mort, tracker doit être reset"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 7. Weekend guard → reset tracker + skip
+# ---------------------------------------------------------------------------
+
+def test_weekend_guard_resets_tracker_and_skips(watchdog):
+    wd = watchdog
+    # Samedi midi UTC (weekend)
+    sat = dt.datetime(2026, 5, 23, 12, 0, 0, tzinfo=dt.timezone.utc)
+    _make_state_fixture(wd, {
+        "feed_stale_since_ts": (sat - dt.timedelta(minutes=20)).isoformat()
+    })
+
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(sat)):
+        wd.main()
+
+    state = json.loads(wd.STATE.read_text())
+    assert state["last_status"] == "weekend_guard"
+    assert "feed_stale_since_ts" not in state
+
+
+def test_weekend_guard_starts_at_friday_21h_utc(watchdog):
+    """Vendredi 21:00 UTC = début weekend (forex close)."""
+    wd = watchdog
+    # Vendredi 20:59 UTC → encore ouvert
+    fri_2059 = dt.datetime(2026, 5, 22, 20, 59, 0, tzinfo=dt.timezone.utc)
+    assert wd._is_weekend_utc(fri_2059) is False, "Vendredi 20:59 UTC = encore ouvert"
+    # Vendredi 21:00 UTC → fermé
+    fri_2100 = dt.datetime(2026, 5, 22, 21, 0, 0, tzinfo=dt.timezone.utc)
+    assert wd._is_weekend_utc(fri_2100) is True, "Vendredi 21:00 UTC = weekend démarré"
+
+
+# ---------------------------------------------------------------------------
+# 8. no_bar_data_in_window ≠ feed_stale → pas de restart
+# ---------------------------------------------------------------------------
+
+def test_no_bar_data_does_not_trigger_restart(watchdog):
+    wd = watchdog
+    now = _no_weekend_now()
+    # Pas d'état préexistant
+    restart_calls = []
+    sent_alerts = []
+
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: None), \
+         patch.object(wd, "_attempt_auto_restart",
+                      lambda now_, reason: restart_calls.append(reason) or (True, "")), \
+         patch.object(wd, "_send_alert",
+                      lambda body, title, urgent=False: sent_alerts.append((title, urgent)) or True), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(now)):
+        wd.main()
+
+    assert restart_calls == [], "no_bar_data_in_window ne doit PAS déclencher restart"
+    state = json.loads(wd.STATE.read_text())
+    assert state["last_status"] == "no_bar_data_in_window"
+    # La notif est envoyée mais NON urgente
+    assert len(sent_alerts) == 1 and sent_alerts[0][1] is False
+
+
+# ---------------------------------------------------------------------------
+# 9. Persistance multi-cycles : tracker conservé entre invocations
+# ---------------------------------------------------------------------------
+
+def test_persistence_accumulates_across_invocations(watchdog):
+    wd = watchdog
+    now = _no_weekend_now()
+
+    # Cycle 1 : t=0, age=20min → tracker posé
+    sent = []
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: 20 * 60), \
+         patch.object(wd, "_send_alert",
+                      lambda body, title, urgent=False: sent.append(urgent) or True), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(now)):
+        wd.main()
+    state1 = json.loads(wd.STATE.read_text())
+    assert "feed_stale_since_ts" in state1
+
+    # Cycle 2 : t=+35min, même état → persistance > 30 min → restart
+    later = now + dt.timedelta(minutes=35)
+    restart_calls = []
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: 55 * 60), \
+         patch.object(wd, "_attempt_auto_restart",
+                      lambda now_, reason: restart_calls.append(reason) or (True, "ok")), \
+         patch.object(wd, "_send_alert",
+                      lambda body, title, urgent=False: sent.append(urgent) or True), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(later)):
+        wd.main()
+
+    assert len(restart_calls) == 1, (
+        "Cycle 2 : tracker conservé du cycle 1 → persistance 35 min → restart"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 10. Restart échoue → notif distincte, pas de boucle
+# ---------------------------------------------------------------------------
+
+def test_restart_failure_logs_and_notifies(watchdog):
+    wd = watchdog
+    now = _no_weekend_now()
+    _make_state_fixture(wd, {
+        "feed_stale_since_ts": (now - dt.timedelta(minutes=35)).isoformat()
+    })
+
+    sent = []
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: 35 * 60), \
+         patch.object(wd, "_attempt_auto_restart",
+                      lambda now_, reason: (False, "stop failed: permission denied")), \
+         patch.object(wd, "_send_alert",
+                      lambda body, title, urgent=False: sent.append((title, urgent, body)) or True), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(now)):
+        wd.main()
+
+    assert len(sent) == 1
+    title, urgent, body = sent[0]
+    assert urgent is True
+    assert "ECHEC" in title or "ECHEC" in body or "ECHOUE" in body
+
+    # L'historique doit avoir une entrée "failed"
+    history_lines = [json.loads(l) for l in wd.RESTART_HISTORY.read_text().splitlines() if l.strip()]
+    failed = [e for e in history_lines if e["outcome"] == "failed"]
+    assert len(failed) == 1
+
+
+# ---------------------------------------------------------------------------
+# Helper : FixedDatetime monkeypatch pour wd.dt.datetime
+# ---------------------------------------------------------------------------
+
+_REAL_DATETIME = dt.datetime  # capture avant tout patch — évite récursion
+
+
+class _FixedDatetime:
+    """Mock minimal de ``dt.datetime`` qui fixe ``now(tz)`` à une valeur donnée
+    tout en laissant le reste passer au vrai ``dt.datetime``.
+
+    NB : ``__getattr__`` doit déférer au **vrai** ``datetime.datetime`` (capturé
+    dans ``_REAL_DATETIME``). Si on déférait à ``dt.datetime`` après patch, on
+    boucle sur soi-même → ``RecursionError`` silencieusement avalée par les
+    ``try/except Exception`` dans ``feed_watchdog.main()``.
+    """
+    def __init__(self, fixed_now: dt.datetime):
+        self._fixed = fixed_now
+
+    def now(self, tz=None):
+        if tz is None:
+            return self._fixed.replace(tzinfo=None)
+        return self._fixed.astimezone(tz)
+
+    def __getattr__(self, name):
+        return getattr(_REAL_DATETIME, name)
