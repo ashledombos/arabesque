@@ -457,30 +457,17 @@ def main() -> int:
             weekend_with_positions = True
             state["open_positions_count"] = open_count
             state.pop("positions_state_corrupted", None)
-
-            # Task #40 patch #3 — détection LivePositionMonitor mort
-            # silencieusement (fichier figé alors que des positions sont
-            # trackées dedans). Flag + notif URGENT, pas de changement de
-            # comportement décisionnel (le mode hot est déjà actif).
-            age_s_state = _positions_state_age_seconds(now)
-            if age_s_state is not None and age_s_state > POSITIONS_STATE_STALE_S:
-                state["positions_state_stale"] = True
-                state["positions_state_age_s"] = age_s_state
-                if _can_alert(state, now):
-                    _send_alert(
-                        f"POSITIONS_STATE ({POSITIONS_STATE.name}) fige depuis "
-                        f"{age_s_state // 60}min (seuil {POSITIONS_STATE_STALE_S // 60}min) "
-                        f"alors que {open_count} position(s) sont trackees dedans. "
-                        f"LivePositionMonitor probablement mort silencieusement. "
-                        f"Verifier journalctl --user -u arabesque-live | "
-                        f"grep position_monitor.",
-                        "Feed Arabesque — monitor positions fige",
-                        urgent=True,
-                    )
-                    state["last_alert_ts"] = now.isoformat()
-            else:
-                state.pop("positions_state_stale", None)
-                state.pop("positions_state_age_s", None)
+            # Hotfix 2026-05-23 22:15 UTC — patch #3 (mtime check) retiré :
+            # ``LivePositionMonitor.save_state`` n'est appelé que sur
+            # register/unregister/reconcile-checkpoint, pas périodiquement. En
+            # weekend avec position dormante, le fichier date forcément de
+            # l'ouverture → faux positif systématique → spam URGENT toutes
+            # les 30 min (8 alertes 21:11→00:05 UTC sur la nuit du 2026-05-23).
+            # Le check n'a pas de signal valide tant qu'on n'a pas une cadence
+            # garantie de save_state. À ré-instrumenter une fois le monitor
+            # patché pour checkpoint périodique indépendant de l'activité.
+            state.pop("positions_state_stale", None)
+            state.pop("positions_state_age_s", None)
     else:
         state.pop("open_positions_count", None)
         state.pop("positions_state_corrupted", None)

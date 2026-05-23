@@ -1,31 +1,30 @@
-"""Task #40 patch #3 — détection ``POSITIONS_STATE`` figé (monitor mort).
+"""Task #40 patch #3 — helper ``_positions_state_age_seconds`` (mtime).
 
-Cas couvert. Si ``LivePositionMonitor`` crashe sans cleanup (SIGSEGV, OOM
-kill, panique kernel) **avec une position ouverte**, le fichier
-``logs/position_monitor_state.json`` reste à ``{position_id: {...}}`` figé.
-Le watchdog le lit → count > 0 → mode hot. Bon, c'est safe côté décision.
+Historique. Le patch #3 initial (commit f65fbd4, 2026-05-23 18:15 UTC) flagait
+``positions_state_stale=True`` + notif URGENT quand le mtime de
+``logs/position_monitor_state.json`` dépassait 10 min en weekend avec position
+ouverte. Hypothèse fausse : ``LivePositionMonitor.save_state`` n'est appelé
+que sur register/unregister/reconcile-checkpoint, **pas périodiquement**. En
+weekend avec position dormante, le fichier date forcément de l'ouverture →
+faux positif systématique → spam URGENT toutes les 30 min (8 alertes
+21:11→00:05 UTC sur la nuit du 2026-05-23). Hotfix 22:15 UTC : check mtime
+retiré, à ré-instrumenter une fois le monitor patché pour checkpoint
+périodique indépendant de l'activité.
 
-Mais une seconde lecture est utile : **le fichier existe et n'a pas été
-touché depuis longtemps**. En fonctionnement normal, ``save_state`` est
-appelé à chaque register/unregister + checkpoint périodique (cf
-``arabesque/execution/position_monitor.py``). Si le mtime > 10 min alors
-que le fichier existe → monitor probablement mort silencieusement.
-
-Patch : nouveau helper ``_positions_state_age_seconds(now)`` qui retourne
-l'âge du fichier en secondes (None si absent). En weekend avec count > 0
-et age > 600s, le watchdog flag ``positions_state_stale=True`` + notif
-URGENT (1×, sous cooldown). Pas de changement de comportement décisionnel
-— le mode hot est déjà actif (count > 0).
+Tests gardés : invariants 1-4 du helper (neutre, utilisable plus tard) +
+tests de non-régression vérifiant que le flag ``positions_state_stale``
+n'est **plus jamais** posé tant que le check n'est pas ré-instrumenté.
 
 Invariants verrouillés :
   1. ``_positions_state_age_seconds`` retourne ``None`` si fichier absent.
   2. ``_positions_state_age_seconds`` retourne un ``int >= 0`` si présent.
   3. Fichier fraîchement écrit → age petit (< quelques secondes).
   4. Fichier dont le mtime est artificiellement vieux → age cohérent.
-  5. En weekend + count > 0 + state stale → ``state["positions_state_stale"]
-     = True`` ET notif URGENT envoyée (sous cooldown).
-  6. En weekend + count > 0 + state frais → pas de flag stale, pas de notif
-     supplémentaire.
+  5. **Non-régression hotfix** : weekend + count > 0 + state ancien (>10min)
+     → **pas** de flag ``positions_state_stale``, **pas** de notif URGENT
+     supplémentaire (le mode hot est déjà actif via count > 0).
+  6. Weekend + count > 0 + state frais → pas de flag stale, comportement
+     inchangé.
 """
 from __future__ import annotations
 
@@ -130,16 +129,22 @@ def test_age_reflects_old_mtime(watchdog):
 
 
 # ---------------------------------------------------------------------------
-# Invariant 5 — weekend + count > 0 + stale → flag + alerte
+# Invariant 5 — non-régression hotfix : weekend + count > 0 + state ancien
+# ne doit PAS poser le flag stale ni envoyer de notif "monitor fige"
 # ---------------------------------------------------------------------------
 
-def test_weekend_stale_state_flags_and_alerts(watchdog):
+def test_weekend_old_state_does_not_flag_after_hotfix(watchdog):
+    """Hotfix 2026-05-23 22:15 UTC : le check mtime du patch #3 a été retiré
+    car ``LivePositionMonitor.save_state`` n'est pas appelé périodiquement
+    (uniquement register/unregister/reconcile-checkpoint). En weekend avec
+    position dormante, mtime > 10 min est l'état normal → spam URGENT
+    structurel (incident nuit 2026-05-23, 8 notifs en 3h)."""
     wd, tmp_path = watchdog
     sat = _saturday_noon()
     _write_positions_state(wd.POSITIONS_STATE, [
-        {"broker_id": "ftmo", "position_id": "P1", "symbol": "DASHUSD"},
+        {"broker_id": "ftmo", "position_id": "P1", "symbol": "XAUUSD"},
     ])
-    # Forcer mtime à -20 min (> 10 min seuil)
+    # Forcer mtime à -20 min (> 10 min ancien seuil)
     old_mtime = sat.timestamp() - 1200
     os.utime(wd.POSITIONS_STATE, (old_mtime, old_mtime))
 
@@ -156,14 +161,20 @@ def test_weekend_stale_state_flags_and_alerts(watchdog):
         wd.main()
 
     state = json.loads(wd.STATE.read_text())
-    assert state.get("positions_state_stale") is True, (
-        f"state.positions_state_stale doit etre True, vu state={state!r}"
+    assert state.get("positions_state_stale") is not True, (
+        f"Hotfix : le flag positions_state_stale ne doit PLUS etre pose "
+        f"(spam URGENT structurel). Vu state={state!r}"
     )
-    assert any(
-        ("stale" in a["body"].lower() or "monitor" in a["body"].lower()
-         or "fige" in a["body"].lower() or "fig" in a["body"].lower())
-        for a in alerts
-    ), f"Alerte mentionnant le monitor figé/stale attendue, vu {alerts!r}"
+    # Aucune notif "monitor fige" / "stale" ne doit être émise
+    suspect = [
+        a for a in alerts
+        if "fige" in a["title"].lower() or "monitor" in a["title"].lower()
+        or "stale" in a["body"].lower()
+    ]
+    assert suspect == [], (
+        f"Hotfix : aucune notif 'monitor fige' / 'stale' ne doit etre emise "
+        f"en weekend avec state mtime ancien. Vu {suspect!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
