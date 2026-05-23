@@ -309,6 +309,13 @@ class LivePositionMonitor:
             f"entry={entry:.{digits}f} SL={sl:.{digits}f} TP={tp:.{digits}f} "
             f"R={pos.R:.{digits}f} ({broker_id}:{position_id})"
         )
+        # Hot Path #2 — persistance immédiate pour que les composants externes
+        # (feed_watchdog notamment, qui décide du skip weekend) voient
+        # l'ouverture sans attendre le cycle reconcile (~2 min).
+        try:
+            self.save_state()
+        except Exception as e:
+            logger.debug(f"[Monitor] save_state on register failed: {e}")
         # Hot Path #1 — auto-démarre la boucle broker_reconcile dès la
         # première position trackée (no-op si déjà en route ou désactivée).
         self._maybe_start_broker_reconcile()
@@ -322,6 +329,13 @@ class LivePositionMonitor:
             logger.info(
                 f"[Monitor] 🗑️ Unregistered {pos.symbol} ({broker_id}:{position_id})"
             )
+            # Hot Path #2 — persistance immédiate. Quand la dernière position
+            # se ferme, save_state supprime le fichier d'état → le watchdog
+            # peut rebasculer en skip weekend dès le prochain cycle.
+            try:
+                self.save_state()
+            except Exception as e:
+                logger.debug(f"[Monitor] save_state on unregister failed: {e}")
 
     async def on_bar_closed(self, symbol: str, high: float, low: float, close: float):
         """Appelé à chaque fermeture de bougie H1.

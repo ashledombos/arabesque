@@ -40,6 +40,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SECRETS = ROOT / "config" / "secrets.yaml"
 STATE = ROOT / "logs" / "feed_watchdog_state.json"
 RESTART_HISTORY = ROOT / "logs" / "watchdog_restart_history.jsonl"
+POSITIONS_STATE = ROOT / "logs" / "position_monitor_state.json"
 
 STALE_THRESHOLD_MIN = 15
 COOLDOWN_MIN = 30
@@ -48,6 +49,20 @@ COOLDOWN_MIN = 30
 RESTART_PERSISTENCE_MIN = 30          # feed_stale doit persister > 30 min
 RESTART_MAX_PER_HOUR = 2              # 3e tentative dans l'heure → escalade
 RESTART_STOP_SLEEP_S = 60             # stop+sleep pour libérer session cTrader
+
+# Hot Path #2 bis — backoff progressif des restart auto en weekend avec
+# position ouverte. cTrader accepte les sessions weekend mais leur comportement
+# est erratique (feed quote fermé, login/reconnect intermittents) — on garde
+# le filet de sécurité du restart mais on espace progressivement les tentatives.
+# Compteur N = restarts weekend dans les 24 dernières heures.
+#   N=0 → 1er restart au seuil standard (30 min)
+#   N=1 → 2e si persistance ≥ 60 min
+#   N=2 → 3e si persistance ≥ 120 min
+#   N=3 → 4e si persistance ≥ 240 min (cap)
+#   N≥4 → bloqué, anti-boucle URGENT distincte (intervention humaine)
+WEEKEND_BACKOFF_THRESHOLDS_MIN = [30, 60, 120, 240]
+WEEKEND_RESTART_MAX_24H = 4
+WEEKEND_BACKOFF_WINDOW_S = 24 * 3600
 
 # Weekend guard étendu : forex close 21:00 UTC vendredi (1h avant crypto)
 # pour éviter auto-restart à vide pendant le bord de fenêtre.
@@ -80,6 +95,31 @@ def _is_weekend_utc(now: dt.datetime) -> bool:
     if wd == 6 and h < WEEKEND_GUARD_SUN_HOUR:
         return True
     return False
+
+
+def _open_positions_count() -> int:
+    """Nombre de positions ouvertes lu depuis le state file partagé du
+    ``LivePositionMonitor`` (cf. ``arabesque/execution/position_monitor.py``).
+
+    Sémantique :
+      - Fichier absent → 0 (sémantique "vide = absent" écrite par
+        ``LivePositionMonitor.save_state``).
+      - Fichier valide → ``len(dict)`` (1 entrée par position trackée).
+      - Fichier corrompu / illisible → 0 (fail-safe silencieux).
+
+    Le fail-safe préfère sous-surveiller (skip weekend à tort) que spammer
+    en cas de bug de lecture — le Hot Path #1 (broker_reconcile) continue de
+    couvrir la position côté engine si elle est vraiment ouverte.
+    """
+    if not POSITIONS_STATE.exists():
+        return 0
+    try:
+        data = json.loads(POSITIONS_STATE.read_text())
+    except Exception:
+        return 0
+    if not isinstance(data, dict):
+        return 0
+    return len(data)
 
 
 def _engine_active() -> bool:
@@ -173,16 +213,28 @@ def _send_alert(body: str, title: str, urgent: bool = False) -> bool:
     ))
 
 
-def _append_restart_history(now: dt.datetime, outcome: str, reason: str) -> None:
-    """Append-only log des restarts auto. Lu par ``_recent_restart_count``."""
+def _append_restart_history(now: dt.datetime, outcome: str, reason: str,
+                            *, weekend: bool = False) -> None:
+    """Append-only log des restarts auto. Lu par ``_recent_restart_count``
+    et ``_recent_weekend_restart_count``. ``weekend=True`` tag les entrées
+    déclenchées en weekend pour le compteur backoff dédié (Hot Path #2 bis).
+    """
     RESTART_HISTORY.parent.mkdir(exist_ok=True)
     entry = {"ts": now.isoformat(), "outcome": outcome, "reason": reason}
+    if weekend:
+        entry["weekend"] = True
     with open(RESTART_HISTORY, "a") as f:
         f.write(json.dumps(entry) + "\n")
 
 
 def _recent_restart_count(now: dt.datetime, window_s: int = 3600) -> int:
-    """Compte les restarts réussis (``outcome=ok``) dans les ``window_s`` dernières secondes."""
+    """Compte les restarts WEEKDAY réussis (``outcome=ok``) dans la fenêtre.
+
+    **Filtre `weekend=True`** : les restarts weekend ont leur propre compteur
+    backoff (``_recent_weekend_restart_count``) avec sa propre fenêtre 24h ;
+    les mélanger ici bloquerait à tort un 1er restart weekday légitime juste
+    après un weekend chargé (transition dimanche 22:00 UTC → lundi).
+    """
     if not RESTART_HISTORY.exists():
         return 0
     cutoff = now - dt.timedelta(seconds=window_s)
@@ -197,6 +249,8 @@ def _recent_restart_count(now: dt.datetime, window_s: int = 3600) -> int:
                 continue
             if entry.get("outcome") != "ok":
                 continue
+            if entry.get("weekend"):
+                continue
             try:
                 ts = dt.datetime.fromisoformat(entry["ts"])
             except Exception:
@@ -208,12 +262,48 @@ def _recent_restart_count(now: dt.datetime, window_s: int = 3600) -> int:
     return count
 
 
-def _attempt_auto_restart(now: dt.datetime, reason: str) -> tuple[bool, str]:
+def _recent_weekend_restart_count(now: dt.datetime,
+                                  window_s: int = WEEKEND_BACKOFF_WINDOW_S) -> int:
+    """Compte les restarts weekend (``weekend=True`` dans l'entrée) dans la
+    fenêtre. Inclut ``outcome=ok`` ET ``outcome=failed`` (même cause = on
+    espace), exclut ``skipped_loop_guard``/``skipped_weekend_backoff``."""
+    if not RESTART_HISTORY.exists():
+        return 0
+    cutoff = now - dt.timedelta(seconds=window_s)
+    count = 0
+    try:
+        for line in RESTART_HISTORY.read_text().splitlines():
+            if not line.strip():
+                continue
+            try:
+                entry = json.loads(line)
+            except Exception:
+                continue
+            if not entry.get("weekend"):
+                continue
+            if entry.get("outcome") not in ("ok", "failed"):
+                continue
+            try:
+                ts = dt.datetime.fromisoformat(entry["ts"])
+            except Exception:
+                continue
+            if ts >= cutoff:
+                count += 1
+    except Exception:
+        return 0
+    return count
+
+
+def _attempt_auto_restart(now: dt.datetime, reason: str,
+                          *, weekend: bool = False) -> tuple[bool, str]:
     """Tente ``systemctl --user stop`` + ``sleep`` + ``start``.
 
     Retourne ``(success, message)``. ``stop+sleep+start`` plutôt que ``restart``
     pour laisser la session cTrader se fermer côté serveur (sinon
     ALREADY_LOGGED_IN au redémarrage).
+
+    ``weekend=True`` marque l'entrée d'historique pour le compteur backoff
+    dédié (cf ``_recent_weekend_restart_count``).
     """
     try:
         stop = subprocess.run(
@@ -239,7 +329,7 @@ def _attempt_auto_restart(now: dt.datetime, reason: str) -> tuple[bool, str]:
     except subprocess.TimeoutExpired:
         return False, "start timeout (60s)"
 
-    _append_restart_history(now, "ok", reason)
+    _append_restart_history(now, "ok", reason, weekend=weekend)
     return True, "stop+sleep60s+start ok"
 
 
@@ -255,11 +345,27 @@ def main() -> int:
         _write_state(state)
         return 0
 
+    weekend_with_positions = False
+    open_count = 0
     if _is_weekend_utc(now):
-        state["last_status"] = "weekend_guard"
-        state.pop("feed_stale_since_ts", None)
-        _write_state(state)
-        return 0
+        open_count = _open_positions_count()
+        if open_count == 0:
+            # Comportement historique : marché fermé, rien ouvert → skip total
+            state["last_status"] = "weekend_guard"
+            state.pop("feed_stale_since_ts", None)
+            state.pop("open_positions_count", None)
+            _write_state(state)
+            return 0
+        # Hot Path #2 : ≥ 1 position traverse le weekend → surveillance active.
+        # Auto-restart desactive (cf gating plus bas) : cTrader accepte les
+        # sessions weekend mais leur comportement est erratique (feed quote
+        # ferme, login/reconnect intermittents). Un restart auto risque de
+        # patiner sans rien resoudre. On emet seulement l'alerte feed_stale
+        # et on laisse l'humain decider.
+        weekend_with_positions = True
+        state["open_positions_count"] = open_count
+    else:
+        state.pop("open_positions_count", None)
 
     age_s = _last_bar_age_seconds(now)
     state["last_bar_age_seconds"] = age_s
@@ -278,7 +384,104 @@ def main() -> int:
         persistence_s = (now - stale_since).total_seconds()
         state["last_status"] = f"feed_stale:{age_s}s persist={int(persistence_s)}s"
 
-        # Étage 3+4 — auto-restart si persistance > 30 min, anti-boucle
+        # === Branche weekend avec position : backoff progressif (Hot Path #2 bis) ===
+        if weekend_with_positions:
+            n_weekend = _recent_weekend_restart_count(now)
+
+            if n_weekend >= WEEKEND_RESTART_MAX_24H:
+                # Cap atteint → anti-boucle weekend, escalade URGENT distincte
+                body = (
+                    f"FEED STALE PERSISTANT en weekend depuis "
+                    f"{int(persistence_s // 60)}min.\n"
+                    f"Anti-boucle WEEKEND DECLENCHEE : {n_weekend} restart auto "
+                    f"deja tentes dans les dernieres 24h.\n"
+                    f"Auto-restart STOPPE — intervention humaine requise.\n"
+                    f"Reco: investiguer journalctl --user -u arabesque-live "
+                    f"et restart manuel si necessaire."
+                )
+                _append_restart_history(
+                    now, "skipped_weekend_backoff", state["last_status"],
+                    weekend=True,
+                )
+                if _can_alert(state, now):
+                    _send_alert(
+                        body, "Feed Arabesque — anti-boucle weekend",
+                        urgent=True,
+                    )
+                    state["last_alert_ts"] = now.isoformat()
+                state["last_status"] += f"+weekend_cap(n={n_weekend})"
+                _write_state(state)
+                return 0
+
+            threshold_min = WEEKEND_BACKOFF_THRESHOLDS_MIN[n_weekend]
+            if persistence_s >= threshold_min * 60:
+                ok, msg = _attempt_auto_restart(
+                    now, reason=state["last_status"], weekend=True,
+                )
+                if ok:
+                    next_n = n_weekend + 1
+                    next_str = (
+                        f"{WEEKEND_BACKOFF_THRESHOLDS_MIN[next_n]}min"
+                        if next_n < WEEKEND_RESTART_MAX_24H
+                        else "anti-boucle (cap atteint)"
+                    )
+                    body = (
+                        f"FEED STALE en weekend avec {open_count} position(s).\n"
+                        f"Persistance {int(persistence_s // 60)}min "
+                        f"(seuil weekend={threshold_min}min, N={n_weekend}).\n"
+                        f"Auto-restart engine effectue (stop + sleep "
+                        f"{RESTART_STOP_SLEEP_S}s + start).\n"
+                        f"Backoff weekend: {next_n}/{WEEKEND_RESTART_MAX_24H} "
+                        f"dans 24h. Prochain seuil: {next_str}."
+                    )
+                    _send_alert(
+                        body, "Feed Arabesque — auto-restart weekend",
+                        urgent=True,
+                    )
+                    state["last_alert_ts"] = now.isoformat()
+                    state.pop("feed_stale_since_ts", None)
+                    state["last_status"] += "+autorestart_ok(weekend)"
+                else:
+                    body = (
+                        f"FEED STALE en weekend avec {open_count} position(s) "
+                        f"mais auto-restart ECHOUE : {msg}.\n"
+                        f"Backoff: {n_weekend+1}/{WEEKEND_RESTART_MAX_24H} "
+                        f"tentatives dans 24h."
+                    )
+                    _append_restart_history(now, "failed", msg, weekend=True)
+                    _send_alert(
+                        body, "Feed Arabesque — auto-restart ECHEC (weekend)",
+                        urgent=True,
+                    )
+                    state["last_alert_ts"] = now.isoformat()
+                    state["last_status"] += f"+autorestart_failed(weekend):{msg}"
+                _write_state(state)
+                return 0
+
+            # Persistance < seuil weekend backoff → notif Étage 1, attente
+            body = (
+                f"FEED STALE en weekend avec {open_count} position(s) ouverte(s).\n"
+                f"Derniere barre fermee il y a {age_s // 60}min"
+                f"{age_s % 60:02d}s.\n"
+                f"Persistance {int(persistence_s // 60)}min "
+                f"(seuil weekend backoff N={n_weekend}: {threshold_min}min).\n"
+                f"Auto-restart se declenchera au seuil. Backoff: "
+                f"{n_weekend}/{WEEKEND_RESTART_MAX_24H} restarts deja tentes "
+                f"dans les 24h."
+            )
+            title = "Feed Arabesque — weekend (en attente seuil backoff)"
+            # Tombe dans la branche commune _can_alert / _send_alert ci-dessous
+            if not _can_alert(state, now):
+                state["last_status"] += "+cooldown"
+                _write_state(state)
+                return 0
+            ok = _send_alert(body, title, urgent=False)
+            state["last_alert_ts"] = now.isoformat()
+            state["last_alert_ok"] = bool(ok)
+            _write_state(state)
+            return 0
+
+        # === Branche weekday standard — étage 3+4 inchangé ===
         if persistence_s >= RESTART_PERSISTENCE_MIN * 60:
             recent = _recent_restart_count(now, window_s=3600)
             if recent >= RESTART_MAX_PER_HOUR:
@@ -328,9 +531,10 @@ def main() -> int:
             _write_state(state)
             return 0
 
-        # Persistance < 30 min → notif Étage 1 normale (sans escalade)
+        # Persistance < 30 min en weekday → notif Étage 1 normale
         body = (
-            f"Derniere barre fermee il y a {age_s // 60}min{age_s % 60:02d}s.\n"
+            f"Derniere barre fermee il y a {age_s // 60}min"
+            f"{age_s % 60:02d}s.\n"
             f"Persistance feed_stale: {int(persistence_s // 60)}min "
             f"(seuil auto-restart {RESTART_PERSISTENCE_MIN}min).\n"
             f"Engine systemctl=active mais fige. Pas en weekend guard.\n"
@@ -354,7 +558,13 @@ def main() -> int:
 
     else:
         # OK
-        state["last_status"] = f"ok:age={age_s}s"
+        if weekend_with_positions:
+            state["last_status"] = (
+                f"weekend_guard_with_positions:ok age={age_s}s "
+                f"open={open_count}"
+            )
+        else:
+            state["last_status"] = f"ok:age={age_s}s"
         state.pop("feed_stale_since_ts", None)
         _write_state(state)
         return 0

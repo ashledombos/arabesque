@@ -47,6 +47,9 @@ def watchdog(tmp_path, monkeypatch):
     monkeypatch.setattr(wd, "STATE", tmp_path / "feed_watchdog_state.json")
     monkeypatch.setattr(wd, "RESTART_HISTORY", tmp_path / "restart_history.jsonl")
     monkeypatch.setattr(wd, "SECRETS", tmp_path / "secrets.yaml")
+    # Isole du state file de production (Hot Path #2) — sinon les positions
+    # ouvertes en dev/live font fuiter la branche `weekend_with_positions`.
+    monkeypatch.setattr(wd, "POSITIONS_STATE", tmp_path / "position_monitor_state.json")
     # Pas de sleep réel pendant les tests (RESTART_STOP_SLEEP_S=60s par défaut)
     monkeypatch.setattr(wd, "RESTART_STOP_SLEEP_S", 0)
     return wd
