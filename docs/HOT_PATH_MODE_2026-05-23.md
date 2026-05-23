@@ -44,7 +44,7 @@ Le `feed_watchdog` durcit ses seuils quand position ouverte :
 
 Le `feed_watchdog.py:258` skip TOUS les checks en weekend. En Hot Path, le skip est conditionné à `len(open_positions) == 0`. Une position qui traverse le weekend → surveillance normale + auto-restart possible.
 
-Note : crypto cTrader fermé en weekend = `ReconcileReq` répond quand même (broker online, feed quote fermé). On garde la veille sur canaux #2 et #3 même sans tick #1.
+Note : crypto cTrader fermé en weekend = `ReconcileReq` répond quand même (broker online, feed quote fermé). On garde la veille sur canaux #2 et #3 même sans tick #1. Sessions cTrader weekend acceptées mais erratiques (login/reconnect intermittents) → auto-restart désactivé en weekend même si feed_stale dépasse le seuil.
 
 ### Mécanisme D — Cooldowns adaptés
 
@@ -71,10 +71,11 @@ Chaque étape est une PR indépendante, testable séparément, déployable sans 
 
 | Étape | Task | Périmètre | Statut |
 |---|---|---|---|
-| 1 | #35 | Heartbeat ReconcileReq 60s + détection "position absente broker" → alerte URGENT | 🛠️ en cours (2026-05-23) |
-| 2 | #36 | Skip weekend conditionné à 0 position dans `feed_watchdog` | ⏸ après #35 |
+| 1 | #35 | Heartbeat ReconcileReq 60s + détection "position absente broker" → alerte URGENT | ✅ livré 2026-05-23 (activé en prod 18:12 CEST) |
+| 2 | #36 | Skip weekend conditionné à 0 position dans `feed_watchdog` | ✅ livré 2026-05-23 |
 | 3 | #37 | SL-divergence check via ReconcileReq | ⏸ après #35 |
 | 4 | #38 | Seuils feed durcis + cooldowns adaptés en mode hot | ⏸ après #35-#37 |
+| 5 | #39 | Escalator restart sur canal trading cTrader mort (≥2 reconnect échec en 5 min) | ⏸ après #37+#38 + observation #35 |
 
 ---
 
@@ -127,6 +128,17 @@ Plus 1 fichier de tests :
   - `config/settings.yaml` : section commentée `broker_reconcile_active: false` (à passer à `true` après validation manuelle 24h, comme pour le BE polling).
   - 178/178 tests verts (12 nouveaux + 166 existants).
 - **Validation requise avant activation** : (a) revoir le wiring sur un fork dev pendant une session de marché ouvert ; (b) confirmer que le log INFO `[Monitor] 🩺 reconcile broker actif` apparaît bien dès une 1ʳᵉ position ; (c) confirmer que le log INFO `[Monitor] 🩺 reconcile broker arrêté (plus de positions)` tombe à la fermeture de la dernière position. Une fois ces 3 invariants observés, basculer `broker_reconcile_active: true` et restart engine.
+- **15:30 UTC — Étape 2 livrée (TDD red→green)**. Skip weekend dans `feed_watchdog` désormais conditionné à `_open_positions_count() == 0`. Le watchdog lit `logs/position_monitor_state.json` (state file partagé écrit immédiatement par `LivePositionMonitor.register_position()` / `unregister_position()` — pré-requis livré aussi, 5 tests dans `tests/test_position_monitor_state_persistence.py`). Modifications :
+  - `scripts/feed_watchdog.py` : nouvelle constante `POSITIONS_STATE`, helper `_open_positions_count()` fail-safe (retourne 0 si absent/corrompu), branche weekend de `main()` réécrite : 0 position → comportement historique (`weekend_guard`, skip total) ; ≥ 1 position → flag `weekend_with_positions=True`, checks BarAggregator/alertes normaux. Statut écrit `weekend_guard_with_positions:ok age=Ns open=N` quand OK.
+- **16:10 UTC — Étape 2 BIS : refinement backoff (correction user)**. Initial design désactivait totalement l'auto-restart en weekend+position. User a corrigé : cTrader accepte les sessions weekend, juste erratiques. On garde le filet du restart mais avec **backoff progressif**. Modifications :
+  - `scripts/feed_watchdog.py` : nouvelles constantes `WEEKEND_BACKOFF_THRESHOLDS_MIN=[30,60,120,240]`, `WEEKEND_RESTART_MAX_24H=4`, `WEEKEND_BACKOFF_WINDOW_S=86400`. Helper `_recent_weekend_restart_count(now, 24h)` filtre par tag `weekend=True` dans `RESTART_HISTORY`. `_attempt_auto_restart` et `_append_restart_history` acceptent un kwarg `weekend=False`. Branche weekend de `main()` : si N≥4 → anti-boucle URGENT distincte (outcome `skipped_weekend_backoff`) ; sinon seuil persistance = `WEEKEND_BACKOFF_THRESHOLDS_MIN[N]` min ; restart fire avec tag `weekend=True`.
+  - `tests/test_feed_watchdog_weekend_backoff.py` (nouveau, 15 tests) : invariants courbe backoff, cap 24h, exclusion entrées weekday, fenêtre 24h glissante, comptage failed restarts. Test 7 du fichier `test_feed_watchdog_weekend_with_positions.py` réécrit (de "no autorestart" à "1er restart au seuil standard").
+  - **Schéma final** : 30 → 60 → 120 → 240 min (cap), puis anti-boucle URGENT. Cumulé ~7h de surveillance active avant escalade humaine. Backoff calculé sur 24h glissantes → relance naturelle après ~1 jour sans incident.
+  - `arabesque/execution/position_monitor.py` : persistance immédiate déjà en place via `save_state()` appelé dans `register_position()` / `unregister_position()` (sémantique "vide = absent" : fichier supprimé quand 0 position).
+  - **38 tests verts cumulés** : 8 Hot Path #2 (skip conditionnel) + 15 Hot Path #2 bis (backoff weekend) + 5 persistance state file + 11 non-régression autorestart. **205/205 suite globale verte.** (Post-review neutre 18:00 UTC : +2 tests end-to-end propagation tag weekend + isolation compteur weekday → **207/207** suite globale finale ; +1 fix `_recent_restart_count` filtre `weekend=True`.)
+  - **Pas de config flag** : Hot Path #2 + bis actifs immédiatement (pas de risque — comportement strictement plus surveillant que l'ancien, jamais moins ; backoff plus conservateur que la cadence weekday).
+- **Validation post-déploiement** : (a) observer une position qui traverse vendredi 21:00 UTC → confirmer que le watchdog continue d'émettre `last_status=weekend_guard_with_positions:...` au lieu de `weekend_guard` ; (b) à la fermeture broker-side de la position, confirmer que le cycle suivant repasse à `weekend_guard` (sémantique fichier absent = 0 position) ; (c) si feed_stale est détecté en weekend avec position, confirmer alerte sans auto-restart.
+- **18:30 UTC — Décision : pas d'auto-restart sur trigger "position absente broker"**. Question user : faut-il restart le service quand 3 cycles consécutifs ReconcileReq détectent une position absente ? **Rejeté** : (a) 3 réponses ReconcileReq reçues prouvent que le canal trading fonctionne ; (b) la position est vraiment partie côté broker, le restart ne la récupère pas ; (c) le tracking local est déjà nettoyé par `_emit_position_missing_broker` ; (d) le restart est disruptif pour les autres aggregators et positions sur l'autre broker ; (e) cas TP touché → notif "restart auto" sur succès induirait l'humain en erreur. **Acté à la place** : task #39 (Hot Path #5) — escalator restart sur `_try_reconnect_for_order` échouant ≥2 fois en 5 min (= canal trading mort). C'est là que le restart répare quelque chose. Mécanisme : marqueur dans `feed_watchdog_state.json` que le watchdog consomme à l'itération suivante, avec cooldown 10 min. **Implémentation différée** après observation 24-48h de #35 + livraison #37/#38 (cohérence avec feedback_phase4_focus : focus stabilisation).
 - **(à compléter au fur et à mesure)**
 
 ---
@@ -138,6 +150,6 @@ Plus 1 fichier de tests :
 | Étape | Date restart | PID engine | Vérif log invariant | Notif Telegram |
 |---|---|---|---|---|
 | #35 | — | — | `[Monitor] 🩺 reconcile broker actif` (au start si position ouverte) ; silence sinon | — |
-| #36 | — | — | `[Watchdog] weekend_guard skipped (1 open position)` ou `weekend_guard active (0 positions)` | — |
+| #36 | — | — | `feed_watchdog_state.json` : `last_status=weekend_guard` quand 0 position vs `weekend_guard_with_positions:ok age=Ns open=N` quand ≥1 position ouverte | — |
 | #37 | — | — | (silence en régime normal) | — |
 | #38 | — | — | `[Monitor] hot path thresholds engaged` au registre position | — |

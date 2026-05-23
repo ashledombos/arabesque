@@ -53,7 +53,10 @@ live:
   # Telegram+ntfy + retrait du tracking. Polling stoppe automatiquement
   # quand `_positions` redevient vide (pas de coût en régime idle).
   # Voir docs/HOT_PATH_MODE_2026-05-23.md pour le plan complet (4 étapes).
-  broker_reconcile_active: false       # à activer après validation manuelle (24h test)
+  # Activé 2026-05-23 après validation 178/178 tests + lecture de l'audit
+  # cTrader FTMO Challenge. Rollback simple : repasser à false + restart engine.
+  # Effet immédiat à la prochaine ouverture de position cTrader.
+  broker_reconcile_active: true
   broker_reconcile_interval_s: 60
   broker_reconcile_timeout_s: 10
   broker_reconcile_missing_threshold: 3
