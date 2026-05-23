@@ -197,6 +197,10 @@ class LiveEngine:
                 await self._position_monitor.stop_be_polling()
             except Exception as e:
                 logger.warning(f"[Engine] be_polling stop error: {e}")
+            try:
+                await self._position_monitor.stop_broker_reconcile()
+            except Exception as e:
+                logger.warning(f"[Engine] broker_reconcile stop error: {e}")
         # Sauvegarder l'état du position monitor AVANT de déconnecter
         if self._position_monitor:
             try:
@@ -512,12 +516,51 @@ class LiveEngine:
             asyncio.ensure_future(self._live_monitor._notify_telegram(msg))
             asyncio.ensure_future(self._live_monitor._notify_ntfy(msg))
 
+        # Hot Path #1 (incident DASHUSD 2026-05-21) — alerte URGENT quand le
+        # broker confirme qu'une position locale n'existe plus côté serveur
+        # après ``broker_reconcile_missing_threshold`` cycles consécutifs.
+        # Pas de cooldown : 1 seul event par position (retrait immédiat).
+        def on_position_missing_broker(payload: dict):
+            if not self._live_monitor:
+                return
+            sym = payload.get("symbol", "?")
+            pid = payload.get("position_id", "?")
+            bid = payload.get("broker_id", "?")
+            entry = payload.get("entry", 0.0)
+            sl = payload.get("sl", 0.0)
+            mfe = payload.get("mfe_r", 0.0)
+            be = payload.get("breakeven_set", False)
+            cycles = payload.get("missing_cycles", 0)
+            msg = (
+                f"🚨 URGENT — position absente broker — {sym} ({bid})\n"
+                f"position_id={pid} side={payload.get('side', '?')}\n"
+                f"entry={entry:.5f} SL={sl:.5f} MFE_max={mfe:.2f}R "
+                f"BE={'oui' if be else 'non'}\n"
+                f"absente depuis {cycles} cycles ReconcileReq consécutifs\n"
+                f"→ fermée broker-side à notre insu (SL/TP touché, "
+                f"close manuel ou liquidation) ; lance /suivi pour reconstituer"
+            )
+            asyncio.ensure_future(self._live_monitor._notify_telegram(msg))
+            asyncio.ensure_future(self._live_monitor._notify_ntfy(msg))
+
         live_cfg = self.settings.get("live", {}) or {}
         monitor_cfg = MonitorConfig(
             be_polling_enabled=bool(live_cfg.get("be_polling_backup", False)),
             be_polling_interval_s=float(live_cfg.get("be_polling_interval_s", 60.0)),
             be_polling_freshness_threshold_s=float(
                 live_cfg.get("be_polling_freshness_threshold_s", 300.0)
+            ),
+            broker_reconcile_enabled=bool(
+                live_cfg.get("broker_reconcile_active", False)
+            ),
+            broker_reconcile_interval_s=float(
+                live_cfg.get("broker_reconcile_interval_s", 60.0)
+            ),
+            broker_reconcile_timeout_s=float(
+                live_cfg.get("broker_reconcile_timeout_s", 10.0)
+            ),
+            broker_reconcile_missing_threshold=int(
+                live_cfg.get("broker_reconcile_missing_threshold", 3)
             ),
         )
         monitor = LivePositionMonitor(
@@ -526,6 +569,7 @@ class LiveEngine:
             on_position_closed=on_closed,
             on_audit_event=on_audit,
             on_amend_abandoned=on_amend_abandoned,
+            on_position_missing_broker=on_position_missing_broker,
         )
         if monitor_cfg.be_polling_enabled:
             logger.info(

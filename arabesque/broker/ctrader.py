@@ -1852,6 +1852,45 @@ class CTraderBroker(BaseBroker):
         await self.get_pending_orders()
         return self._positions
 
+    async def list_open_positions_proto(
+        self, timeout_s: float = 10.0
+    ) -> Optional[List[Position]]:
+        """Heartbeat broker pour Hot Path Mode (incident DASHUSD 2026-05-21).
+
+        Variante de ``get_positions()`` qui distingue clairement :
+          - ``None``       : broker injoignable / timeout / reconnect échoué
+                             (canal trading silencieux — pas de preuve d'état)
+          - ``list[]``     : broker a répondu, 0 position ouverte
+          - ``list[...]``  : broker a répondu avec N positions
+
+        Cette distinction est critique côté ``LivePositionMonitor`` : un
+        ``[]`` impacte le compteur ``broker_missing_cycles`` des positions
+        locales (preuve d'absence), un ``None`` ne touche aucun compteur
+        position (juste le compteur global de canal mort).
+
+        ``timeout_s`` est plus court que les 15s par défaut de
+        ``get_pending_orders()`` pour ne pas bloquer la boucle 60s en cas
+        de canal silencieux.
+        """
+        if not self._connected:
+            if not await self._try_reconnect_for_order("hot_path_reconcile"):
+                return None
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        self._pending_requests["reconcile"] = future
+        req = ProtoOAReconcileReq()
+        req.ctidTraderAccountId = self.account_id
+        self._send_via_reactor(req)
+        try:
+            await asyncio.wait_for(future, timeout=timeout_s)
+            return list(self._positions)
+        except asyncio.TimeoutError:
+            self._pending_requests.pop("reconcile", None)
+            return None
+        except Exception:
+            self._pending_requests.pop("reconcile", None)
+            return None
+
     async def amend_position_sltp(
         self, position_id: str,
         stop_loss: Optional[float] = None,

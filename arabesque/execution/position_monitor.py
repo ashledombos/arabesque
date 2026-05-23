@@ -60,6 +60,11 @@ class TrackedPosition:
     _skip_count: int = 0              # Compteur de skips (anti-spam log)
     missing_cycles: int = 0           # Cycles reconcile consécutifs où la position est absente de get_positions()
     last_amend_alert_time: float = 0.0  # Dernière notif "ABANDONED" envoyée (anti-spam)
+    # Hot Path #1 — compteur dédié à la boucle broker_reconcile 60s (distinct
+    # de missing_cycles qui est consommé par reconcile() 120s avec fallback
+    # de retrait forcé). Ici on alerte URGENT à 3 cycles consécutifs puis on
+    # retire la position du tracking (anti-spam par retrait, pas par cooldown).
+    broker_missing_cycles: int = 0
 
     @property
     def R(self) -> float:
@@ -120,6 +125,15 @@ class MonitorConfig:
     # "ABANDONED" amend SL, avec cooldown 30 min par position pour éviter le
     # spam quand le canal trading reste mort pendant des heures.
     amend_alert_cooldown_s: float = 1800.0
+    # Hot Path #1 (incident DASHUSD 2026-05-21) — heartbeat ReconcileReq actif
+    # dès qu'une position est ouverte. Sert à détecter qu'une position locale
+    # n'existe plus côté broker (fermée à notre insu, ex: SL touché pendant
+    # silence trading channel). 3 cycles d'absence consécutifs → alerte URGENT.
+    # Désactivé par défaut, activé via config/settings.yaml::live.broker_reconcile_active.
+    broker_reconcile_enabled: bool = False
+    broker_reconcile_interval_s: float = 60.0
+    broker_reconcile_timeout_s: float = 10.0
+    broker_reconcile_missing_threshold: int = 3
 
 
 class LivePositionMonitor:
@@ -139,6 +153,7 @@ class LivePositionMonitor:
         on_position_closed: Optional[callable] = None,
         on_audit_event: Optional[Callable[[dict], None]] = None,
         on_amend_abandoned: Optional[Callable[[dict], None]] = None,
+        on_position_missing_broker: Optional[Callable[[dict], None]] = None,
     ):
         self._brokers = brokers
         self._cfg = config or MonitorConfig()
@@ -152,6 +167,13 @@ class LivePositionMonitor:
         # amend_failures, mfe_r}. Le callback est responsable du cooldown
         # cross-position ; le monitor gère seulement le cooldown par position.
         self._on_amend_abandoned = on_amend_abandoned
+        # Hot Path #1 — callback URGENT déclenché quand une position locale
+        # est absente côté broker pendant ``broker_reconcile_missing_threshold``
+        # cycles consécutifs. Payload : {broker_id, position_id, symbol, side,
+        # entry, sl, mfe_r, breakeven_set, trailing_tier, missing_cycles}.
+        # Pas de cooldown — la position est retirée du tracking après l'event
+        # (anti-spam par retrait, pas par fenêtre temporelle).
+        self._on_position_missing_broker = on_position_missing_broker
         # Trier trailing tiers du plus haut au plus bas
         self._cfg.trailing_tiers.sort(key=lambda t: t[0], reverse=True)
         # Orphan tracking: {broker_id:position_id -> first_seen_timestamp}
@@ -160,6 +182,11 @@ class LivePositionMonitor:
         # Phase 2.5 — boucle polling backup BE
         self._be_polling_task: Optional[asyncio.Task] = None
         self._be_polling_stop: Optional[asyncio.Event] = None
+        # Hot Path #1 — boucle heartbeat broker (ReconcileReq périodique)
+        self._broker_reconcile_task: Optional[asyncio.Task] = None
+        self._broker_reconcile_stop: Optional[asyncio.Event] = None
+        # Compteur de timeouts/None consécutifs côté broker (canal mort)
+        self._broker_reconcile_consecutive_timeouts: int = 0
 
     @property
     def open_positions(self) -> List[TrackedPosition]:
@@ -282,6 +309,9 @@ class LivePositionMonitor:
             f"entry={entry:.{digits}f} SL={sl:.{digits}f} TP={tp:.{digits}f} "
             f"R={pos.R:.{digits}f} ({broker_id}:{position_id})"
         )
+        # Hot Path #1 — auto-démarre la boucle broker_reconcile dès la
+        # première position trackée (no-op si déjà en route ou désactivée).
+        self._maybe_start_broker_reconcile()
         return pos
 
     def unregister_position(self, broker_id: str, position_id: str):
@@ -658,6 +688,220 @@ class LivePositionMonitor:
             self._on_audit_event(payload)
         except Exception as e:
             logger.debug(f"[Monitor] be_polling audit emit error: {e}")
+
+    # ------------------------------------------------------------------
+    # Hot Path #1 — heartbeat ReconcileReq 60s (incident DASHUSD 2026-05-21)
+    # ------------------------------------------------------------------
+
+    def _maybe_start_broker_reconcile(self) -> None:
+        """Démarre la boucle si activée et pas déjà en cours.
+
+        Appelé après chaque ``register_position()`` ; idempotent.
+        """
+        if not self._cfg.broker_reconcile_enabled:
+            return
+        if self._broker_reconcile_task and not self._broker_reconcile_task.done():
+            return
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            return  # pas de loop courante (cas hors live)
+        if not loop.is_running():
+            return  # idem : on n'utilise pas create_task hors live
+        self._broker_reconcile_stop = asyncio.Event()
+        self._broker_reconcile_consecutive_timeouts = 0
+        self._broker_reconcile_task = asyncio.create_task(
+            self._broker_reconcile_loop(),
+            name="broker_reconcile_loop",
+        )
+        logger.info(
+            f"[Monitor] 🩺 reconcile broker actif "
+            f"(interval={self._cfg.broker_reconcile_interval_s}s, "
+            f"timeout={self._cfg.broker_reconcile_timeout_s}s, "
+            f"missing_threshold={self._cfg.broker_reconcile_missing_threshold})"
+        )
+
+    async def stop_broker_reconcile(self) -> None:
+        """Annule la boucle proprement (signal + cancel + await)."""
+        task = self._broker_reconcile_task
+        if not task:
+            return
+        if self._broker_reconcile_stop is not None:
+            self._broker_reconcile_stop.set()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.warning(f"[Monitor] broker_reconcile stop : exception ignorée: {e}")
+        self._broker_reconcile_task = None
+        self._broker_reconcile_stop = None
+
+    async def _broker_reconcile_loop(self) -> None:
+        """Boucle interne. Réveil toutes les
+        ``broker_reconcile_interval_s`` secondes ; s'arrête d'elle-même
+        quand ``_positions`` devient vide (anti-coût inutile)."""
+        interval = self._cfg.broker_reconcile_interval_s
+        stop_evt = self._broker_reconcile_stop
+        assert stop_evt is not None
+
+        try:
+            while not stop_evt.is_set():
+                # Sleep interruptible
+                try:
+                    await asyncio.wait_for(stop_evt.wait(), timeout=interval)
+                    break
+                except asyncio.TimeoutError:
+                    pass
+                if stop_evt.is_set():
+                    break
+
+                # Auto-stop quand plus rien à surveiller
+                if not self._positions:
+                    logger.info(
+                        "[Monitor] 🩺 reconcile broker arrêté (plus de positions)"
+                    )
+                    break
+
+                try:
+                    await self._broker_reconcile_pass()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.warning(
+                        f"[Monitor] broker_reconcile pass error (loop continues): {e}"
+                    )
+                    continue
+        except asyncio.CancelledError:
+            raise
+        finally:
+            # Auto-cleanup en sortie de boucle pour que _maybe_start puisse
+            # ré-armer proprement si une nouvelle position s'ouvre plus tard
+            self._broker_reconcile_task = None
+            self._broker_reconcile_stop = None
+
+    async def _broker_reconcile_pass(self) -> None:
+        """Un passage : interroge chaque broker concerné une fois.
+
+        Le résultat de ``list_open_positions_proto`` est :
+          - ``None`` → broker injoignable / timeout → log WARNING (ou ERROR
+            après ``missing_threshold`` cycles consécutifs), AUCUN compteur
+            position incrémenté (on n'a pas la preuve d'absence)
+          - liste (peut être vide) → comparaison avec ``_tracked_positions``
+            par broker : toute position locale absente incrémente son
+            ``broker_missing_cycles`` ; toute position locale présente
+            réinitialise son compteur ; à ``missing_threshold`` cycles
+            l'alerte URGENT tombe + retrait du tracking.
+        """
+        # Grouper par broker
+        by_broker: Dict[str, List[str]] = {}
+        for key, pos in self._positions.items():
+            by_broker.setdefault(pos.broker_id, []).append(key)
+
+        for broker_id, keys in by_broker.items():
+            broker = self._brokers.get(broker_id)
+            if broker is None:
+                continue
+            list_fn = getattr(broker, "list_open_positions_proto", None)
+            if list_fn is None:
+                # Broker ne supporte pas le protocole heartbeat (TradeLocker
+                # n'a pas encore d'implémentation native) — silence, on
+                # laisse la reconcile() 120s faire son job classique.
+                continue
+
+            try:
+                broker_positions = await list_fn(
+                    timeout_s=self._cfg.broker_reconcile_timeout_s
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning(
+                    f"[Monitor] reconcile broker {broker_id}: appel échoué: {e}"
+                )
+                broker_positions = None
+
+            if broker_positions is None:
+                # Canal broker silencieux. On compte les cycles consécutifs.
+                self._broker_reconcile_consecutive_timeouts += 1
+                threshold = self._cfg.broker_reconcile_missing_threshold
+                if self._broker_reconcile_consecutive_timeouts >= threshold:
+                    logger.error(
+                        f"[Monitor] 🚨 reconcile broker {broker_id} : "
+                        f"{self._broker_reconcile_consecutive_timeouts} "
+                        f"timeouts consécutifs — canal trading probablement mort"
+                    )
+                else:
+                    logger.warning(
+                        f"[Monitor] ⚠️ reconcile broker {broker_id} : "
+                        f"timeout ou injoignable "
+                        f"(cycle {self._broker_reconcile_consecutive_timeouts}"
+                        f"/{threshold})"
+                    )
+                # Ne touche AUCUN compteur position (pas de preuve d'absence)
+                continue
+
+            # Le broker a répondu — reset compteur global de timeouts
+            self._broker_reconcile_consecutive_timeouts = 0
+            broker_pos_ids = {str(p.position_id) for p in broker_positions}
+
+            for key in keys:
+                pos = self._positions.get(key)
+                if pos is None:
+                    continue
+                if pos.position_id in broker_pos_ids:
+                    pos.broker_missing_cycles = 0
+                    continue
+                # Position locale absente côté broker
+                pos.broker_missing_cycles += 1
+                threshold = self._cfg.broker_reconcile_missing_threshold
+                if pos.broker_missing_cycles < threshold:
+                    logger.info(
+                        f"[Monitor] ⏳ reconcile broker {broker_id} : "
+                        f"position {pos.symbol} {pos.position_id} absente "
+                        f"({pos.broker_missing_cycles}/{threshold}) — on re-vérifie"
+                    )
+                    continue
+                # Seuil atteint → alerte URGENT + retrait
+                self._emit_position_missing_broker(pos)
+                self._positions.pop(key, None)
+
+    def _emit_position_missing_broker(self, pos: TrackedPosition) -> None:
+        """Construit le payload URGENT et invoque le callback enregistré.
+
+        Le log ERROR est toujours émis (même si pas de callback wiré) pour
+        garantir une trace dans journalctl.
+        """
+        logger.error(
+            f"[Monitor] 🚨 URGENT — position absente broker : "
+            f"{pos.symbol} {pos.position_id} ({pos.broker_id}) "
+            f"après {pos.broker_missing_cycles} cycles consécutifs "
+            f"— fermée broker-side à notre insu "
+            f"(entry={pos.entry:.{pos.digits}f} sl={pos.sl:.{pos.digits}f} "
+            f"mfe={pos.mfe_r:.2f}R be={'oui' if pos.breakeven_set else 'non'})"
+        )
+        if self._on_position_missing_broker is None:
+            return
+        try:
+            self._on_position_missing_broker({
+                "broker_id": pos.broker_id,
+                "position_id": pos.position_id,
+                "symbol": pos.symbol,
+                "side": pos.side.value,
+                "entry": pos.entry,
+                "sl": pos.sl,
+                "sl_initial": pos.sl_initial,
+                "tp": pos.tp,
+                "mfe_r": round(pos.mfe_r, 4),
+                "breakeven_set": pos.breakeven_set,
+                "trailing_tier": pos.trailing_tier,
+                "missing_cycles": pos.broker_missing_cycles,
+            })
+        except Exception as cb_exc:
+            logger.warning(
+                f"[Monitor] on_position_missing_broker callback failed: {cb_exc}"
+            )
 
     async def _check_breakeven(self, pos: TrackedPosition, current_price: float):
         """Si MFE >= 0.3R → déplacer SL à entry + 0.20R."""

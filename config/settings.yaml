@@ -46,6 +46,18 @@ live:
   be_polling_interval_s: 60          # tick toutes les 60s
   be_polling_freshness_threshold_s: 300  # skip quote si > 5min (stale)
 
+  # Hot Path #1 (incident DASHUSD 2026-05-21) — heartbeat ReconcileReq actif
+  # toutes les 60s dès qu'au moins une position est ouverte. Détecte qu'une
+  # position locale n'existe plus côté broker (fermée à notre insu pendant
+  # silence trading channel). 3 cycles d'absence consécutifs → alerte URGENT
+  # Telegram+ntfy + retrait du tracking. Polling stoppe automatiquement
+  # quand `_positions` redevient vide (pas de coût en régime idle).
+  # Voir docs/HOT_PATH_MODE_2026-05-23.md pour le plan complet (4 étapes).
+  broker_reconcile_active: false       # à activer après validation manuelle (24h test)
+  broker_reconcile_interval_s: 60
+  broker_reconcile_timeout_s: 10
+  broker_reconcile_missing_threshold: 3
+
 # -----------------------------------------------------------------------------
 # RODAGE — Prudence renforcée pour les stratégies non validées en live
 # Multiplicateur appliqué au risk_cash pour les stratégies listées.
