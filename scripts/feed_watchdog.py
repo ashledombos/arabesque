@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 import json
+import os
 import re
 import subprocess
 import sys
@@ -69,6 +70,13 @@ WEEKEND_BACKOFF_WINDOW_S = 24 * 3600
 WEEKEND_GUARD_FRI_HOUR = 21           # vendredi 21:00 UTC → debut weekend
 WEEKEND_GUARD_SUN_HOUR = 22           # dimanche 22:00 UTC → fin weekend
 
+# Task #40 patch #3 — seuil mtime POSITIONS_STATE. En fonctionnement normal,
+# le fichier est touché par LivePositionMonitor à chaque register/unregister
+# + checkpoint (cadence ~60-120s via BE polling / broker_reconcile). Au-delà
+# de 10 min sans réécriture alors que le fichier existe → monitor probablement
+# mort silencieusement.
+POSITIONS_STATE_STALE_S = 600
+
 BAR_PATTERN = re.compile(
     r"^(\w{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2}).*BarAggregator.*Résumé"
 )
@@ -97,46 +105,96 @@ def _is_weekend_utc(now: dt.datetime) -> bool:
     return False
 
 
-def _open_positions_count() -> int:
-    """Nombre de positions ouvertes lu depuis le state file partagé du
-    ``LivePositionMonitor`` (cf. ``arabesque/execution/position_monitor.py``).
+def _open_positions_count() -> tuple[int, bool]:
+    """Lit le state file partagé du ``LivePositionMonitor``
+    (cf. ``arabesque/execution/position_monitor.py``).
 
-    Sémantique :
-      - Fichier absent → 0 (sémantique "vide = absent" écrite par
-        ``LivePositionMonitor.save_state``).
-      - Fichier valide → ``len(dict)`` (1 entrée par position trackée).
-      - Fichier corrompu / illisible → 0 (fail-safe silencieux).
+    Retourne ``(count, corrupted)`` :
+      - Fichier absent → ``(0, False)`` (sémantique "vide = absent" écrite par
+        ``LivePositionMonitor.save_state`` quand ``_positions`` se vide).
+      - Fichier JSON dict valide → ``(len(dict), False)``.
+      - Fichier corrompu (parse error) ou non-dict → ``(0, True)``.
 
-    Le fail-safe préfère sous-surveiller (skip weekend à tort) que spammer
-    en cas de bug de lecture — le Hot Path #1 (broker_reconcile) continue de
-    couvrir la position côté engine si elle est vraiment ouverte.
+    Task #40 patch #1 — bascule fail-safe → fail-loud. Le caller doit
+    présumer hot path (surveillance feed active) quand ``corrupted=True``
+    plutôt que skip silencieusement le weekend. Régression directe vs
+    incident DASHUSD 2026-05-20 : un fail-safe qui retourne 0 en cas de
+    corruption fait skip le weekend pile quand il faut rester actif.
     """
     if not POSITIONS_STATE.exists():
-        return 0
+        return 0, False
     try:
         data = json.loads(POSITIONS_STATE.read_text())
     except Exception:
-        return 0
+        return 0, True
     if not isinstance(data, dict):
-        return 0
-    return len(data)
+        return 0, True
+    return len(data), False
+
+
+def _positions_state_age_seconds(now: dt.datetime) -> int | None:
+    """Task #40 patch #3 — âge en secondes du fichier ``POSITIONS_STATE``.
+
+    Retourne ``None`` si le fichier est absent (= sémantique légitime "0
+    position" écrite par ``LivePositionMonitor.save_state``). Retourne
+    ``int >= 0`` si le fichier existe.
+
+    Utilisé par ``main()`` pour détecter un ``LivePositionMonitor`` mort
+    silencieusement : fichier figé depuis > ``POSITIONS_STATE_STALE_S``
+    alors que des positions sont trackées dedans (cf invariant 5 de
+    ``tests/test_feed_watchdog_positions_state_mtime.py``).
+    """
+    if not POSITIONS_STATE.exists():
+        return None
+    try:
+        mtime = POSITIONS_STATE.stat().st_mtime
+    except OSError:
+        return None
+    age = (now.timestamp() - mtime)
+    return max(0, int(age))
 
 
 def _engine_active() -> bool:
-    r = subprocess.run(
-        ["systemctl", "--user", "is-active", "arabesque-live.service"],
-        capture_output=True, text=True,
-    )
+    """Task #40 patch #2 — ``timeout=5`` sur ``systemctl is-active``. Si
+    systemd freeze (dbus bloqué, OOM), retourne ``False`` (fail-safe :
+    traité comme engine_inactive, branche sans danger)."""
+    try:
+        r = subprocess.run(
+            ["systemctl", "--user", "is-active", "arabesque-live.service"],
+            capture_output=True, text=True, timeout=5,
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            "[feed_watchdog] WARNING: systemctl is-active timeout (5s) — "
+            "presuming engine_inactive",
+            file=sys.stderr,
+        )
+        return False
     return r.stdout.strip() == "active"
 
 
 def _last_bar_age_seconds(now: dt.datetime) -> int | None:
-    """Retourne l'âge en secondes de la dernière `BarAggregator Résumé`, ou None."""
-    r = subprocess.run(
-        ["journalctl", "--user", "-u", "arabesque-live.service",
-         "--since", "30 minutes ago", "--no-pager"],
-        capture_output=True, text=True,
-    )
+    """Retourne l'âge en secondes de la dernière `BarAggregator Résumé`, ou None.
+
+    Task #40 patch #2 — ``timeout=10`` sur ``journalctl``. Sur un journal
+    chargé, ``--since "30 minutes ago"`` peut prendre 1-3s ; 10s laisse une
+    marge. En cas de freeze (journal corrompu, mmap lent), retourne ``None``
+    (fail-safe : traité comme ``no_bar_data_in_window``, notif normale sans
+    auto-restart).
+    """
+    try:
+        r = subprocess.run(
+            ["journalctl", "--user", "-u", "arabesque-live.service",
+             "--since", "30 minutes ago", "--no-pager"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        print(
+            "[feed_watchdog] WARNING: journalctl timeout (10s) — "
+            "presuming no_bar_data_in_window",
+            file=sys.stderr,
+        )
+        return None
     if r.returncode != 0:
         return None
     last_ts: dt.datetime | None = None
@@ -174,8 +232,18 @@ def _read_state() -> dict:
 
 
 def _write_state(state: dict) -> None:
+    """Task #40 patch #4 — pattern atomique via ``os.replace``.
+
+    Sans ce pattern, un SIGKILL/OOM/disque plein au milieu de ``write_text``
+    laisse un JSON tronqué. ``_read_state`` retombe alors silencieusement sur
+    ``{}`` → perte de ``last_alert_ts`` (spam au prochain feed_stale),
+    ``feed_stale_since_ts`` (auto-restart Étage 3 reporté de 30 min), etc.
+    ``os.replace`` est atomique sur POSIX quand src/dst sont sur le même fs.
+    """
     STATE.parent.mkdir(exist_ok=True)
-    STATE.write_text(json.dumps(state, indent=2))
+    tmp = STATE.with_suffix(STATE.suffix + ".tmp")
+    tmp.write_text(json.dumps(state, indent=2))
+    os.replace(tmp, STATE)
 
 
 def _can_alert(state: dict, now: dt.datetime) -> bool:
@@ -348,24 +416,76 @@ def main() -> int:
     weekend_with_positions = False
     open_count = 0
     if _is_weekend_utc(now):
-        open_count = _open_positions_count()
-        if open_count == 0:
+        open_count, positions_state_corrupted = _open_positions_count()
+        if positions_state_corrupted:
+            # Task #40 patch #1 — fail-loud. State file corrompu/illisible :
+            # on ne peut pas dire si une position est ouverte. Présumer hot
+            # path (surveiller le feed) plutôt que skip silencieusement (=
+            # régression DASHUSD 2026-05-20). Notif URGENT à l'humain (sous
+            # cooldown _can_alert pour éviter le spam).
+            weekend_with_positions = True
+            open_count = max(open_count, 1)
+            state["positions_state_corrupted"] = True
+            state["open_positions_count"] = open_count
+            if _can_alert(state, now):
+                _send_alert(
+                    f"POSITIONS_STATE ({POSITIONS_STATE.name}) corrompu ou "
+                    f"illisible (non-dict). Watchdog presume hot path : "
+                    f"surveillance feed active meme en weekend. "
+                    f"Verifier le fichier (cat logs/position_monitor_state.json) "
+                    f"et le LivePositionMonitor (journalctl --user -u "
+                    f"arabesque-live | grep position_monitor).",
+                    "Feed Arabesque — state file corrompu",
+                    urgent=True,
+                )
+                state["last_alert_ts"] = now.isoformat()
+        elif open_count == 0:
             # Comportement historique : marché fermé, rien ouvert → skip total
             state["last_status"] = "weekend_guard"
             state.pop("feed_stale_since_ts", None)
             state.pop("open_positions_count", None)
+            state.pop("positions_state_corrupted", None)
             _write_state(state)
             return 0
-        # Hot Path #2 : ≥ 1 position traverse le weekend → surveillance active.
-        # Auto-restart desactive (cf gating plus bas) : cTrader accepte les
-        # sessions weekend mais leur comportement est erratique (feed quote
-        # ferme, login/reconnect intermittents). Un restart auto risque de
-        # patiner sans rien resoudre. On emet seulement l'alerte feed_stale
-        # et on laisse l'humain decider.
-        weekend_with_positions = True
-        state["open_positions_count"] = open_count
+        else:
+            # Hot Path #2 : ≥ 1 position traverse le weekend → surveillance active.
+            # Auto-restart desactive (cf gating plus bas) : cTrader accepte les
+            # sessions weekend mais leur comportement est erratique (feed quote
+            # ferme, login/reconnect intermittents). Un restart auto risque de
+            # patiner sans rien resoudre. On emet seulement l'alerte feed_stale
+            # et on laisse l'humain decider.
+            weekend_with_positions = True
+            state["open_positions_count"] = open_count
+            state.pop("positions_state_corrupted", None)
+
+            # Task #40 patch #3 — détection LivePositionMonitor mort
+            # silencieusement (fichier figé alors que des positions sont
+            # trackées dedans). Flag + notif URGENT, pas de changement de
+            # comportement décisionnel (le mode hot est déjà actif).
+            age_s_state = _positions_state_age_seconds(now)
+            if age_s_state is not None and age_s_state > POSITIONS_STATE_STALE_S:
+                state["positions_state_stale"] = True
+                state["positions_state_age_s"] = age_s_state
+                if _can_alert(state, now):
+                    _send_alert(
+                        f"POSITIONS_STATE ({POSITIONS_STATE.name}) fige depuis "
+                        f"{age_s_state // 60}min (seuil {POSITIONS_STATE_STALE_S // 60}min) "
+                        f"alors que {open_count} position(s) sont trackees dedans. "
+                        f"LivePositionMonitor probablement mort silencieusement. "
+                        f"Verifier journalctl --user -u arabesque-live | "
+                        f"grep position_monitor.",
+                        "Feed Arabesque — monitor positions fige",
+                        urgent=True,
+                    )
+                    state["last_alert_ts"] = now.isoformat()
+            else:
+                state.pop("positions_state_stale", None)
+                state.pop("positions_state_age_s", None)
     else:
         state.pop("open_positions_count", None)
+        state.pop("positions_state_corrupted", None)
+        state.pop("positions_state_stale", None)
+        state.pop("positions_state_age_s", None)
 
     age_s = _last_bar_age_seconds(now)
     state["last_bar_age_seconds"] = age_s

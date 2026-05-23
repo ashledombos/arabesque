@@ -27,13 +27,16 @@ Invariants verrouillés :
      weekend récent) → auto-restart fire au seuil standard 30 min, avec tag
      ``weekend=True`` dans l'historique. Backoff progressif assuré par les
      tests dédiés (``test_feed_watchdog_weekend_backoff.py``).
-  4. Helper ``_open_positions_count`` retourne 0 si state file absent.
-  5. Helper ``_open_positions_count`` retourne ``len(dict)`` si state file
-     valide.
-  6. Helper ``_open_positions_count`` retourne 0 (fail-safe silencieux) si
-     le state file est corrompu / illisible — on préfère sous-surveiller
-     que spammer en cas de bug de lecture (le Hot Path #1 broker_reconcile
-     continue de tourner côté engine si position vraiment ouverte).
+  4. Helper ``_open_positions_count`` retourne ``(0, False)`` si state file
+     absent (sémantique légitime "vide").
+  5. Helper ``_open_positions_count`` retourne ``(len(dict), False)`` si
+     state file valide.
+  6. Helper ``_open_positions_count`` retourne ``(0, True)`` si le state
+     file est corrompu / illisible. Task #40 patch #1 — bascule fail-safe →
+     fail-loud : le caller doit présumer hot path plutôt que skip weekend
+     (sinon régression DASHUSD). Voir
+     ``tests/test_feed_watchdog_positions_state_failloud.py`` pour les
+     invariants caller-side.
 """
 from __future__ import annotations
 
@@ -105,7 +108,7 @@ def _write_positions_state(path, positions: list[dict]):
 
 def test_open_positions_count_returns_zero_when_state_file_absent(watchdog):
     wd, _ = watchdog
-    assert wd._open_positions_count() == 0
+    assert wd._open_positions_count() == (0, False)
 
 
 def test_open_positions_count_reads_valid_state_file(watchdog):
@@ -114,15 +117,17 @@ def test_open_positions_count_reads_valid_state_file(watchdog):
         {"broker_id": "ftmo", "position_id": "P1", "symbol": "DASHUSD"},
         {"broker_id": "ftmo", "position_id": "P2", "symbol": "BTCUSD"},
     ])
-    assert wd._open_positions_count() == 2
+    assert wd._open_positions_count() == (2, False)
 
 
-def test_open_positions_count_failsafe_on_corrupted_file(watchdog):
-    """Fail-safe : un JSON corrompu → 0 (préfère sous-surveiller que spammer)."""
+def test_open_positions_count_failloud_on_corrupted_file(watchdog):
+    """Task #40 patch #1 — un JSON corrompu doit lever le flag
+    ``corrupted=True``. Le caller (main) bascule alors en hot path présumé
+    + notif URGENT plutôt que skip silencieusement (régression DASHUSD)."""
     wd, tmp_path = watchdog
     wd.POSITIONS_STATE.parent.mkdir(parents=True, exist_ok=True)
     wd.POSITIONS_STATE.write_text("{ not valid json")
-    assert wd._open_positions_count() == 0
+    assert wd._open_positions_count() == (0, True)
 
 
 # ---------------------------------------------------------------------------
