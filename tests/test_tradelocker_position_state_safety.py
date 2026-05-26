@@ -20,11 +20,12 @@ from arabesque.execution.position_monitor import LivePositionMonitor
 class _Api:
     def __init__(
         self, *, positions=None, orders=None, positions_error=None,
-        resolved_position_id=None,
+        orders_error=None, resolved_position_id=None,
     ):
         self.positions = positions
         self.orders = orders
         self.positions_error = positions_error
+        self.orders_error = orders_error
         self.resolved_position_id = resolved_position_id
 
     def get_all_positions(self):
@@ -33,6 +34,8 @@ class _Api:
         return self.positions
 
     def get_all_orders(self, history=True):
+        if self.orders_error:
+            raise self.orders_error
         return self.orders
 
     def get_position_id_from_order_id(self, order_id):
@@ -51,6 +54,13 @@ def test_get_positions_error_is_unknown_not_empty():
 
     with pytest.raises(ConnectionError, match="get_positions failed"):
         asyncio.run(broker.get_positions())
+
+
+def test_get_pending_orders_error_is_unknown_not_empty():
+    broker = _broker(_Api(orders_error=RuntimeError("HTTP 429 Too Many Requests")))
+
+    with pytest.raises(ConnectionError, match="get_pending_orders failed"):
+        asyncio.run(broker.get_pending_orders())
 
 
 def test_reconcile_preserves_tracked_position_when_tradelocker_query_fails():

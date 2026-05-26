@@ -454,7 +454,7 @@ class TradeLockerBroker(BaseBroker):
 
     async def get_pending_orders(self) -> List[PendingOrder]:
         if not self._api:
-            return []
+            raise ConnectionError("TradeLocker not connected while reading pending orders")
         try:
             orders_df = self._api.get_all_orders()
             if orders_df is None or orders_df.empty:
@@ -500,7 +500,7 @@ class TradeLockerBroker(BaseBroker):
             return pending
         except Exception as e:
             print(f"[TradeLocker] Error getting orders: {e}")
-            return []
+            raise ConnectionError(f"TradeLocker get_pending_orders failed: {e}") from e
 
     async def get_positions(self) -> List[Position]:
         if not self._api:

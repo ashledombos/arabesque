@@ -75,7 +75,8 @@ def test_refresh_records_snapshot_after_new_protection_level():
     engine = LiveEngine.__new__(LiveEngine)
     engine._brokers = {}
     engine._dispatcher = SimpleNamespace(
-        update_account_state=lambda state, broker_id="": None
+        update_account_state=lambda state, broker_id="": None,
+        invalidate_account_state=lambda broker_id: None,
     )
     engine._accounts_config = {}
     engine._position_monitor = None
@@ -85,6 +86,9 @@ def test_refresh_records_snapshot_after_new_protection_level():
 
     class _Broker:
         async def get_positions(self):
+            return []
+
+        async def get_pending_orders(self):
             return []
 
         async def get_account_info(self):
@@ -104,8 +108,12 @@ def test_refresh_records_snapshot_after_new_protection_level():
         def record_equity_snapshot(self, **kwargs):
             calls.append("snapshot")
 
+        def get_open_trades(self):
+            return []
+
     engine._brokers = {"gft_compte1": _Broker()}
     engine._live_monitor = _Monitor()
+    engine._pending_fills = {}
 
     asyncio.run(engine._refresh_account_state())
 

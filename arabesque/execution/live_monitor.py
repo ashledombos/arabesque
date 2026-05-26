@@ -551,7 +551,10 @@ class LiveMonitor:
             dd = s['total_dd_pct']
             pos = s['open_positions']
             part = f"{bid} ${s['balance']:.0f} ({dd:+.1f}%)"
-            if pos:
+            if not s.get("positions_known", True):
+                part += " pos?"
+                has_issue = True
+            elif pos:
                 part += f" {pos}pos"
             if level != ProtectionLevel.NORMAL:
                 part += f" [{level.value.upper()}]"
@@ -1126,6 +1129,7 @@ class LiveMonitor:
                 "broker_id": t.broker_id,
                 "position_id": t.position_id,
                 "ts_entry": t.ts_entry,
+                "risk_cash": t.risk_cash,
             }
             for t in self._open_trades.values()
         ]

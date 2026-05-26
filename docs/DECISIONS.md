@@ -3036,3 +3036,28 @@ utilise des identifiants d'ordre et de position distincts.
 - **Portee live** : correction de securite execution. Le moteur est arrete
   pendant l'integration ; redemarrage seulement apres tests et verification
   `0 position` sur FTMO et GFT.
+
+## Decision 2026-05-26 - reservations pending et etat risque fail-closed
+
+- **Constat de relecture** : un ordre `STOP/LIMIT` deja accepte et working
+  chez le broker n'entrait pas dans `open_risk_cash` ni dans le compteur
+  quotidien. Plusieurs ordres pouvaient donc se remplir ensemble apres avoir
+  chacun passe les guards. En outre, une erreur de lecture `get_positions()`
+  pendant le refresh recreait un `AccountState` a zero exposition.
+- **Decision** : le refresh reserve le `risk_cash` des pending connus, compte
+  les trades quotidiens par `(broker_id, trade_id)` avec dedup
+  `pending_order -> entry`, et somme le risque des positions ouvertes en
+  faisant correspondre leurs `position_id` au journal. Toute position
+  inconnue reserve un fallback conservateur de `400$`.
+- **Fail-closed** : une lecture positions/pending/journal indisponible invalide
+  l'etat risque du broker ; aucun nouvel ordre n'est emis jusqu'a un refresh
+  reussi. Un pending broker absent de l'etat local bloque egalement les
+  nouveaux ordres plutot que d'etre ignore.
+- **Expiration pending** : l'age de 24 h ne libere plus une reservation seul ;
+  le broker doit confirmer que l'ordre n'est plus working.
+- **Observabilite startup** : la notification de demarrage indique `pos?`
+  lorsque la lecture positions echoue, et la reconciliation ne conclut plus
+  abusivement `aucune position ouverte` si un broker est injoignable.
+- **Portee live** : correction de securite pre-ordre et de telemetrie. Le
+  moteur reste arrete ; ce patch ne constitue pas une autorisation de
+  redemarrage ni de passage automatique de `DANGER x0.25` a `CAUTION x0.50`.

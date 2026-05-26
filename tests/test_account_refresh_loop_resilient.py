@@ -161,6 +161,7 @@ def test_start_does_not_schedule_health_loop_before_running(monkeypatch):
     async def _runner():
         engine = LiveEngine({}, {}, {}, dry_run=False)
         seen_running = []
+        startup_steps = []
         blocker = asyncio.Event()
 
         class _PositionMonitor:
@@ -172,6 +173,12 @@ def test_start_does_not_schedule_health_loop_before_running(monkeypatch):
 
         async def no_op():
             return None
+
+        def load_pending():
+            startup_steps.append("pending_loaded")
+
+        async def refresh_after_pending():
+            assert startup_steps == ["pending_loaded"]
 
         async def connect_brokers():
             engine._brokers = {"fake": object()}
@@ -190,7 +197,8 @@ def test_start_does_not_schedule_health_loop_before_running(monkeypatch):
         monkeypatch.setattr(engine, "_start_bar_aggregator", no_op)
         monkeypatch.setattr(engine, "_start_price_feed", no_op)
         monkeypatch.setattr(engine, "_init_dd_tracking", no_op)
-        monkeypatch.setattr(engine, "_refresh_account_state", no_op)
+        monkeypatch.setattr(engine, "_load_pending_fills", load_pending)
+        monkeypatch.setattr(engine, "_refresh_account_state", refresh_after_pending)
         monkeypatch.setattr(engine, "_notify_startup_state", no_op)
         monkeypatch.setattr(engine, "_reconcile_existing_positions", yielding_reconcile)
         monkeypatch.setattr(engine, "_reconcile_missed_exits", no_op)

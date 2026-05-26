@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import Optional
 
 logger = logging.getLogger("arabesque.live.engine")
+TRADE_JOURNAL_PATH = Path("logs/trade_journal.jsonl")
 
 
 class LiveEngine:
@@ -142,6 +143,11 @@ class LiveEngine:
         # 6. Initialiser les balances de référence pour le DD
         await self._init_dd_tracking()
 
+        # Restaurer les réservations STOP/LIMIT avant le premier calcul de
+        # risque : sinon leurs order_id broker paraissent inconnus au refresh
+        # et le compte est bloqué à tort jusqu'au cycle suivant.
+        self._load_pending_fills()
+
         # 6b. État initial des comptes (peut déclencher CAUTION/DANGER)
         await self._refresh_account_state()
         # 6b-bis. Notification de démarrage (résumé tous comptes)
@@ -151,8 +157,6 @@ class LiveEngine:
             await self._reconcile_existing_positions()
             # 6c. Restaurer l'état sauvegardé (MFE, BE, trailing)
             self._position_monitor.load_state()
-            # 6c-bis. Restaurer les pending fills (STOP/LIMIT en attente)
-            self._load_pending_fills()
             # 6d. Détecter les trades fermés pendant le downtime
             await self._reconcile_missed_exits()
             # 6d-bis. Phase 2.5 — boucle backup BE indépendante du PriceFeed.
@@ -750,9 +754,21 @@ class LiveEngine:
                 changed = True
                 continue
 
-            # Pas trouvé : si > 24h, on considère expiré
+            # Pas trouvé : après 24h, ne libérer le budget que si le broker
+            # confirme que l'ordre n'est plus working. L'âge seul n'est pas
+            # une preuve qu'un STOP/LIMIT serveur a expiré.
             age = time.time() - info.get("ts_placed", time.time())
             if age > 24 * 3600:
+                try:
+                    pending_orders = await broker.get_pending_orders()
+                except Exception as e:
+                    logger.warning(
+                        f"[Engine] Pending expiry non confirme "
+                        f"{broker_id}:{order_id}: {e}"
+                    )
+                    continue
+                if any(str(order.order_id) == str(order_id) for order in pending_orders):
+                    continue
                 if self._live_monitor:
                     self._live_monitor.record_pending_expired(
                         broker_id, str(order_id), info["instrument"],
@@ -804,6 +820,7 @@ class LiveEngine:
         from arabesque.core.models import Side
 
         total = 0
+        unavailable_brokers: list[str] = []
         for broker_id, broker in self._brokers.items():
             try:
                 positions = await broker.get_positions()
@@ -882,6 +899,7 @@ class LiveEngine:
                     )
 
             except Exception as e:
+                unavailable_brokers.append(broker_id)
                 logger.error(
                     f"[Engine] Erreur réconciliation {broker_id}: {e}"
                 )
@@ -889,6 +907,11 @@ class LiveEngine:
         if total:
             logger.info(
                 f"[Engine] ✅ Réconciliation: {total} position(s) existante(s) enregistrée(s)"
+            )
+        elif unavailable_brokers:
+            logger.warning(
+                "[Engine] Réconciliation incomplète - état positions inconnu "
+                f"pour {unavailable_brokers}"
             )
         else:
             logger.info("[Engine] 📋 Réconciliation: aucune position ouverte")
@@ -1477,12 +1500,18 @@ class LiveEngine:
                     positions = await broker.get_positions()
                     open_positions = len(positions)
                     open_instruments = [p.symbol for p in positions]
-                    open_risk_cash = open_positions * 400.0
-                except Exception:
-                    pass
+                    broker_pending = await broker.get_pending_orders()
+                except Exception as e:
+                    logger.warning(
+                        f"[Engine] {broker_id}: positions indisponibles - "
+                        f"etat risque invalide ({e})"
+                    )
+                    self._dispatcher.invalidate_account_state(broker_id)
+                    continue
 
                 info = await broker.get_account_info()
                 if not info:
+                    self._dispatcher.invalidate_account_state(broker_id)
                     continue
 
                 # Compléter avec les positions du monitor si disponible
@@ -1490,6 +1519,59 @@ class LiveEngine:
                     for pos in self._position_monitor.open_positions:
                         if pos.broker_id == broker_id and pos.symbol not in open_instruments:
                             open_instruments.append(pos.symbol)
+
+                # Reserve actual known risk for tracked positions and accepted
+                # pending orders. A server-side STOP/LIMIT can fill without a
+                # new Python decision, so excluding it from the budget allows
+                # several orders to breach together.
+                tracked_risk_by_position: dict[str, float] = {}
+                if self._live_monitor:
+                    tracked_risk_by_position = {
+                        str(t.get("position_id")): float(
+                            t.get("risk_cash", 0.0) or 0.0
+                        )
+                        for t in self._live_monitor.get_open_trades()
+                        if t.get("broker_id") == broker_id and t.get("position_id")
+                    }
+                # Only broker-confirmed positions count as open. Match the
+                # journal by position_id; equal list lengths are not proof of
+                # identity when a stale tracked position masks an orphan.
+                open_risk_cash = sum(
+                    tracked_risk_by_position.get(str(pos.position_id), 400.0)
+                    for pos in positions
+                )
+
+                pending_for_broker = [
+                    pending
+                    for pending in self._pending_fills.values()
+                    if pending.get("broker_id") == broker_id
+                ]
+                tracked_pending_ids = {
+                    str(pending.get("order_id"))
+                    for pending in pending_for_broker
+                    if pending.get("order_id")
+                }
+                unknown_pending_ids = [
+                    str(order.order_id)
+                    for order in broker_pending
+                    if str(order.order_id) not in tracked_pending_ids
+                ]
+                if unknown_pending_ids:
+                    logger.warning(
+                        f"[Engine] {broker_id}: pending broker non trackes "
+                        f"{unknown_pending_ids} - etat risque invalide"
+                    )
+                    self._dispatcher.invalidate_account_state(broker_id)
+                    continue
+                open_risk_cash += sum(
+                    float(pending.get("risk_cash", 0.0) or 0.0)
+                    for pending in pending_for_broker
+                )
+                open_positions += len(pending_for_broker)
+                for pending in pending_for_broker:
+                    symbol = pending.get("instrument", "")
+                    if symbol and symbol not in open_instruments:
+                        open_instruments.append(symbol)
 
                 # Daily rollover: reset daily_start_balance at UTC midnight
                 broker_daily_date = self._broker_daily_start_date.get(broker_id)
@@ -1521,6 +1603,7 @@ class LiveEngine:
                     open_positions=open_positions,
                     open_instruments=open_instruments,
                     open_risk_cash=open_risk_cash,
+                    daily_trades=self._count_daily_trades(broker_id, today),
                 )
 
                 # The dispatcher performs a fail-closed pre-order gate for
@@ -1557,6 +1640,7 @@ class LiveEngine:
                     )
 
             except Exception as e:
+                self._dispatcher.invalidate_account_state(broker_id)
                 logger.warning(f"[Engine] {broker_id} refresh: {e}")
                 # Alerte Telegram si un broker est injoignable
                 if self._live_monitor:
@@ -1565,6 +1649,39 @@ class LiveEngine:
                             f"⚠️ {broker_id} injoignable: {e}"
                         )
                     )
+
+    def _count_daily_trades(self, broker_id: str, day: str) -> int:
+        """Count today's distinct submitted trades for a broker.
+
+        `pending_order` and its later `entry` carry the same trade_id and
+        therefore consume a single daily slot. Reading the small append-only
+        journal at the account refresh cadence keeps this count valid across
+        process restarts.
+        """
+        if not TRADE_JOURNAL_PATH.exists():
+            return 0
+        seen: set[str] = set()
+        try:
+            with open(TRADE_JOURNAL_PATH) as handle:
+                for line in handle:
+                    try:
+                        event = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    if event.get("event") not in {"entry", "pending_order"}:
+                        continue
+                    if event.get("broker_id") != broker_id:
+                        continue
+                    if not str(event.get("ts", "")).startswith(day):
+                        continue
+                    key = event.get("trade_id") or event.get("order_id")
+                    if key:
+                        seen.add(str(key))
+        except OSError as e:
+            raise RuntimeError(
+                f"daily trades journal unavailable for {broker_id}: {e}"
+            ) from e
+        return len(seen)
 
     async def _account_refresh_loop(self) -> None:
         # Task fire-and-forget (cf. _start line ~149) : toute exception non
@@ -1606,10 +1723,15 @@ class LiveEngine:
                 if not info:
                     continue
                 positions = []
+                positions_known = True
                 try:
                     positions = await broker.get_positions()
-                except Exception:
-                    pass
+                except Exception as e:
+                    positions_known = False
+                    logger.warning(
+                        f"[Engine] startup state {broker_id}: "
+                        f"positions inconnues ({e})"
+                    )
                 initial_bal = self._broker_initial_balance.get(broker_id, info.balance)
                 daily_start = self._broker_daily_start_balance.get(broker_id, info.balance)
                 state = AccountState(
@@ -1626,6 +1748,7 @@ class LiveEngine:
                     "daily_dd_pct": state.daily_dd_pct,
                     "total_dd_pct": state.total_dd_pct,
                     "open_positions": len(positions),
+                    "positions_known": positions_known,
                     "protection": self._live_monitor._protection_per_broker.get(
                         broker_id, "normal"
                     ),

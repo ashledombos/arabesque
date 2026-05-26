@@ -70,6 +70,13 @@ def _build_broker_stub() -> CTraderBroker:
     return broker
 
 
+def test_pending_orders_read_is_unknown_when_ctrader_disconnected():
+    broker = _build_broker_stub()
+
+    with pytest.raises(ConnectionError, match="not connected"):
+        asyncio.run(broker.get_pending_orders())
+
+
 # ---------------------------------------------------------------------------
 # 1. Reconnect réussi → l'ordre peut continuer
 # ---------------------------------------------------------------------------

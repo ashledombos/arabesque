@@ -1864,7 +1864,7 @@ class CTraderBroker(BaseBroker):
 
     async def get_pending_orders(self) -> List[PendingOrder]:
         if not self._connected:
-            return []
+            raise ConnectionError("cTrader not connected while reading pending orders")
         loop = asyncio.get_event_loop()
         future = loop.create_future()
         self._pending_requests["reconcile"] = future
@@ -1876,7 +1876,8 @@ class CTraderBroker(BaseBroker):
             await asyncio.wait_for(future, timeout=15)
             return self._pending_orders
         except asyncio.TimeoutError:
-            return []
+            self._pending_requests.pop("reconcile", None)
+            raise TimeoutError("cTrader pending orders reconcile timeout")
 
     async def get_positions(self) -> List[Position]:
         await self.get_pending_orders()

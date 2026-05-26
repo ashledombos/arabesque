@@ -155,6 +155,25 @@ def test_order_is_blocked_when_broker_risk_state_is_missing():
     assert "Etat risque indisponible" in result.message
 
 
+def test_signal_is_blocked_when_primary_risk_state_has_been_invalidated():
+    dispatcher = _dispatcher(PropConfig())
+    dispatcher.update_account_state(
+        AccountState(
+            balance=100_000.0,
+            equity=100_000.0,
+            start_balance=100_000.0,
+            daily_start_balance=100_000.0,
+        ),
+        broker_id="ftmo_challenge",
+    )
+    dispatcher.invalidate_account_state("ftmo_challenge")
+
+    accepted = asyncio.run(dispatcher.receive_signal(_signal()))
+
+    assert accepted is False
+    assert "ftmo_challenge" not in dispatcher._account_states_by_broker
+
+
 def test_live_engine_builds_distinct_prop_limits_from_accounts_yaml():
     engine = LiveEngine(
         settings={

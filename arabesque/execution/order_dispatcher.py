@@ -261,6 +261,17 @@ class OrderDispatcher:
         else:
             self._account_state = state
 
+    def invalidate_account_state(self, broker_id: str) -> None:
+        """Remove stale broker risk state after an unavailable broker read.
+
+        A disconnected broker is not evidence of zero positions. Removing the
+        last state makes the final pre-order gate fail closed until a fresh
+        account/position refresh succeeds.
+        """
+        self._account_states_by_broker.pop(broker_id, None)
+        if broker_id == self._primary_broker_id:
+            self._account_state = AccountState()
+
     async def receive_signal(self, signal: Signal) -> bool:
         """
         Reçoit un signal et l'enregistre si les guards passent.
@@ -268,6 +279,17 @@ class OrderDispatcher:
         Retourne True si le signal est accepté (mis en attente de prix).
         """
         self._stats["signals_received"] += 1
+
+        if (
+            self._primary_broker_id
+            and self._primary_broker_id not in self._account_states_by_broker
+        ):
+            self._stats["signals_rejected"] += 1
+            logger.warning(
+                "[Dispatcher] Etat risque primaire indisponible - "
+                f"signal {signal.instrument} bloque fail-closed"
+            )
+            return False
 
         # Prix courant via le dernier tick connu (fourni par le feed)
         tick = self._get_last_tick(signal.instrument)
