@@ -190,6 +190,31 @@ class Guards:
         )
         return True, decision
 
+    def check_account_limits(
+        self,
+        signal: Signal,
+        account: AccountState,
+    ) -> tuple[bool, str]:
+        """Check account-specific limits immediately before broker dispatch.
+
+        Signal-shape and duplicate checks are performed when the shared signal
+        is accepted. This second gate exists because each prop account has its
+        own equity and rule limits; using only the primary account can allow a
+        secondary account to breach its daily budget.
+        """
+        checks = [
+            self._daily_dd(account),
+            self._total_dd(account),
+            self._max_positions(account),
+            self._daily_trades(account),
+        ]
+        if self.live_mode:
+            checks.append(self._worst_case_budget(signal, account))
+        for ok, _reason, detail in checks:
+            if not ok:
+                return False, detail
+        return True, ""
+
     # ── Individual checks ────────────────────────────────────────────
 
     def _daily_dd(self, a: AccountState):

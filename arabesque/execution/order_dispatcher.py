@@ -152,13 +152,24 @@ class OrderDispatcher:
         rodage_config: Optional[Dict] = None,
         max_slippage_atr: float = 0.5,
         settings: Optional[dict] = None,
+        prop_configs_by_broker: Optional[Dict[str, PropConfig]] = None,
     ):
         self.brokers = brokers
         self.instruments_cfg = instruments_cfg
+        resolved_exec_cfg = exec_config or ExecConfig()
         self.guards = Guards(
             prop=prop_config or PropConfig(),
-            exec_cfg=exec_config or ExecConfig(),
+            exec_cfg=resolved_exec_cfg,
+            live_mode=True,
         )
+        self._guards_by_broker = {
+            broker_id: Guards(
+                prop=broker_prop,
+                exec_cfg=resolved_exec_cfg,
+                live_mode=True,
+            )
+            for broker_id, broker_prop in (prop_configs_by_broker or {}).items()
+        }
         self.delay_ms = delay_ms
         self.dry_run = dry_run
         self.on_order_result = on_order_result
@@ -223,6 +234,8 @@ class OrderDispatcher:
 
         # État du compte consolidé (mis à jour après chaque placement)
         self._account_state = AccountState()
+        self._account_states_by_broker: Dict[str, AccountState] = {}
+        self._primary_broker_id = next(iter(brokers), "")
 
         # Statistiques
         self._stats = {
@@ -239,9 +252,14 @@ class OrderDispatcher:
     # API publique
     # ------------------------------------------------------------------
 
-    def update_account_state(self, state: AccountState) -> None:
-        """Mettre à jour l'état du compte (appelé périodiquement par LiveEngine)."""
-        self._account_state = state
+    def update_account_state(self, state: AccountState, broker_id: str = "") -> None:
+        """Update current account state, retaining a separate state per broker."""
+        if broker_id:
+            self._account_states_by_broker[broker_id] = state
+            if broker_id == self._primary_broker_id:
+                self._account_state = state
+        else:
+            self._account_state = state
 
     async def receive_signal(self, signal: Signal) -> bool:
         """
@@ -291,57 +309,9 @@ class OrderDispatcher:
             self._stats["signals_rejected"] += 1
             return False
 
-        # Per-timeframe risk multiplier (H4 → higher risk, validated by backtest)
-        tf_key = getattr(signal, "timeframe", "1h").lower()
-        tf_mult = self._risk_multiplier_by_tf.get(tf_key, 1.0)
-        if tf_mult != 1.0:
-            original = sizing["risk_cash"]
-            sizing["risk_cash"] = round(original * tf_mult, 2)
-            logger.info(
-                f"[Dispatcher] 📊 TF risk adjust: {original:.0f}$ × "
-                f"{tf_mult:.2f} ({tf_key}) = {sizing['risk_cash']:.0f}$"
-            )
-
-        # Rodage: risk réduit pour les stratégies en période de rodage
-        # Ultra-rodage prioritaire (×0.10 par défaut), sinon rodage normal (×0.25)
-        strat_name = getattr(signal, "strategy_type", "")
-        if strat_name in self._rodage_strategies_ultra:
-            original = sizing["risk_cash"]
-            sizing["risk_cash"] = round(original * self._rodage_multiplier_ultra, 2)
-            logger.info(
-                f"[Dispatcher] 🧪 Ultra-rodage: {strat_name} {original:.0f}$ × "
-                f"{self._rodage_multiplier_ultra} = {sizing['risk_cash']:.0f}$"
-            )
-        elif strat_name in self._rodage_strategies:
-            original = sizing["risk_cash"]
-            sizing["risk_cash"] = round(original * self._rodage_multiplier, 2)
-            logger.info(
-                f"[Dispatcher] 🔬 Rodage: {strat_name} {original:.0f}$ × "
-                f"{self._rodage_multiplier} = {sizing['risk_cash']:.0f}$"
-            )
-
-        # Correlation discount: reduce risk for same-category positions
-        corr_mult = self._correlation_discount(signal.instrument)
-        if corr_mult < 1.0:
-            original = sizing["risk_cash"]
-            sizing["risk_cash"] = round(original * corr_mult, 2)
-            logger.info(
-                f"[Dispatcher] 🔗 Corrélation: {original:.0f}$ × "
-                f"{corr_mult:.2f} = {sizing['risk_cash']:.0f}$ "
-                f"(même catégorie déjà ouverte)"
-            )
-
-        # Apply live monitor risk multiplier (protection tiers)
-        if self._risk_multiplier_fn:
-            multiplier = self._risk_multiplier_fn()
-            if multiplier < 1.0:
-                original = sizing["risk_cash"]
-                sizing["risk_cash"] = round(original * multiplier, 2)
-                logger.info(
-                    f"[Dispatcher] 🛡️ Risk réduit: {original:.0f}$ × "
-                    f"{multiplier:.0%} = {sizing['risk_cash']:.0f}$ "
-                    f"(protection active)"
-                )
+        sizing["risk_cash"] = self._apply_risk_modifiers(
+            signal, sizing["risk_cash"], log=True
+        )
 
         # Calculer le volume en lots
         risk_distance = sizing["risk_distance"]
@@ -451,6 +421,68 @@ class OrderDispatcher:
         })
 
         return True
+
+    def _apply_risk_modifiers(
+        self, signal: Signal, risk_cash: float, log: bool = True
+    ) -> float:
+        """Apply strategy and live-risk modifiers to a broker risk budget."""
+        # Per-timeframe risk multiplier (H4 → higher risk, validated by backtest)
+        tf_key = getattr(signal, "timeframe", "1h").lower()
+        tf_mult = self._risk_multiplier_by_tf.get(tf_key, 1.0)
+        if tf_mult != 1.0:
+            original = risk_cash
+            risk_cash = round(original * tf_mult, 2)
+            if log:
+                logger.info(
+                f"[Dispatcher] 📊 TF risk adjust: {original:.0f}$ × "
+                f"{tf_mult:.2f} ({tf_key}) = {risk_cash:.0f}$"
+                )
+
+        # Rodage: risk réduit pour les stratégies en période de rodage
+        # Ultra-rodage prioritaire (×0.10 par défaut), sinon rodage normal (×0.25)
+        strat_name = getattr(signal, "strategy_type", "")
+        if strat_name in self._rodage_strategies_ultra:
+            original = risk_cash
+            risk_cash = round(original * self._rodage_multiplier_ultra, 2)
+            if log:
+                logger.info(
+                f"[Dispatcher] 🧪 Ultra-rodage: {strat_name} {original:.0f}$ × "
+                f"{self._rodage_multiplier_ultra} = {risk_cash:.0f}$"
+                )
+        elif strat_name in self._rodage_strategies:
+            original = risk_cash
+            risk_cash = round(original * self._rodage_multiplier, 2)
+            if log:
+                logger.info(
+                f"[Dispatcher] 🔬 Rodage: {strat_name} {original:.0f}$ × "
+                f"{self._rodage_multiplier} = {risk_cash:.0f}$"
+                )
+
+        # Correlation discount: reduce risk for same-category positions
+        corr_mult = self._correlation_discount(signal.instrument)
+        if corr_mult < 1.0:
+            original = risk_cash
+            risk_cash = round(original * corr_mult, 2)
+            if log:
+                logger.info(
+                f"[Dispatcher] 🔗 Corrélation: {original:.0f}$ × "
+                f"{corr_mult:.2f} = {risk_cash:.0f}$ "
+                f"(même catégorie déjà ouverte)"
+                )
+
+        # Apply live monitor risk multiplier (protection tiers)
+        if self._risk_multiplier_fn:
+            multiplier = self._risk_multiplier_fn()
+            if multiplier < 1.0:
+                original = risk_cash
+                risk_cash = round(original * multiplier, 2)
+                if log:
+                    logger.info(
+                    f"[Dispatcher] 🛡️ Risk réduit: {original:.0f}$ × "
+                    f"{multiplier:.0%} = {risk_cash:.0f}$ "
+                    f"(protection active)"
+                    )
+        return risk_cash
 
     def _log_shadow_entry(self, signal: Signal, flags: dict, indicators: dict) -> None:
         """Persiste un enregistrement shadow filter en JSONL."""
@@ -606,9 +638,6 @@ class OrderDispatcher:
                 await asyncio.sleep(delay_s)
 
             result = await self._place_on_broker(broker_id, broker, ps, tick)
-            # Enrichir le result avec les données de sizing
-            result.risk_cash = ps.risk_cash
-            result.volume_lots = ps.volume_lots
             results.append((broker_id, result))
 
             if self.on_order_result:
@@ -734,11 +763,40 @@ class OrderDispatcher:
                 message=f"{sym} non disponible sur {broker_id}"
             )
 
+        broker_guards = self._guards_by_broker.get(broker_id)
+        broker_state = self._account_states_by_broker.get(broker_id)
+        if broker_guards is None or broker_state is None:
+            logger.error(
+                f"[Dispatcher] ⛔ {broker_id}: état/guards broker absent — "
+                f"ordre {sym} bloqué fail-closed"
+            )
+            return OrderResult(
+                success=False,
+                message=f"Etat risque indisponible pour {broker_id}",
+            )
+
+        safe, reason = broker_guards.check_account_limits(signal, broker_state)
+        if not safe:
+            logger.warning(
+                f"[Dispatcher] ⛔ {broker_id}: guard compte bloque {sym} — {reason}"
+            )
+            return OrderResult(success=False, message=f"Guard {broker_id}: {reason}")
+
+        broker_sizing = broker_guards.compute_sizing(signal, broker_state)
+        broker_risk_cash = self._apply_risk_modifiers(
+            signal, broker_sizing.get("risk_cash", 0.0), log=True
+        )
+        if broker_risk_cash <= 0:
+            return OrderResult(
+                success=False,
+                message=f"Risk cash = 0 pour {sym} sur {broker_id}",
+            )
+
         # --- Calcul du volume SPÉCIFIQUE À CE BROKER ---
         # Le lot_size (contract_size) varie entre brokers pour le même symbole
         risk_distance = abs(signal.close - signal.sl)
         broker_volume = await self._compute_lots_for_broker(
-            broker, broker_id, signal, ps.risk_cash, risk_distance,
+            broker, broker_id, signal, broker_risk_cash, risk_distance,
             current_price=signal.close,
         )
         if broker_volume <= 0:
@@ -753,11 +811,14 @@ class OrderDispatcher:
                 f"{broker_volume:.3f}L @ {ps.entry_price:.5f} "
                 f"SL={signal.sl:.5f} TP={signal.tp_indicative:.5f}"
             )
-            return OrderResult(
+            result = OrderResult(
                 success=True,
                 order_id="dry_run",
                 message="[DRY RUN] Ordre simulé"
             )
+            result.risk_cash = broker_risk_cash
+            result.volume_lots = broker_volume
+            return result
 
         # Validation pré-envoi (volume min/max, arrondi prix)
         from arabesque.broker.normalizer import validate_order
@@ -798,6 +859,8 @@ class OrderDispatcher:
 
         try:
             result = await broker.place_order(order)
+            result.risk_cash = broker_risk_cash
+            result.volume_lots = validation.volume_lots
             if result.success:
                 # Post-trade validation log
                 self._log_trade_validation(

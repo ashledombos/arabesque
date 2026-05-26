@@ -358,26 +358,36 @@ class LiveEngine:
             if delay_cfg.get("enabled", True) else (0, 0)
         )
 
-        # Per-account overrides from accounts.yaml (risk, DD limits)
-        acct_overrides = self._load_account_overrides()
+        # Per-account overrides from accounts.yaml (risk, DD limits).
+        # The primary config remains the signal-admission default; each
+        # broker receives its own config again at the pre-order safety gate.
+        primary_id = next(iter(self._brokers), "")
+        acct_overrides = self._load_account_overrides(primary_id)
 
-        prop_cfg = PropConfig(
-            max_daily_dd_pct=acct_overrides.get(
-                "max_daily_dd_pct",
-                filters.get("max_daily_drawdown_percent", 4.0),
-            ),
-            max_total_dd_pct=acct_overrides.get(
-                "max_total_dd_pct",
-                filters.get("max_total_drawdown_percent", 9.0),
-            ),
-            max_positions=filters.get("max_open_positions", 5),
-            max_open_risk_pct=general.get("max_open_risk_pct", 2.0),
-            max_daily_trades=filters.get("max_pending_orders", 10),
-            risk_per_trade_pct=acct_overrides.get(
-                "risk_per_trade_pct",
-                general.get("risk_percent", 0.45),
-            ),
-        )
+        def make_prop_cfg(overrides: dict) -> PropConfig:
+            return PropConfig(
+                max_daily_dd_pct=overrides.get(
+                    "max_daily_dd_pct",
+                    filters.get("max_daily_drawdown_percent", 4.0),
+                ),
+                max_total_dd_pct=overrides.get(
+                    "max_total_dd_pct",
+                    filters.get("max_total_drawdown_percent", 9.0),
+                ),
+                max_positions=filters.get("max_open_positions", 5),
+                max_open_risk_pct=general.get("max_open_risk_pct", 2.0),
+                max_daily_trades=filters.get("max_pending_orders", 10),
+                risk_per_trade_pct=overrides.get(
+                    "risk_per_trade_pct",
+                    general.get("risk_percent", 0.45),
+                ),
+            )
+
+        prop_cfg = make_prop_cfg(acct_overrides)
+        prop_configs_by_broker = {
+            broker_id: make_prop_cfg(self._load_account_overrides(broker_id))
+            for broker_id in self._brokers
+        }
         logger.info(
             f"[Engine] PropConfig: risk={prop_cfg.risk_per_trade_pct}%, "
             f"daily_dd={prop_cfg.max_daily_dd_pct}%, "
@@ -408,11 +418,12 @@ class LiveEngine:
             rodage_config=rodage_cfg,
             max_slippage_atr=max_slippage_atr,
             settings=self.settings,
+            prop_configs_by_broker=prop_configs_by_broker,
         )
         dispatcher._price_feed = None
         return dispatcher
 
-    def _load_account_overrides(self) -> dict:
+    def _load_account_overrides(self, broker_id: str | None = None) -> dict:
         """Charge les overrides per-account depuis accounts.yaml.
 
         Champs supportés : risk_per_trade_pct, max_daily_dd_pct, max_total_dd_pct.
@@ -427,11 +438,11 @@ class LiveEngine:
             with open(path) as f:
                 cfg = yaml.safe_load(f) or {}
             accounts = cfg.get("accounts", {})
-            # Find active broker key
+            # Default to the primary broker for legacy callers.
             broker_keys = list(self._brokers.keys())
-            if not broker_keys:
+            active_key = broker_id or (broker_keys[0] if broker_keys else "")
+            if not active_key:
                 return {}
-            active_key = broker_keys[0]
             acct = accounts.get(active_key, {})
             overrides = {}
             for key in ("risk_per_trade_pct", "max_daily_dd_pct", "max_total_dd_pct"):
@@ -1512,9 +1523,9 @@ class LiveEngine:
                     open_risk_cash=open_risk_cash,
                 )
 
-                # Primary broker → guards/dispatcher
-                if broker_id == primary_id:
-                    self._dispatcher.update_account_state(state)
+                # The dispatcher performs a fail-closed pre-order gate for
+                # every broker, so it needs every broker's current state.
+                self._dispatcher.update_account_state(state, broker_id=broker_id)
 
                 logger.debug(
                     f"[Engine] 💰 {broker_id}: "

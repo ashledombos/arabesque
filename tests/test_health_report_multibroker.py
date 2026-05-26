@@ -74,7 +74,9 @@ def test_refresh_records_snapshot_after_new_protection_level():
     """A snapshot must contain the level computed from the same account read."""
     engine = LiveEngine.__new__(LiveEngine)
     engine._brokers = {}
-    engine._dispatcher = SimpleNamespace(update_account_state=lambda state: None)
+    engine._dispatcher = SimpleNamespace(
+        update_account_state=lambda state, broker_id="": None
+    )
     engine._accounts_config = {}
     engine._position_monitor = None
     engine._broker_initial_balance = {"gft_compte1": 150_000.0}

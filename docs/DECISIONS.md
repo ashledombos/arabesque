@@ -3016,3 +3016,23 @@ utilise des identifiants d'ordre et de position distincts.
   `5` pertes consecutives et justifie `CAUTION` (`risk x0.50`) ; on ne revient
   pas a `NORMAL`. Il s'agit d'une correction de guard, donc d'un changement
   de risque a charger explicitement apres validation.
+
+## Decision 2026-05-26 - guards live et sizing par broker
+
+- **Constat de relecture** : `OrderDispatcher` utilisait un unique
+  `AccountState` et un unique `PropConfig`, issus du broker primaire FTMO,
+  pour envoyer aussi les ordres GFT. En outre, l'objet `Guards` etait construit
+  sans `live_mode=True`, donc `worst_case_budget` n'etait jamais applique au
+  chemin live.
+- **Risque** : la coincidence actuelle du risque nominal
+  (`100k x 0.45% = 150k x 0.30% = 450$`) masquait le probleme. Les DD,
+  limites daily et sizing reduit divergent par compte ; un GFT plus degrade
+  que FTMO pouvait recevoir un ordre accepte selon les limites FTMO.
+- **Decision** : conserver l'acceptation initiale du signal partage, mais
+  refaire un gate fail-closed immediatement avant chaque ordre broker avec
+  son `AccountState` et son `PropConfig`. Si l'etat broker n'est pas disponible,
+  aucun ordre n'est envoye. Le `risk_cash` journalise devient celui du broker
+  concerne, apres multiplicateurs communs.
+- **Portee live** : correction de securite execution. Le moteur est arrete
+  pendant l'integration ; redemarrage seulement apres tests et verification
+  `0 position` sur FTMO et GFT.
