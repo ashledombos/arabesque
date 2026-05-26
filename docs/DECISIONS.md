@@ -2983,3 +2983,36 @@ utilise des identifiants d'ordre et de position distincts.
 `MFE=1.79R`, marque comme sortie operationnelle due au bug.
 
 **Dossier** : `docs/INCIDENT_GFT_POSITION_STATE_2026-05-26.md`.
+## Decision 2026-05-26 - health_report multibroker coherent avec le risque applique
+
+- **Constat live** : apres le redemarrage de securisation GFT, `health_report`
+  affichait `normal` alors que FTMO et GFT etaient en `danger` et que le
+  sizing appliquait bien `x0.25`. Le meme event comparait aussi
+  `equity_latest` GFT a `equity_24h_ago` FTMO.
+- **Cause** : la protection effective est le pire niveau par broker, mais les
+  champs de telemetrie lisaient encore `_protection_level` global. Les
+  snapshots de plusieurs comptes etaient agreges dans deux scalaires.
+- **Decision** : journaliser le niveau effectif sur entry/exit/health/stats,
+  exposer `protection_by_broker`, et remplacer la comparaison d'equity
+  scalaire par `equity_by_broker`. Le snapshot est enregistre apres le calcul
+  de protection du meme refresh.
+- **Portee** : observabilite uniquement ; aucun changement de signal, sizing,
+  ordre ou protection executee.
+
+## Decision 2026-05-26 - guard de pertes limite aux strategies actives
+
+- **Constat** : le redemarrage du 26 mai passait FTMO (`DD=-6.7%`) et GFT
+  (`DD=-5.3%`) en `DANGER`, bien que les seuils DD du `LiveMonitor`
+  imposent seulement `CAUTION` a partir de `-7.0%`.
+- **Cause prouvee** : le guard de pertes consecutives rechargeait tout le
+  journal. `cabriole`, desactivee du live depuis le 16 mai, conservait
+  `8` pertes consecutives et imposait `DANGER` indefiniment aux nouvelles
+  positions Extension/Glissade/Fouette.
+- **Decision** : `LiveEngine` transmet au `LiveMonitor` les strategies
+  actuellement actives dans `settings.yaml`. Le guard de series de pertes ne
+  lit que ce scope ; l'historique Cabriole reste disponible pour analyse, mais
+  ne pilote plus le sizing tant que Cabriole est desactivee.
+- **Effet attendu au chargement** : sur l'etat actuel, Glissade conserve
+  `5` pertes consecutives et justifie `CAUTION` (`risk x0.50`) ; on ne revient
+  pas a `NORMAL`. Il s'agit d'une correction de guard, donc d'un changement
+  de risque a charger explicitement apres validation.

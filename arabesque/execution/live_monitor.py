@@ -27,7 +27,7 @@ PALIERS DE PROTECTION :
 FLUX :
   _on_order_result() → record_entry()
   position_monitor.reconcile() → record_exit()
-  _account_refresh_loop() → record_equity_snapshot() → check_protection()
+  _account_refresh_loop() → check_protection() → record_equity_snapshot()
   periodic task → emit_health_report()
 """
 
@@ -90,6 +90,10 @@ class MonitorConfig:
     # Consecutive losses
     max_consecutive_losses: int = 5        # → CAUTION
     max_consecutive_losses_danger: int = 8  # → DANGER
+    # Empty keeps the legacy "all journal strategies" behavior. LiveEngine
+    # populates this with strategies currently enabled in settings so a
+    # disabled strategy cannot keep reducing future risk forever.
+    consecutive_loss_strategies: tuple[str, ...] = ()
 
     # DD thresholds for protection tiers (% of start_balance, NEGATIVE)
     # Guards already have max_daily_dd=4% and max_total_dd=9%
@@ -280,7 +284,8 @@ class LiveMonitor:
 
     @property
     def protection_level(self) -> ProtectionLevel:
-        return self._protection_level
+        """Public protection state: level effectively applied to sizing."""
+        return self._effective_protection_level()
 
     @property
     def is_frozen(self) -> bool:
@@ -293,17 +298,10 @@ class LiveMonitor:
         Prend le PIRE niveau entre tous les brokers pour protéger tous les comptes.
         EMERGENCY = lot minimum (×0.10) au lieu de fermer tout.
         """
-        level = self._protection_level
-        # Si un broker secondaire est plus sévère, utiliser son niveau
-        for broker_level in self._protection_per_broker.values():
-            if broker_level.value > level.value if hasattr(broker_level, 'value') else False:
-                pass  # ProtectionLevel is not orderable by .value string
-        # Use worst level across all brokers
-        level = self._worst_protection_level()
-        return self._multiplier_for_level(level)
+        return self._multiplier_for_level(self._effective_protection_level())
 
-    def _worst_protection_level(self) -> ProtectionLevel:
-        """Retourne le niveau de protection le plus sévère parmi tous les brokers."""
+    def _effective_protection_level(self) -> ProtectionLevel:
+        """Return the level that is actually applied to new position sizing."""
         order = [ProtectionLevel.NORMAL, ProtectionLevel.CAUTION,
                  ProtectionLevel.DANGER, ProtectionLevel.EMERGENCY]
         worst = order.index(self._protection_level)
@@ -312,6 +310,10 @@ class LiveMonitor:
             if idx > worst:
                 worst = idx
         return order[worst]
+
+    def _worst_protection_level(self) -> ProtectionLevel:
+        """Backward-compatible name for the effective cross-broker level."""
+        return self._effective_protection_level()
 
     def _multiplier_for_level(self, level: ProtectionLevel) -> float:
         if level == ProtectionLevel.EMERGENCY:
@@ -424,9 +426,15 @@ class LiveMonitor:
                 or margin_pct < self._cfg.margin_warn_pct):
             return ProtectionLevel.CAUTION
 
-        # Check consecutive losses across all strategies
+        # Consecutive-loss protection applies only to strategies still live.
+        # A disabled historical strategy must not pin new trades in DANGER.
+        streak_scope = set(self._cfg.consecutive_loss_strategies)
         max_consec = max(
-            (p.consecutive_losses for p in self._perf.values()),
+            (
+                p.consecutive_losses
+                for strategy, p in self._perf.items()
+                if not streak_scope or strategy in streak_scope
+            ),
             default=0
         )
         if max_consec >= self._cfg.max_consecutive_losses_danger:
@@ -706,7 +714,9 @@ class LiveMonitor:
             "risk_cash": trade.risk_cash,
             "broker_id": broker_id,
             "position_id": str(position_id),
-            "protection_level": self._protection_level.value,
+            # Sizing is guarded by the worst level across brokers, not only
+            # by the legacy global field.
+            "protection_level": self._effective_protection_level().value,
             "broker_bid_at_entry": broker_bid,
             "broker_ask_at_entry": broker_ask,
             "spread_at_entry": round(spread_at_entry, 8),
@@ -832,7 +842,7 @@ class LiveMonitor:
             "exit_reason": exit_reason,
             "broker_id": broker_id,
             "position_id": str(position_id),
-            "protection_level": self._protection_level.value,
+            "protection_level": self._effective_protection_level().value,
             "broker_bid_at_exit": broker_bid,
             "broker_ask_at_exit": broker_ask,
             "spread_at_exit": round(spread_at_exit, 8),
@@ -1021,10 +1031,18 @@ class LiveMonitor:
     def emit_health_report(self) -> dict:
         """Émet un rapport de santé. Retourne le rapport."""
         self._last_health_report = time.time()
+        effective_level = self._effective_protection_level()
 
         report = {
             "ts": datetime.now(timezone.utc).isoformat(),
-            "protection_level": self._protection_level.value,
+            "protection_level": effective_level.value,
+            "protection_by_broker": {
+                broker_id: level.value
+                for broker_id, level in self._protection_per_broker.items()
+            },
+            "consecutive_loss_strategies": list(
+                self._cfg.consecutive_loss_strategies
+            ),
             "frozen": self._frozen,
             "open_trades": len(self._open_trades),
             "total_closed": sum(p.n_trades for p in self._perf.values()),
@@ -1057,12 +1075,30 @@ class LiveMonitor:
                 "total_r": f"{perf.total_r:+.1f}R",
             })
 
-        if len(self._equity_history) >= 2:
-            report["equity_latest"] = self._equity_history[-1].get("equity", 0)
-            report["equity_24h_ago"] = self._equity_history[0].get("equity", 0)
+        # Each broker has a different account base. Comparing the latest
+        # snapshot of GFT with the oldest snapshot of FTMO produces a false
+        # equity move, so health data is always grouped by broker.
+        equity_by_broker: dict[str, dict] = {}
+        for snapshot in self._equity_history:
+            broker_id = snapshot.get("broker_id") or "global"
+            item = equity_by_broker.setdefault(
+                broker_id,
+                {
+                    "latest": snapshot.get("equity", 0),
+                    "latest_ts": snapshot.get("ts", ""),
+                    "oldest_observed": snapshot.get("equity", 0),
+                    "oldest_observed_ts": snapshot.get("ts", ""),
+                    "snapshots": 0,
+                },
+            )
+            item["latest"] = snapshot.get("equity", 0)
+            item["latest_ts"] = snapshot.get("ts", "")
+            item["snapshots"] += 1
+        if equity_by_broker:
+            report["equity_by_broker"] = equity_by_broker
 
         logger.info(
-            f"[LiveMonitor] 📊 HEALTH [{self._protection_level.value}] — "
+            f"[LiveMonitor] 📊 HEALTH [{effective_level.value}] — "
             f"{report['total_closed']} fermés, {report['open_trades']} ouverts"
         )
         for strat, data in report["strategies"].items():
@@ -1109,7 +1145,11 @@ class LiveMonitor:
 
     def get_stats(self) -> dict:
         return {
-            "protection_level": self._protection_level.value,
+            "protection_level": self._effective_protection_level().value,
+            "protection_by_broker": {
+                broker_id: level.value
+                for broker_id, level in self._protection_per_broker.items()
+            },
             "frozen": self._frozen,
             "frozen_reason": self._frozen_reason,
             "risk_multiplier": self.risk_multiplier,

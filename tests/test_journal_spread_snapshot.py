@@ -33,6 +33,7 @@ def monitor(tmp_path, monkeypatch):
 
     from arabesque.execution.live_monitor import ProtectionLevel, MonitorConfig
     m._protection_level = ProtectionLevel.NORMAL
+    m._protection_per_broker = {}
     m._cfg = MonitorConfig()
 
     m._notification_channels = []
@@ -78,6 +79,30 @@ def test_record_entry_persists_broker_bid_ask(monitor, tmp_path):
     assert r["broker_bid_at_entry"] == 4452.05
     assert r["broker_ask_at_entry"] == 4452.15
     assert r["spread_at_entry"] == pytest.approx(0.10, abs=1e-6)
+
+
+def test_trade_events_persist_effective_cross_broker_protection(monitor, tmp_path):
+    from arabesque.execution.live_monitor import ProtectionLevel
+
+    monitor._protection_per_broker["gft_compte1"] = ProtectionLevel.DANGER
+    monitor.record_entry(
+        signal=_make_signal(),
+        broker_id="ftmo_challenge",
+        position_id="guarded",
+        entry_price=4452.10,
+        volume=0.1,
+        risk_cash=100.0,
+    )
+    monitor.record_exit(
+        broker_id="ftmo_challenge",
+        position_id="guarded",
+        exit_price=4400.0,
+        exit_price_source="real_fill",
+    )
+
+    rows = _read_journal(tmp_path / "trade_journal.jsonl")
+    assert rows[0]["protection_level"] == "danger"
+    assert rows[1]["protection_level"] == "danger"
 
 
 def test_record_exit_persists_source_real_fill(monitor, tmp_path):

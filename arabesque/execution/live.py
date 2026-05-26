@@ -464,9 +464,21 @@ class LiveEngine:
                 elif "ntfy" in ch:
                     ntfy_ch = ch
 
+        default_strategy = (
+            self.settings.get("strategy", {}).get("type", "extension")
+        )
+        assigned_strategies = set(
+            (self.settings.get("strategy_assignments", {}) or {}).keys()
+        )
+        active_strategies = tuple(sorted({default_strategy, *assigned_strategies}))
+
         cfg = LMConfig(
             telegram_channel=telegram_ch,
             ntfy_channel=ntfy_ch,
+            # Cabriole is still present in historical journal records but is
+            # disabled in settings. Its old losing streak must not control
+            # risk for the Phase 4 bis live strategies.
+            consecutive_loss_strategies=active_strategies,
         )
         monitor = LiveMonitor(config=cfg)
         # Inject broker access for active protection (close positions)
@@ -480,6 +492,10 @@ class LiveEngine:
             logger.info(
                 "[Engine] 📊 Live monitor actif (protection, pas de notifications configurées)"
             )
+        logger.info(
+            "[Engine] Guard pertes consecutives: strategies actives = "
+            f"{', '.join(active_strategies)}"
+        )
         return monitor
 
     def _make_position_monitor(self):
@@ -1508,9 +1524,17 @@ class LiveEngine:
                     f"total_dd={state.total_dd_pct:.1f}%"
                 )
 
-                # Live monitor: equity snapshot + protection check
+                # Live monitor: evaluate protection before persisting the
+                # snapshot so its level represents the metric just measured.
                 if self._live_monitor:
                     free_margin = getattr(info, 'margin_free', 0.0) or 0.0
+                    await self._live_monitor.check_protection(
+                        daily_dd_pct=state.daily_dd_pct,
+                        total_dd_pct=state.total_dd_pct,
+                        equity=info.equity,
+                        free_margin=free_margin,
+                        broker_id=broker_id,
+                    )
                     self._live_monitor.record_equity_snapshot(
                         balance=info.balance,
                         equity=info.equity,
@@ -1518,13 +1542,6 @@ class LiveEngine:
                         open_positions=open_positions,
                         daily_dd_pct=state.daily_dd_pct,
                         total_dd_pct=state.total_dd_pct,
-                        broker_id=broker_id,
-                    )
-                    await self._live_monitor.check_protection(
-                        daily_dd_pct=state.daily_dd_pct,
-                        total_dd_pct=state.total_dd_pct,
-                        equity=info.equity,
-                        free_margin=free_margin,
                         broker_id=broker_id,
                     )
 
