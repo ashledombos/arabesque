@@ -5,7 +5,7 @@
 > ce fichier est la référence rapide pour savoir ce qui tourne, sur quel compte, avec quel paramétrage.
 > **Mettre à jour à chaque changement de compte ou de configuration live.**
 
-Dernière mise à jour : 2026-05-17 (session Opus 4.7 — cleanup docs)
+Derniere mise a jour : 2026-05-26 (incident GFT position-state)
 
 ---
 
@@ -21,13 +21,13 @@ Dernière mise à jour : 2026-05-17 (session Opus 4.7 — cleanup docs)
 | **Type FTMO** | Challenge Phase 1 (2-step, 100k USD) |
 | **Type GFT** | Challenge (150k USD) |
 | **Environnement cTrader** | **Démo** (`is_demo: true` — les challenges FTMO utilisent l'endpoint démo) |
-| **Balance FTMO** | ~$94 309 (DD -5.7%) |
-| **Balance GFT** | ~$142 742 (DD -4.8%) |
-| **Protection FTMO** | LiveMonitor **NORMAL** (seuils relevés 2026-04-15) |
-| **Protection GFT** | LiveMonitor **NORMAL** |
+| **Balance FTMO** | $93 298 (DD -6.7%) |
+| **Balance GFT** | $142 105 (DD -5.3%) |
+| **Protection FTMO** | LiveMonitor **DANGER** (risk x0.25) |
+| **Protection GFT** | LiveMonitor **DANGER** (risk x0.25) |
 | **Notifications** | ntfy ✅, Telegram ✅, **bot Telegram interactif** (lecture seule) ✅ |
 | **Watchdog feed** | ✅ Actif (`arabesque-feed-watchdog.timer`, 5min, détection silent-fail PriceFeed) |
-| **Dernier incident** | 2026-05-14 — boucle Feed stale ETHUSD 9h45→17h23 UTC (Glissade XAUUSD -1R imputable, gate Phase 2.5) |
+| **Dernier incident** | 2026-05-26 — GFT faux exit AUDJPY + pending XAUUSD orphelin (`docs/INCIDENT_GFT_POSITION_STATE_2026-05-26.md`) |
 
 ---
 

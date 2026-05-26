@@ -149,3 +149,71 @@ def test_consecutive_exceptions_keep_loop_alive(caplog):
     # Les 3 erreurs doivent être loggées
     warnings = [m for m in caplog.messages if "flaky error" in m]
     assert len(warnings) == 3
+
+
+def test_start_does_not_schedule_health_loop_before_running(monkeypatch):
+    """The startup reconciliation may yield; health loop must see running=True.
+
+    Regression 2026-05-26: ``start()`` scheduled ``_account_refresh_loop``
+    before setting ``_running``.  When startup reconciliation yielded, the
+    task observed False and exited silently, so no health reports were emitted.
+    """
+    async def _runner():
+        engine = LiveEngine({}, {}, {}, dry_run=False)
+        seen_running = []
+        blocker = asyncio.Event()
+
+        class _PositionMonitor:
+            def load_state(self):
+                return None
+
+            async def start_be_polling(self):
+                return None
+
+        async def no_op():
+            return None
+
+        async def connect_brokers():
+            engine._brokers = {"fake": object()}
+
+        async def yielding_reconcile():
+            await asyncio.sleep(0)
+
+        async def probe_account_loop():
+            seen_running.append(engine._running)
+            await blocker.wait()
+
+        monkeypatch.setattr(engine, "_connect_brokers", connect_brokers)
+        monkeypatch.setattr(engine, "_make_dispatcher", lambda: object())
+        monkeypatch.setattr(engine, "_make_live_monitor", lambda: None)
+        monkeypatch.setattr(engine, "_make_position_monitor", lambda: _PositionMonitor())
+        monkeypatch.setattr(engine, "_start_bar_aggregator", no_op)
+        monkeypatch.setattr(engine, "_start_price_feed", no_op)
+        monkeypatch.setattr(engine, "_init_dd_tracking", no_op)
+        monkeypatch.setattr(engine, "_refresh_account_state", no_op)
+        monkeypatch.setattr(engine, "_notify_startup_state", no_op)
+        monkeypatch.setattr(engine, "_reconcile_existing_positions", yielding_reconcile)
+        monkeypatch.setattr(engine, "_reconcile_missed_exits", no_op)
+        monkeypatch.setattr(engine, "_account_refresh_loop", probe_account_loop)
+
+        await engine.start()
+        await asyncio.sleep(0)
+        assert seen_running == [True]
+
+        for task in (
+            engine._account_refresh_task,
+            engine._reconcile_task,
+            engine._snapshot_task,
+        ):
+            if task:
+                task.cancel()
+        await asyncio.gather(
+            *(t for t in (
+                engine._account_refresh_task,
+                engine._reconcile_task,
+                engine._snapshot_task,
+            ) if t),
+            return_exceptions=True,
+        )
+
+    asyncio.run(_runner())

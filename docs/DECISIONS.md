@@ -2953,3 +2953,33 @@ Le **noyau actif** depuis 2026-05-16 est Extension + Glissade. C'est lui qu'on d
 
 **Boussole** : un crash feed silencieux 19h54 sans alerte assistant est inacceptable. Ce n'est pas un drift d'edge, c'est un trou d'observabilité de niveau systémique.
 
+---
+
+## Decision 2026-05-26 - TradeLocker position state fail-closed
+
+**Incident** : `AUDJPY` GFT est restee ouverte broker-side alors que le
+journal avait enregistre un faux exit. Une reponse HTTP 429 a ete convertie
+en `[]`, puis l'ordre d'entree a ete accepte comme preuve de cloture.
+Parallelement, un pending `XAUUSD` rempli est devenu orphelin car TradeLocker
+utilise des identifiants d'ordre et de position distincts.
+
+**Decision de surete** :
+
+- Une erreur de lecture de positions broker est un etat **inconnu**, jamais
+  une preuve de zero position.
+- Un detail de cloture TradeLocker n'est valide qu'avec une execution de
+  fermeture remplie, opposee a l'ouverture ; une entree seule ne vaut pas exit.
+- Tout pending TradeLocker rempli doit etre resolu par
+  `order_id -> position_id` avant journalisation et monitoring.
+- Tout ordre accepte dont la confirmation de position echoue est conserve
+  comme `pending/unconfirmed` jusqu'a une lecture broker reussie.
+- Au restart, SL/TP GFT peuvent etre recuperes depuis les ordres protecteurs
+  lies lorsque le payload `Position` les masque.
+- Les loops de health/reconcile/snapshot ne sont lancees qu'apres
+  `LiveEngine._running=True`.
+
+**Correction historique** : faux exit AUDJPY invalide ; vrai exit reconcilie
+`-0.201R`. XAUUSD restaure depuis historique broker : `+1.178R`,
+`MFE=1.79R`, marque comme sortie operationnelle due au bug.
+
+**Dossier** : `docs/INCIDENT_GFT_POSITION_STATE_2026-05-26.md`.

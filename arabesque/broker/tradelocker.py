@@ -389,6 +389,69 @@ class TradeLockerBroker(BaseBroker):
         except Exception as e:
             return OrderResult(success=False, order_id=order_id, message=str(e))
 
+    async def resolve_position_id_from_order_id(
+        self, order_id: str
+    ) -> Optional[str]:
+        """Return the TradeLocker position created by a filled pending order.
+
+        TradeLocker uses different identifiers for orders and positions.  The
+        relationship is unavailable while an order is merely working, then
+        becomes available once it fills.
+        """
+        if not self._api:
+            return None
+        try:
+            position_id = self._api.get_position_id_from_order_id(int(order_id))
+            return str(position_id) if position_id is not None else None
+        except Exception as e:
+            print(
+                f"[TradeLocker] Position lookup failed for order {order_id}: {e}"
+            )
+            return None
+
+    async def get_position_protection(
+        self, position_id: str
+    ) -> Optional[tuple[Optional[float], Optional[float]]]:
+        """Read attached STOP/LIMIT legs because TL positions omit SL/TP.
+
+        ``get_all_positions()`` returned ``sl=None tp=None`` for protected
+        AUDJPY/XAUUSD positions on 2026-05-26.  The live protective orders
+        are instead returned by ``get_all_orders()`` with the same positionId.
+        """
+        if not self._api:
+            return None
+        try:
+            orders = self._api.get_all_orders()
+            if orders is None or orders.empty or "positionId" not in orders.columns:
+                return None
+            match = orders[orders["positionId"] == int(position_id)]
+            if match.empty:
+                return None
+            stop_loss: Optional[float] = None
+            take_profit: Optional[float] = None
+            for _, order in match.iterrows():
+                status = str(order.get("status", "")).upper()
+                if status not in ("PENDING", "NEW", "WORKING", ""):
+                    continue
+                kind = str(order.get("type", "")).lower()
+                if kind == "stop":
+                    value = order.get("stopPrice") or order.get("price")
+                    if value:
+                        stop_loss = float(value)
+                elif kind == "limit":
+                    value = order.get("price")
+                    if value:
+                        take_profit = float(value)
+            if stop_loss is None and take_profit is None:
+                return None
+            return stop_loss, take_profit
+        except Exception as e:
+            print(
+                f"[TradeLocker] Protection lookup failed for position "
+                f"{position_id}: {e}"
+            )
+            return None
+
     async def get_pending_orders(self) -> List[PendingOrder]:
         if not self._api:
             return []
@@ -441,7 +504,7 @@ class TradeLockerBroker(BaseBroker):
 
     async def get_positions(self) -> List[Position]:
         if not self._api:
-            return []
+            raise ConnectionError("TradeLocker not connected while reading positions")
         try:
             positions_df = self._api.get_all_positions()
             if positions_df is None or positions_df.empty:
@@ -465,7 +528,10 @@ class TradeLockerBroker(BaseBroker):
             return positions
         except Exception as e:
             print(f"[TradeLocker] Error getting positions: {e}")
-            return []
+            # A failed broker query is not evidence that no positions exist.
+            # Callers such as LivePositionMonitor must preserve local tracking
+            # until a successful broker response establishes the true state.
+            raise ConnectionError(f"TradeLocker get_positions failed: {e}") from e
 
     async def close_position(self, position_id: str) -> OrderResult:
         if not self._api:
@@ -535,8 +601,33 @@ class TradeLockerBroker(BaseBroker):
                         break
             if match is None or match.empty:
                 return None
-            # Take the last (closing) order
-            row = match.iloc[-1]
+
+            # TradeLocker returns all linked orders, including the filled
+            # opening order and cancelled SL/TP legs.  On 2026-05-26 the
+            # API returned rows newest-first; taking iloc[-1] selected the
+            # entry fill and falsely "confirmed" an exit while AUDJPY was
+            # still open.  A closure requires two opposite filled executions:
+            # the opening fill and a later closing fill.
+            status = match["status"].astype(str).str.lower() if "status" in match else None
+            filled = match[status == "filled"].copy() if status is not None else match.iloc[0:0]
+            if "filledQty" in filled:
+                filled = filled[filled["filledQty"].fillna(0).astype(float) > 0]
+            if len(filled) < 2:
+                return None
+
+            sort_col = next(
+                (col for col in ("createdDate", "lastModified", "filledTime", "id")
+                 if col in filled.columns),
+                None,
+            )
+            if sort_col:
+                filled = filled.sort_values(sort_col)
+            first_side = str(filled.iloc[0].get("side", "")).lower()
+            row = filled.iloc[-1]
+            last_side = str(row.get("side", "")).lower()
+            if first_side and last_side and first_side == last_side:
+                return None
+
             exit_price = row.get("filledPrice") or row.get("avgPrice") or row.get("price")
             if exit_price is None:
                 return None

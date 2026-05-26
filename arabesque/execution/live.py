@@ -146,9 +146,6 @@ class LiveEngine:
         await self._refresh_account_state()
         # 6b-bis. Notification de démarrage (résumé tous comptes)
         await self._notify_startup_state()
-        self._account_refresh_task = asyncio.create_task(
-            self._account_refresh_loop()
-        )
         if self._position_monitor:
             # 6b. Réconciliation au démarrage : enregistrer les positions déjà ouvertes
             await self._reconcile_existing_positions()
@@ -158,9 +155,6 @@ class LiveEngine:
             self._load_pending_fills()
             # 6d. Détecter les trades fermés pendant le downtime
             await self._reconcile_missed_exits()
-            self._reconcile_task = asyncio.create_task(
-                self._reconcile_loop()
-            )
             # 6d-bis. Phase 2.5 — boucle backup BE indépendante du PriceFeed.
             # No-op si live.be_polling_backup=false (défaut).
             try:
@@ -173,11 +167,22 @@ class LiveEngine:
                 brokers=self._brokers,
                 position_monitor=self._position_monitor,
             )
+
+        # Les boucles ci-dessous utilisent ``while self._running``. Elles
+        # doivent être créées APRES ce passage à True : auparavant, les awaits
+        # de la réconciliation de démarrage donnaient la main au health loop
+        # alors que le flag valait encore False, et la task mourait sans log.
+        self._running = True
+        self._account_refresh_task = asyncio.create_task(
+            self._account_refresh_loop()
+        )
+        if self._position_monitor:
+            self._reconcile_task = asyncio.create_task(
+                self._reconcile_loop()
+            )
             self._snapshot_task = asyncio.create_task(
                 self._snapshotter.run_forever(lambda: self._running)
             )
-
-        self._running = True
         tf_summary = ", ".join(
             f"{agg._timeframe_label()}/{agg.cfg.signal_strategy}({len(agg.cfg.instruments)})"
             for agg in self._bar_aggregators.values()
@@ -632,6 +637,31 @@ class LiveEngine:
                 (p for p in positions if str(p.position_id) == str(order_id)),
                 None,
             )
+            resolved_position_id = str(order_id)
+            if match is None:
+                # TradeLocker pending orders receive an order ID while they
+                # are working, then expose a distinct position ID after fill.
+                # Without this lookup the filled position is never registered
+                # and may be auto-closed as an orphan (XAUUSD, 2026-05-26).
+                resolve_position_id = getattr(
+                    broker, "resolve_position_id_from_order_id", None
+                )
+                if resolve_position_id:
+                    try:
+                        resolved = await resolve_position_id(str(order_id))
+                    except Exception as e:
+                        logger.warning(
+                            f"[Engine] Pending fill position lookup failed "
+                            f"for {broker_id}:{order_id}: {e}"
+                        )
+                        resolved = None
+                    if resolved:
+                        resolved_position_id = str(resolved)
+                        match = next(
+                            (p for p in positions
+                             if str(p.position_id) == resolved_position_id),
+                            None,
+                        )
             if match:
                 # Fill confirmé. Reconstruit un signal-like objet pour record_entry.
                 class _StubSignal:
@@ -656,7 +686,7 @@ class LiveEngine:
                     self._live_monitor.record_entry(
                         signal=stub,
                         broker_id=broker_id,
-                        position_id=str(order_id),
+                        position_id=resolved_position_id,
                         entry_price=match.entry_price,
                         volume=match.volume,
                         risk_cash=info.get("risk_cash", 0.0),
@@ -674,7 +704,7 @@ class LiveEngine:
                         pass
                     self._position_monitor.register_position(
                         broker_id=broker_id,
-                        position_id=str(order_id),
+                        position_id=resolved_position_id,
                         symbol=info["instrument"],
                         side=stub.side,
                         entry=match.entry_price,
@@ -687,7 +717,7 @@ class LiveEngine:
                 logger.info(
                     f"[Engine] 🎯 Pending fill confirmé: {info['instrument']} "
                     f"{info['side']} entry={match.entry_price:.5f} "
-                    f"({broker_id}:{order_id})"
+                    f"({broker_id}:order={order_id} position={resolved_position_id})"
                 )
                 self._pending_fills.pop(key, None)
                 changed = True
@@ -769,6 +799,34 @@ class LiveEngine:
                     # SL et TP depuis le broker
                     sl = pos.stop_loss or 0.0
                     tp = pos.take_profit or 0.0
+
+                    if sl <= 0:
+                        # TradeLocker exposes attached protective orders
+                        # separately from the Position payload.  Recover them
+                        # on restart so a protected live position keeps BE /
+                        # trailing surveillance instead of being abandoned.
+                        read_protection = getattr(
+                            broker, "get_position_protection", None
+                        )
+                        if read_protection:
+                            try:
+                                protection = await read_protection(
+                                    str(pos.position_id)
+                                )
+                            except Exception as e:
+                                logger.warning(
+                                    f"[Engine] Protection lookup failed for "
+                                    f"{broker_id}:{pos.position_id}: {e}"
+                                )
+                                protection = None
+                            if protection:
+                                sl = protection[0] or sl
+                                tp = protection[1] or tp
+                                logger.info(
+                                    f"[Engine] Protection récupérée via ordres "
+                                    f"liés: {pos.symbol} {pos.position_id} "
+                                    f"SL={sl} TP={tp} ({broker_id})"
+                                )
 
                     if sl <= 0:
                         logger.warning(
@@ -1494,7 +1552,8 @@ class LiveEngine:
                 await self._refresh_account_state()
             except Exception as e:
                 logger.warning(
-                    f"[Engine] _refresh_account_state error (loop kept alive): {e}"
+                    f"[Engine] _refresh_account_state error (loop kept alive): {e}",
+                    exc_info=True,
                 )
             # Health report périodique — isolé pour ne pas tuer la boucle
             # si emit_health_report lève (ex: append_journal IO error).
@@ -1503,7 +1562,8 @@ class LiveEngine:
                     self._live_monitor.emit_health_report()
             except Exception as e:
                 logger.warning(
-                    f"[Engine] emit_health_report error (loop kept alive): {e}"
+                    f"[Engine] emit_health_report error (loop kept alive): {e}",
+                    exc_info=True,
                 )
 
     async def _notify_startup_state(self) -> None:
@@ -1658,7 +1718,19 @@ class LiveEngine:
 
             for attempt in range(3):
                 await asyncio.sleep(2.0 * (attempt + 1))
-                positions = await broker.get_positions()
+                try:
+                    positions = await broker.get_positions()
+                except Exception as e:
+                    # L'ordre a ete accepte par le broker mais son etat ne
+                    # peut pas etre relu. Ne jamais perdre sa trace : apres
+                    # les retries il sera persiste comme pending/uncertain
+                    # et la boucle de poll reprendra la confirmation.
+                    logger.warning(
+                        f"[Engine] Confirmation fill différée "
+                        f"{broker_id}:{result.order_id} "
+                        f"(attempt {attempt + 1}/3): {e}"
+                    )
+                    continue
                 matching = [
                     p for p in positions
                     if str(p.position_id) == str(result.order_id)
@@ -1671,9 +1743,10 @@ class LiveEngine:
                     break
 
             if not found:
-                # Pas de fill immédiat — c'est un STOP/LIMIT en attente.
-                # On loggue `pending_order` (pas `entry`) et on stocke pour
-                # détection ultérieure via _pending_fills_loop.
+                # Pas de fill confirme : ordre STOP/LIMIT encore en attente,
+                # ou ordre place dont la relecture broker a echoue. Dans les
+                # deux cas, on conserve l'identifiant sans inventer d'entry ;
+                # _poll_pending_fills le convertira en position trackee.
                 if self._live_monitor:
                     self._live_monitor.record_pending_order(
                         signal=signal,
@@ -1701,9 +1774,9 @@ class LiveEngine:
                 }
                 self._save_pending_fills()
                 logger.info(
-                    f"[Engine] ⏳ Pending fill: {signal.instrument} "
+                    f"[Engine] ⏳ Pending/unconfirmed fill: {signal.instrument} "
                     f"{signal.side.value} order_id={result.order_id} — "
-                    f"sera confirmé quand le STOP/LIMIT sera touché"
+                    f"sera confirmé par polling broker"
                 )
                 return
 

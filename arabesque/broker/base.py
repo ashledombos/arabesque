@@ -442,6 +442,30 @@ class BaseBroker(ABC):
         """
         return None
 
+    async def resolve_position_id_from_order_id(
+        self, order_id: str
+    ) -> Optional[str]:
+        """Resolve a pending order to the broker position it opened.
+
+        Most brokers either expose the same identifier or do not need this
+        lookup.  TradeLocker uses distinct order and position identifiers,
+        so pending fills must resolve this relationship before monitoring the
+        new exposure.
+        """
+        return None
+
+    async def get_position_protection(
+        self, position_id: str
+    ) -> Optional[tuple[Optional[float], Optional[float]]]:
+        """Return broker-side (stop_loss, take_profit) for an open position.
+
+        Some APIs expose protection directly on ``Position``; TradeLocker
+        exposes attached STOP/LIMIT orders instead.  The optional hook lets
+        startup recovery restore monitoring without assuming ``Position.sl``
+        is authoritative for every broker.
+        """
+        return None
+
     def map_symbol(self, unified_symbol: str) -> Optional[str]:
         mapping = self.config.get("instruments_mapping", {})
         return mapping.get(unified_symbol)
