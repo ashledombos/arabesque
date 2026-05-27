@@ -223,6 +223,9 @@ class LiveMonitor:
         # Performance
         self._perf: dict[str, StrategyPerf] = {}
         self._perf_by_inst: dict[str, StrategyPerf] = {}
+        # Protection is account-specific: a copied signal losing on two
+        # brokers is one loss per account, not a two-loss streak on each.
+        self._perf_by_broker_strategy: dict[tuple[str, str], StrategyPerf] = {}
 
         # Equity
         self._last_equity_snapshot: dict[str, float] = {}  # per-broker throttle
@@ -375,7 +378,8 @@ class LiveMonitor:
             return  # Already frozen, nothing more to do
 
         new_level = self._evaluate_protection_level(
-            daily_dd_pct, total_dd_pct, equity, free_margin
+            daily_dd_pct, total_dd_pct, equity, free_margin,
+            broker_id=broker_id,
         )
 
         if broker_id:
@@ -402,6 +406,7 @@ class LiveMonitor:
         total_dd_pct: float,
         equity: float,
         free_margin: float,
+        broker_id: str = "",
     ) -> ProtectionLevel:
         """Détermine le niveau de protection basé sur les métriques courantes."""
         # Margin pct = free_margin / equity * 100
@@ -429,10 +434,21 @@ class LiveMonitor:
         # Consecutive-loss protection applies only to strategies still live.
         # A disabled historical strategy must not pin new trades in DANGER.
         streak_scope = set(self._cfg.consecutive_loss_strategies)
+        if broker_id:
+            scoped_perf = (
+                (strategy, perf)
+                for (perf_broker_id, strategy), perf
+                in self._perf_by_broker_strategy.items()
+                if perf_broker_id == broker_id
+            )
+        else:
+            # Compatibility for callers that intentionally evaluate a global
+            # state. Live broker protection always supplies broker_id.
+            scoped_perf = self._perf.items()
         max_consec = max(
             (
                 p.consecutive_losses
-                for strategy, p in self._perf.items()
+                for strategy, p in scoped_perf
                 if not streak_scope or strategy in streak_scope
             ),
             default=0
@@ -812,6 +828,13 @@ class LiveMonitor:
             self._perf[strat] = StrategyPerf(strategy=strat)
         self._perf[strat].record(trade.result_r)
 
+        broker_strat_key = (broker_id, strat)
+        if broker_strat_key not in self._perf_by_broker_strategy:
+            self._perf_by_broker_strategy[broker_strat_key] = StrategyPerf(
+                strategy=strat
+            )
+        self._perf_by_broker_strategy[broker_strat_key].record(trade.result_r)
+
         inst = trade.instrument
         if inst not in self._perf_by_inst:
             self._perf_by_inst[inst] = StrategyPerf(strategy=inst)
@@ -862,7 +885,7 @@ class LiveMonitor:
         )
 
         self._check_drift(strat)
-        self._check_consecutive_losses(strat)
+        self._check_consecutive_losses(strat, broker_id=broker_id)
         self._check_best_day(today)
 
         return trade
@@ -955,15 +978,19 @@ class LiveMonitor:
                 logger.warning(f"[LiveMonitor] ⚠️ {msg}")
                 asyncio.ensure_future(self._notify_telegram(f"⚠️ {msg}"))
 
-    def _check_consecutive_losses(self, strategy: str) -> None:
-        """Alerte si trop de pertes consécutives."""
-        perf = self._perf.get(strategy)
+    def _check_consecutive_losses(self, strategy: str, broker_id: str = "") -> None:
+        """Alerte si un compte atteint une série de pertes sur une stratégie."""
+        perf = (
+            self._perf_by_broker_strategy.get((broker_id, strategy))
+            if broker_id else self._perf.get(strategy)
+        )
         if not perf:
             return
         if perf.consecutive_losses >= self._cfg.max_consecutive_losses:
+            broker_tag = f" [{broker_id}]" if broker_id else ""
             msg = (
                 f"{perf.consecutive_losses} pertes consécutives "
-                f"sur {strategy}"
+                f"sur {strategy}{broker_tag}"
             )
             logger.warning(f"[LiveMonitor] 🔴 {msg}")
             if perf.consecutive_losses >= self._cfg.max_consecutive_losses_danger:
@@ -1185,6 +1212,7 @@ class LiveMonitor:
 
         try:
             seen_exit_tids: set[str] = set()
+            seen_broker_exit_keys: set[tuple[str, str]] = set()
             with open(TRADE_JOURNAL_PATH) as f:
                 for line in f:
                     line = line.strip()
@@ -1197,14 +1225,29 @@ class LiveMonitor:
 
                     event = entry.get("event")
                     if event == "exit":
-                        # Dédupliquer par trade_id (multi-broker)
+                        strat = entry.get("strategy", "unknown")
                         tid = entry.get("trade_id", "")
+                        broker_id = entry.get("broker_id", "")
+                        if broker_id:
+                            broker_exit_key = (tid, broker_id)
+                            if not tid or broker_exit_key not in seen_broker_exit_keys:
+                                if tid:
+                                    seen_broker_exit_keys.add(broker_exit_key)
+                                perf_key = (broker_id, strat)
+                                if perf_key not in self._perf_by_broker_strategy:
+                                    self._perf_by_broker_strategy[perf_key] = StrategyPerf(
+                                        strategy=strat
+                                    )
+                                self._perf_by_broker_strategy[perf_key].record(
+                                    entry.get("result_r", 0.0)
+                                )
+
+                        # Dédupliquer par trade_id (multi-broker)
                         if tid:
                             if tid in seen_exit_tids:
                                 continue
                             seen_exit_tids.add(tid)
 
-                        strat = entry.get("strategy", "unknown")
                         if strat not in self._perf:
                             self._perf[strat] = StrategyPerf(strategy=strat)
                         self._perf[strat].record(entry.get("result_r", 0.0))

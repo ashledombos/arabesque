@@ -5,7 +5,7 @@
 > ce fichier est la référence rapide pour savoir ce qui tourne, sur quel compte, avec quel paramétrage.
 > **Mettre à jour à chaque changement de compte ou de configuration live.**
 
-Derniere mise a jour : 2026-05-27 10:16 CEST (maintenance de securite apres reboot)
+Derniere mise a jour : 2026-05-27 11:15 CEST (maintenance de securite apres reboot)
 
 ---
 
@@ -15,7 +15,7 @@ Derniere mise a jour : 2026-05-27 10:16 CEST (maintenance de securite apres rebo
 |---|---|
 | **Statut** | 🛑 **ARRETE volontairement** — maintenance de securite, `arabesque-live.service` inactive et disabled depuis le 2026-05-27 10:07 CEST |
 | **Phase** | Phase 4 bis suspendue pendant maintenance ; scope de verdict = Extension + Glissade uniquement depuis 2026-05-16 |
-| **Commande** | Ne pas lancer tant que le correctif startup cTrader et le niveau de protection de reprise ne sont pas validés ; service actuellement `disabled` pour empêcher un reboot de le relancer |
+| **Commande** | Ne pas lancer tant que l'audit d'exécution sizing (arrondi/min-volume/friction en R) n'a pas défini une règle de reprise ; service actuellement `disabled` pour empêcher un reboot de le relancer |
 | **Log** | `journalctl --user -u arabesque-live -f` |
 | **Comptes actifs** | `ftmo_challenge` (cTrader 45667282) + `gft_compte1` (TradeLocker) |
 | **Type FTMO** | Challenge Phase 1 (2-step, 100k USD) |
@@ -23,11 +23,11 @@ Derniere mise a jour : 2026-05-27 10:16 CEST (maintenance de securite apres rebo
 | **Environnement cTrader** | **Démo** (`is_demo: true` — les challenges FTMO utilisent l'endpoint démo) |
 | **Balance FTMO** | $93 298 (DD -6.7%) |
 | **Balance GFT** | $142 105 (DD -5.3%) |
-| **Protection FTMO** | Aucun monitor actif. Après chargement du fix scope stratégies : niveau calculé attendu **CAUTION** (risk protection x0.50), sauf plancher temporaire explicite `DANGER x0.25` |
-| **Protection GFT** | Aucun monitor actif. Même arbitrage de reprise FTMO/GFT : `CAUTION x0.50` corrigé ou plancher conservateur `DANGER x0.25` |
+| **Protection FTMO** | Aucun monitor actif. Recalcul guard par broker : `NORMAL` individuel (Extension streak=1, Glissade streak=1, DD=-6.70%) |
+| **Protection GFT** | Aucun monitor actif. Recalcul guard par broker : `CAUTION` individuel (Glissade streak=5, DD=-5.26%) ; politique pire broker => sizing effectif systeme `CAUTION x0.50` |
 | **Notifications** | ntfy ✅, Telegram ✅, **bot Telegram interactif** (lecture seule) ✅ |
 | **Watchdog feed** | ✅ Timer actif ; auto-restart `feed_stale` volontaire depuis Hot Path Mode 2026-05-23 (anti-boucle/backoff), sans démarrage possible lorsque l'engine est inactif |
-| **Dernier incident** | 2026-05-27 — reboot/réseau : auto-start live imprévu à 10:04 CEST, boucle cTrader `ALREADY_LOGGED_IN`, jamais arrivé à `Moteur prêt`, arrêté à 10:07 et service désactivé. Aucun ordre/position/pending observé. Cause startup corrigée en code : timeout nettoyé complètement + retry cTrader espacé >=60s ; livraison/tests en cours. |
+| **Dernier incident** | 2026-05-27 — reboot/réseau : auto-start live imprévu à 10:04 CEST, boucle cTrader `ALREADY_LOGGED_IN`, jamais arrivé à `Moteur prêt`, arrêté à 10:07 et service désactivé. Aucun ordre/position/pending observé. Cause startup corrigée et poussée (`38b7277`) : timeout nettoyé complètement + retry cTrader espacé >=60s ; `278 passed`. |
 
 ---
 
@@ -42,10 +42,20 @@ Derniere mise a jour : 2026-05-27 10:16 CEST (maintenance de securite apres rebo
 | **Fouetté** (ORB M1) | M1 | — | Observation paper seulement | 🟡 0 trade live (bug cache OR bar_aggregator, cf HANDOFF) |
 
 Noyau Phase 4 bis : **Extension + Glissade uniquement** (cf `docs/PHASE4_BIS_CHECKLIST_2026-05-16.md`).
-La reprise est bloquée par décision de risque : charger le fix de scope enlève
-la série Cabriole désactivée du guard et produirait `CAUTION x0.50` au lieu du
-`DANGER x0.25` historique. Option conservatrice recommandée : plancher
-temporaire explicite `DANGER x0.25`, puis audit de distorsion sizing.
+La reprise est bloquée par la vérification du sizing exécuté. Le guard de
+pertes a aussi été corrigé pour compter les séries par broker et non doubler
+les exécutions miroir : FTMO serait `NORMAL`, mais GFT est réellement
+`CAUTION` (Glissade streak=5), et la politique pire broker maintient le
+sizing système à `CAUTION x0.50`. Les entries déjà collectées sont fortement
+sous-dimensionnées par l'empilement DD/protection/rodage. Depuis le
+2026-05-16 : `n=7` entries broker Extension+Glissade,
+`6/7` sous `5%` du risque nominal de `450$` ; Glissade XAUUSD GFT=`4.82$`.
+Ces entries precedent toutefois le fix sizing per-broker `ab5b81a` ; elles ne
+projettent pas directement la reprise. Avec les DD actuels et le code corrige,
+`CAUTION` donnerait environ Extension H1 `31$` FTMO / `73$` GFT et Glissade
+rodee `7.8$` / `18.2$`. Un cash faible ne fausse pas l'edge en `R` sans
+distorsion de minimum volume, spread ou commission. Ni un plancher `DANGER`
+aveugle, ni un passage automatique `CAUTION` ne sont valides avant cet audit.
 
 ---
 

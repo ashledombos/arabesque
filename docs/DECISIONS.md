@@ -3099,3 +3099,58 @@ utilise des identifiants d'ordre et de position distincts.
 - **Blocage de reprise** : ne pas re-enable/start le service avant
   (1) livraison/test de la correction timeout startup cTrader et
   (2) choix explicite du plancher de protection de reprise.
+
+## Decision 2026-05-27 - sizing de reprise a verifier avant reactivation
+
+- **Question initiale** : conserver temporairement `DANGER x0.25` pour ne pas
+  remonter implicitement le risque apres le fix Cabriole, ou accepter le niveau
+  calcule `CAUTION x0.50`.
+- **Constat mesure sur Phase 4 bis** (`extension` + `glissade`, entries depuis
+  le 2026-05-16, par broker) : `n=7`; `6/7` entries portent moins de `5%` du
+  risque nominal par compte (`450$`). Extension observee entre `15.56$` et
+  `23.52$`; Glissade XAUUSD GFT a `4.82$`. Le cout spread a l'entree atteint
+  jusqu'a `4.84%R` sur ETHUSD. Ces observations sont contaminees par le bug
+  corrige le 26/05 : avant `ab5b81a`, GFT etait parfois size avec l'etat DD
+  FTMO ; elles ne constituent pas une projection fiable post-reprise.
+- **Cause composee** : le sizing est reduit par la proximite du DD interne,
+  puis par le niveau de protection (`DANGER` historiquement), et Glissade
+  subit encore `rodage x0.25`. Le palier de protection n'est donc qu'un
+  facteur de la sous-exposition.
+- **Projection avec le sizing par broker corrige** (DD actuels, risque nominal
+  `450$`) : en `CAUTION`, Extension H1 viserait environ `31$` FTMO / `73$`
+  GFT et Glissade H1 (rodage inclus) `7.8$` FTMO / `18.2$` GFT ; en
+  `DANGER`, ces montants sont divises par deux.
+- **Interpretation rigoureuse** : un montant cash faible ne fausse pas a lui
+  seul l'edge mesure en `R`. La distorsion statistique n'existe que si
+  l'arrondi/minimum volume, le spread en `R` ou une commission minimale
+  changent significativement le resultat execute. Le montant faible demeure
+  en revanche un probleme economique de vitesse de recovery/payout.
+- **Decision** : ne pas imposer aveuglement un plancher `DANGER`, et ne pas
+  reprendre en `CAUTION` par simple effet de correction du guard Cabriole.
+  Avant reprise, produire un audit ciblant la distorsion d'execution
+  (risk reel vs cible apres arrondi, min volume, spread/commission en R) et
+  distinguer clairement validite d'edge en R de rendement cash. Le moteur
+  reste `disabled`.
+
+## Decision 2026-05-27 - serie de pertes evaluee par broker
+
+- **Bug confirme** : le niveau de protection etait stocke par broker, mais le
+  trigger `consecutive_losses` lisait `_perf[strategy]` global. Un meme signal
+  execute puis perdu sur FTMO et GFT ajoutait deux pertes a la serie utilisee
+  pour chaque compte. Le comportement variait aussi apres restart :
+  `_load_journal()` dedupliquait les exits multi-broker par `trade_id`, alors
+  que `record_exit()` les comptait tous pendant le runtime.
+- **Correction** : ajouter un agregat de protection
+  `(broker_id, strategy) -> StrategyPerf`, alimente par chaque exit broker et
+  reconstruit au startup en dedupliquant seulement `(trade_id, broker_id)`.
+  `check_protection(..., broker_id=...)` et les alertes de series lisent
+  desormais exclusivement la serie du compte concerne. Les agregats globaux
+  de reporting historique restent inchanges dans ce patch.
+- **Recalcul sur le journal courant** (strategies actives uniquement) :
+  FTMO `extension streak=1`, `glissade streak=1` -> niveau individuel
+  `NORMAL` avec DD `-6.70%`; GFT `extension streak=0`,
+  `glissade streak=5` -> niveau individuel `CAUTION` avec DD `-5.26%`.
+- **Effet sur la reprise** : aucun relachement immediat du sizing. La politique
+  executee applique le pire niveau broker aux nouveaux ordres, donc GFT
+  maintient le systeme en `CAUTION x0.50`. Le live reste arrete en attente de
+  l'audit d'execution sizing.

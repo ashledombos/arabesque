@@ -139,6 +139,94 @@ def test_disabled_strategy_losing_streak_does_not_pin_live_guard(tmp_path, monke
     assert level == ProtectionLevel.CAUTION
 
 
+def test_broker_guard_does_not_double_count_mirrored_losses(tmp_path, monkeypatch):
+    monitor = _monitor(tmp_path, monkeypatch)
+    monitor._cfg.consecutive_loss_strategies = ("extension",)
+    monitor._perf = {
+        "extension": StrategyPerf(strategy="extension", consecutive_losses=6),
+    }
+    monitor._perf_by_broker_strategy = {
+        ("ftmo_challenge", "extension"): StrategyPerf(
+            strategy="extension", consecutive_losses=3
+        ),
+        ("gft_compte1", "extension"): StrategyPerf(
+            strategy="extension", consecutive_losses=3
+        ),
+    }
+
+    ftmo_level = monitor._evaluate_protection_level(
+        daily_dd_pct=0.0,
+        total_dd_pct=-6.70,
+        equity=93298.21,
+        free_margin=93298.21,
+        broker_id="ftmo_challenge",
+    )
+    global_level = monitor._evaluate_protection_level(
+        daily_dd_pct=0.0,
+        total_dd_pct=-6.70,
+        equity=93298.21,
+        free_margin=93298.21,
+    )
+
+    assert ftmo_level == ProtectionLevel.NORMAL
+    assert global_level == ProtectionLevel.CAUTION
+
+
+def test_broker_guard_triggers_only_from_that_broker_streak(tmp_path, monkeypatch):
+    monitor = _monitor(tmp_path, monkeypatch)
+    monitor._cfg.consecutive_loss_strategies = ("extension",)
+    monitor._perf_by_broker_strategy = {
+        ("ftmo_challenge", "extension"): StrategyPerf(
+            strategy="extension", consecutive_losses=5
+        ),
+        ("gft_compte1", "extension"): StrategyPerf(
+            strategy="extension", consecutive_losses=2
+        ),
+    }
+
+    assert monitor._evaluate_protection_level(
+        0.0, -6.70, 93298.21, 93298.21, broker_id="ftmo_challenge"
+    ) == ProtectionLevel.CAUTION
+    assert monitor._evaluate_protection_level(
+        0.0, -5.26, 142105.25, 142105.25, broker_id="gft_compte1"
+    ) == ProtectionLevel.NORMAL
+
+
+def test_journal_rebuilds_broker_streaks_without_mirror_double_count(
+    tmp_path, monkeypatch
+):
+    journal = tmp_path / "trade_journal.jsonl"
+    rows = [
+        {"event": "exit", "trade_id": "a", "broker_id": "ftmo_challenge",
+         "strategy": "extension", "result_r": -1.0},
+        {"event": "exit", "trade_id": "a", "broker_id": "gft_compte1",
+         "strategy": "extension", "result_r": -1.0},
+        {"event": "exit", "trade_id": "b", "broker_id": "ftmo_challenge",
+         "strategy": "extension", "result_r": -1.0},
+        {"event": "exit", "trade_id": "b", "broker_id": "gft_compte1",
+         "strategy": "extension", "result_r": 1.0},
+    ]
+    journal.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+    monkeypatch.setattr(
+        "arabesque.execution.live_monitor.TRADE_JOURNAL_PATH", journal
+    )
+    monkeypatch.setattr(
+        "arabesque.execution.live_monitor.EQUITY_SNAPSHOT_PATH",
+        tmp_path / "equity_snapshots.jsonl",
+    )
+
+    monitor = LiveMonitor(MonitorConfig(equity_snapshot_interval_s=0))
+
+    ftmo = monitor._perf_by_broker_strategy[("ftmo_challenge", "extension")]
+    gft = monitor._perf_by_broker_strategy[("gft_compte1", "extension")]
+    assert ftmo.n_trades == 2
+    assert ftmo.consecutive_losses == 2
+    assert gft.n_trades == 2
+    assert gft.consecutive_losses == 0
+    # Existing global reporting remains signal-level and is not changed here.
+    assert monitor._perf["extension"].n_trades == 2
+
+
 def test_engine_configures_consecutive_loss_scope_from_active_strategies(
     tmp_path, monkeypatch
 ):

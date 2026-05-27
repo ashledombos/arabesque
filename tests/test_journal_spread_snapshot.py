@@ -29,6 +29,7 @@ def monitor(tmp_path, monkeypatch):
     m._max_closed_history = 1000
     m._perf = {}
     m._perf_by_inst = {}
+    m._perf_by_broker_strategy = {}
     m._daily_pnl = {}
 
     from arabesque.execution.live_monitor import ProtectionLevel, MonitorConfig
