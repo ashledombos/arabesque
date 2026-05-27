@@ -34,6 +34,10 @@ import pandas as pd
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from arabesque.notifications import select_notification_channels
+
 SETTINGS = ROOT / "config" / "settings.yaml"
 INSTRUMENTS = ROOT / "config" / "instruments.yaml"
 ACCOUNTS = ROOT / "config" / "accounts.yaml"
@@ -380,7 +384,10 @@ def main() -> int:
         try:
             import apprise
             secrets = yaml.safe_load((ROOT / "config/secrets.yaml").read_text())
-            channels = secrets.get("notifications", {}).get("channels", []) or []
+            channels = select_notification_channels(
+                secrets.get("notifications", {}).get("channels", []) or [],
+                urgent=False,
+            )
             if channels:
                 ap = apprise.Apprise()
                 for ch in channels:

@@ -1,6 +1,5 @@
-"""Rappel /suivi — envoie une notif (Telegram + ntfy) si le prochain passage
-prévu est dépassé, ou escalade en URGENT si le watchdog feed détecte une
-panne persistante.
+"""Rappel /suivi — Telegram si le prochain passage est dépassé, et
+Telegram+ntfy uniquement si le watchdog feed détecte une panne persistante.
 
 Lance toutes les heures via le timer systemd user
 `arabesque-suivi-reminder.timer`. Survit au reboot grâce à `Persistent=true`.
@@ -29,6 +28,10 @@ from pathlib import Path
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from arabesque.notifications import select_notification_channels
+
 STATE = ROOT / "logs" / "maintenance_state.jsonl"
 WATCHDOG_STATE = ROOT / "logs" / "feed_watchdog_state.json"
 SECRETS = ROOT / "config" / "secrets.yaml"
@@ -126,7 +129,10 @@ def _watchdog_escalation_reason(now: dt.datetime) -> str | None:
 
 def _send_escalation(apprise, now: dt.datetime, reason: str) -> bool:
     secrets = yaml.safe_load(SECRETS.read_text()) if SECRETS.exists() else {}
-    channels = (secrets or {}).get("notifications", {}).get("channels", []) or []
+    channels = select_notification_channels(
+        (secrets or {}).get("notifications", {}).get("channels", []) or [],
+        urgent=True,
+    )
     if not channels:
         return False
     ap = apprise.Apprise()
@@ -181,7 +187,10 @@ def main() -> int:
         return 0
 
     secrets = yaml.safe_load(SECRETS.read_text())
-    channels = (secrets or {}).get("notifications", {}).get("channels", []) or []
+    channels = select_notification_channels(
+        (secrets or {}).get("notifications", {}).get("channels", []) or [],
+        urgent=False,
+    )
     if not channels:
         return 0
     ap = apprise.Apprise()

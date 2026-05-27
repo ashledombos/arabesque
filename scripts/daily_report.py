@@ -2,8 +2,8 @@
 """
 Arabesque — Rapport quotidien / hebdomadaire automatisé.
 
-Lit le trade_journal.jsonl et equity_snapshots.jsonl, produit un résumé
-et l'envoie via les canaux de notification configurés (Telegram + ntfy).
+Lit le trade_journal.jsonl et equity_snapshots.jsonl, produit un resume
+et l'envoie sur Telegram. Ntfy est reserve aux alertes urgentes.
 
 Usage:
     python scripts/daily_report.py                  # rapport dernières 24h
@@ -27,6 +27,8 @@ from pathlib import Path
 # Ajouter le repo au path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
+
+from arabesque.notifications import select_notification_channels
 
 TRADE_JOURNAL = REPO / "logs" / "trade_journal.jsonl"
 EQUITY_SNAPSHOTS = REPO / "logs" / "equity_snapshots.jsonl"
@@ -294,7 +296,7 @@ def format_report(stats: dict, equity_snaps: list[dict], period: str) -> str:
 
 
 async def send_report(report: str, secrets_path: Path) -> None:
-    """Envoie le rapport via Apprise (Telegram + ntfy)."""
+    """Envoie le rapport de routine sur Telegram uniquement."""
     import yaml
     try:
         import apprise
@@ -304,7 +306,9 @@ async def send_report(report: str, secrets_path: Path) -> None:
         return
 
     secrets = yaml.safe_load(secrets_path.read_text()) or {}
-    channels = secrets.get("notifications", {}).get("channels", [])
+    channels = select_notification_channels(
+        secrets.get("notifications", {}).get("channels", []), urgent=False
+    )
     if not channels:
         print("Aucun canal de notification configuré")
         print(report)

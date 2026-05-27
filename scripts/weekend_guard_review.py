@@ -31,6 +31,10 @@ from pathlib import Path
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from arabesque.notifications import select_notification_channels
+
 GUARD_LOG = ROOT / "logs" / "weekend_crypto_guard.jsonl"
 JOURNAL = ROOT / "logs" / "trade_journal.jsonl"
 
@@ -176,7 +180,7 @@ def main() -> int:
     p.add_argument("--since", default=(
         dt.datetime.now(dt.timezone.utc) - dt.timedelta(days=60)
     ).strftime("%Y-%m-%d"), help="ISO date, défaut J-60")
-    p.add_argument("--notify", action="store_true", help="Notif apprise (Telegram+ntfy)")
+    p.add_argument("--notify", action="store_true", help="Notif Telegram")
     args = p.parse_args()
 
     since = dt.datetime.fromisoformat(args.since).replace(tzinfo=dt.timezone.utc)
@@ -239,7 +243,10 @@ def main() -> int:
             import apprise
             import yaml
             secrets = yaml.safe_load((ROOT / "config/secrets.yaml").read_text())
-            channels = secrets.get("notifications", {}).get("channels", []) or []
+            channels = select_notification_channels(
+                secrets.get("notifications", {}).get("channels", []) or [],
+                urgent=False,
+            )
             if channels:
                 ap = apprise.Apprise()
                 for ch in channels:

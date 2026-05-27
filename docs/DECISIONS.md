@@ -3288,3 +3288,21 @@ utilise des identifiants d'ordre et de position distincts.
   effectivement vues live et aux decisions par broker, est requis avant
   toute affirmation forte de rentabilite ou hausse de risque ; il reste
   observationnel et ne doit pas modifier l'edge actuel.
+
+## Decision 2026-05-27 - ntfy reserve a l'intervention urgente
+
+- **Contrat utilisateur** : Telegram recoit le flux complet ; ntfy ne doit
+  reveiller l'operateur que si une action rapide peut etre necessaire.
+- **Constat** : `LiveMonitor` respectait deja ce contrat (`CAUTION` et
+  restart sur Telegram ; `DANGER`/`EMERGENCY` sur les deux), mais les scripts
+  de rapport, reminder, replay et les notifications PriceFeed utilisaient
+  tous les channels sans distinction. Ntfy pouvait donc recevoir des
+  informations ordinaires ou une restauration de feed.
+- **Correction** : helper central `arabesque/notifications.py`. Les rapports
+  quotidien/hebdomadaire, `/suivi` non escalade, drift/replay/bilan weekend et
+  recovery feed passent par Telegram seul. Les alertes d'integrite execution,
+  `DANGER`/`EMERGENCY`, health `CRITIQUE`, auto-restart feed, echec et
+  anti-boucle restent Telegram + ntfy.
+- **Scope runtime** : les scripts systemd prennent la correction a leur
+  prochaine invocation ; le chemin interne `PriceFeed`/ordre exige le
+  prochain chargement du processus live.

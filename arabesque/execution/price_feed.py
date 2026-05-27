@@ -37,6 +37,8 @@ import time
 from datetime import datetime, timezone, timedelta
 from typing import Callable, Dict, List, Optional, Set
 
+from arabesque.notifications import select_notification_channels
+
 logger = logging.getLogger("arabesque.live.price_feed")
 
 
@@ -87,7 +89,8 @@ class PriceFeedManager:
         self._reconnect_count = 0
         self._start_time: Optional[datetime] = None
 
-        # Alerting : envoie Telegram+ntfy après N reconnexions consécutives
+        # Alerting : Telegram+ntfy seulement quand la panne exige attention ;
+        # un retour a la normale reste Telegram-only.
         # OU sur erreur d'auth (INVALID_REQUEST / not authorized).
         # Une seule alerte par cycle d'échec — reset à la première reconnexion réussie.
         self._alert_sent = False
@@ -376,12 +379,15 @@ class PriceFeedManager:
                     f"Engine continue de tourner mais ne reçoit pas de ticks.\n"
                     f"Action : vérifier docs/STATUS.md (expiration compte / token).",
                     title="🚨 Arabesque PriceFeed down",
+                    urgent=True,
                 )
 
             await asyncio.sleep(delay)
 
-    async def _send_alert(self, body: str, title: str = "Arabesque") -> None:
-        """Push Telegram+ntfy via apprise. Lit notifications.channels de secrets.yaml.
+    async def _send_alert(
+        self, body: str, title: str = "Arabesque", *, urgent: bool = False
+    ) -> None:
+        """Push an alert according to the Telegram/ntfy routing policy.
 
         Best-effort : silencieux si apprise absent ou config vide. Ne bloque
         jamais la boucle de reconnexion en cas d'erreur réseau.
@@ -393,8 +399,10 @@ class PriceFeedManager:
             if not secrets_path.exists():
                 return
             secrets = yaml.safe_load(secrets_path.read_text()) or {}
-            channels = (secrets.get("notifications") or {}).get("channels") or []
-            channels = [c for c in channels if isinstance(c, str)]
+            channels = select_notification_channels(
+                (secrets.get("notifications") or {}).get("channels") or [],
+                urgent=urgent,
+            )
             if not channels:
                 return
             import apprise
@@ -483,8 +491,8 @@ class PriceFeedManager:
         # puis ré-émettre subscribe_spots provoque
         # INVALID_REQUEST - Trading account is not authorized côté cTrader,
         # ce qui fige la session et bloque le feed jusqu'au prochain restart.
-        # Si le feed reste stale après N tentatives, l'alerte _send_alert
-        # (TG+ntfy) ping l'humain → restart manuel propre.
+        # Si le feed reste stale apres N tentatives, l'alerte urgente
+        # (TG+ntfy) ping l'humain ; une restauration est Telegram-only.
 
         if already_subscribed:
             # Broker déjà souscrit — juste mettre à jour les callbacks Python

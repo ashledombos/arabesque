@@ -84,6 +84,17 @@ Avant toute nouvelle entree GFT, le code doit :
 - mettre en quarantaine les nouvelles entrees GFT si la protection ne peut
   etre confirmee, tout en continuant a monitorer la position existante.
 
+## Routage des notifications
+
+- **Telegram** est le flux complet : demarrage, rapport, suivi, drift,
+  `CAUTION`, rejets non urgents et alertes urgentes.
+- **ntfy** est reserve aux evenements exigeant une attention rapide :
+  `DANGER` / `EMERGENCY`, protection broker non confirmee, fill aberrant,
+  amend SL abandonne, position absente broker-side, panne feed avec
+  auto-restart/anti-boucle/echec ou health check `CRITIQUE`.
+- Les rapports planifies, rappels `/suivi`, analyses de drift et retours a
+  l'etat normal ne doivent pas atteindre ntfy.
+
 ## Maintenance de ce contrat
 
 Toute modification des strategies actives, de la fenetre Phase 4 bis, des

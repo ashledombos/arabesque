@@ -36,6 +36,7 @@ import yaml
 # Réutilise les fonctions du compare script
 sys.path.insert(0, str(Path(__file__).parent.absolute()))
 from compare_live_vs_backtest import run_backtest_for_instrument, resolve_period
+from arabesque.notifications import select_notification_channels
 
 
 JOURNAL = "logs/trade_journal.jsonl"
@@ -352,49 +353,6 @@ def write_latest_md(audit_result: dict):
         f.write(md)
 
 
-def render_ntfy(audit_result: dict) -> str:
-    """Message ntfy court et humain (≤ 5 lignes, pas de jargon brut)."""
-    period_str = f"{audit_result['period_start']} → {audit_result['period_end']}"
-    strats = audit_result["strategies"]
-
-    # Catégorise les verdicts
-    bad = []      # drift_structurel (action requise)
-    watch = []    # drift_modere
-    regime = []   # regime_defavorable (live colle au backtest dans une période rouge)
-    ok = []
-    sleep = []
-    for name, s in strats.items():
-        v = s["verdict_code"]
-        if v == "drift_structurel":
-            bad.append(name)
-        elif v == "drift_modere" or v == "drift_a_confirmer":
-            watch.append(name)
-        elif v == "regime_defavorable":
-            regime.append(name)
-        elif v == "edge_intact" or v == "live_meilleur":
-            ok.append(name)
-        else:
-            sleep.append(name)
-
-    if bad:
-        head = f"🚨 Edge en danger — action requise : {', '.join(bad)}"
-    elif watch:
-        head = f"⚠️ Edge à surveiller : {', '.join(watch)}"
-    elif regime and not ok:
-        head = "🟡 Marché difficile mais l'edge tient (live colle au backtest)"
-    elif ok:
-        head = f"✅ Edge intact : {', '.join(ok)}"
-    else:
-        head = "💤 Pas assez de trades pour conclure"
-
-    lines = [f"Audit edge {period_str}", head]
-    if regime:
-        lines.append(f"Régime défavorable (on attend) : {', '.join(regime)}")
-    if sleep and not bad and not watch:
-        lines.append(f"Stratégies inactives (pas de trade) : {', '.join(sleep)}")
-    return "\n".join(lines)
-
-
 def render_telegram(audit_result: dict) -> str:
     """Message Telegram détaillé mais lisible — explique les chiffres en mots."""
     period_str = f"{audit_result['period_start']} → {audit_result['period_end']}"
@@ -467,10 +425,10 @@ def render_telegram(audit_result: dict) -> str:
 
 
 def send_notifications(audit_result: dict) -> None:
-    """Envoie ntfy (court) et Telegram (détaillé) séparément.
+    """Envoie sur Telegram si le diagnostic merite lecture.
 
-    Filtre les channels par préfixe : 'ntfy' → ntfy, 'tgram' → Telegram.
-    Ne notifie pas si tout est en `edge_intact`/`small_n` (pas de bruit inutile).
+    Un drift ou un regime defavorable demande une revue, pas une intervention
+    immediate : il ne doit pas reveiller ntfy.
     """
     # Décide si on notifie : seulement s'il y a au moins un drift ou un regime
     verdicts = [s["verdict_code"] for s in audit_result["strategies"].values()]
@@ -491,21 +449,14 @@ def send_notifications(audit_result: dict) -> None:
         import asyncio, yaml, apprise
         secrets_path = Path(__file__).resolve().parent.parent / "config" / "secrets.yaml"
         secrets = yaml.safe_load(secrets_path.read_text()) or {}
-        channels = secrets.get("notifications", {}).get("channels", []) or []
-
-        ntfy_channels = [c for c in channels if isinstance(c, str) and c.startswith("ntfy")]
-        telegram_channels = [c for c in channels if isinstance(c, str) and c.startswith("tgram")]
-
-        ntfy_body = render_ntfy(audit_result)
+        telegram_channels = select_notification_channels(
+            secrets.get("notifications", {}).get("channels", []) or [],
+            urgent=False,
+        )
         telegram_body = render_telegram(audit_result)
 
         async def _send_all():
             tasks = []
-            if ntfy_channels:
-                ap_n = apprise.Apprise()
-                for ch in ntfy_channels:
-                    ap_n.add(ch)
-                tasks.append(ap_n.async_notify(body=ntfy_body, title="Audit edge Arabesque"))
             if telegram_channels:
                 ap_t = apprise.Apprise()
                 for ch in telegram_channels:
@@ -516,9 +467,8 @@ def send_notifications(audit_result: dict) -> None:
             return results
 
         results = asyncio.run(_send_all())
-        ok_n = "✅" if (ntfy_channels and results and results[0] is True) else ("—" if not ntfy_channels else "❌")
         ok_t = "✅" if (telegram_channels and results and results[-1] is True) else ("—" if not telegram_channels else "❌")
-        print(f"Notif ntfy: {ok_n}  |  Telegram: {ok_t}")
+        print(f"Notif Telegram: {ok_t}")
     except Exception as e:
         print(f"Notification error: {e}")
 
@@ -536,7 +486,7 @@ def main():
     parser.add_argument("--no-persist", action="store_true",
                         help="Ne pas écrire dans logs/edge_audit.jsonl")
     parser.add_argument("--notify", action="store_true",
-                        help="Envoyer notif ntfy (court) + Telegram (détaillé) si drift/régime")
+                        help="Envoyer une notif Telegram détaillée si drift/régime")
     args = parser.parse_args()
 
     if args.period:

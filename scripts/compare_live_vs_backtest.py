@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from arabesque.data.store import load_ohlc, _categorize
 from arabesque.execution.backtest import BacktestRunner, BacktestConfig, manager_config_for
+from arabesque.notifications import select_notification_channels
 
 
 FOREX_METALS = {
@@ -240,7 +241,7 @@ def main():
                         help="Filtre par broker_id (ex: ftmo_challenge, gft_compte1). "
                              "Désactive la dédup cross-broker.")
     parser.add_argument("--notify", action="store_true",
-                        help="Envoyer le résultat via notifications (Telegram/ntfy)")
+                        help="Envoyer le résultat via Telegram")
     args = parser.parse_args()
 
     # Résoudre la période
@@ -457,7 +458,10 @@ def main():
                 import asyncio, yaml, apprise
                 secrets_path = Path(__file__).resolve().parent.parent / "config" / "secrets.yaml"
                 secrets = yaml.safe_load(secrets_path.read_text()) or {}
-                channels = secrets.get("notifications", {}).get("channels", [])
+                channels = select_notification_channels(
+                    secrets.get("notifications", {}).get("channels", []),
+                    urgent=False,
+                )
                 if channels:
                     ap = apprise.Apprise()
                     for ch in channels:

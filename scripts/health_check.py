@@ -42,6 +42,8 @@ import yaml
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
 
+from arabesque.notifications import select_notification_channels
+
 TRADE_JOURNAL = REPO / "logs" / "trade_journal.jsonl"
 EQUITY_SNAPSHOTS = REPO / "logs" / "equity_snapshots.jsonl"
 SLIPPAGE_REJECTS = REPO / "logs" / "slippage_rejects.jsonl"
@@ -873,7 +875,10 @@ async def send_notification(report: str) -> None:
         return
 
     secrets = yaml.safe_load(secrets_path.read_text()) or {}
-    channels = secrets.get("notifications", {}).get("channels", [])
+    urgent = "CRITIQUE(S):" in report
+    channels = select_notification_channels(
+        secrets.get("notifications", {}).get("channels", []), urgent=urgent
+    )
     if not channels:
         print("Aucun canal de notification")
         return

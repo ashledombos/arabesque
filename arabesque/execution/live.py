@@ -32,6 +32,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from arabesque.notifications import select_notification_channels
+
 logger = logging.getLogger("arabesque.live.engine")
 TRADE_JOURNAL_PATH = Path("logs/trade_journal.jsonl")
 
@@ -2195,7 +2197,9 @@ class LiveEngine:
                 return
 
             # Channels : settings en priorité, sinon secrets
-            channels = notif_settings.get("channels") or []
+            channels = select_notification_channels(
+                notif_settings.get("channels") or [], urgent=False
+            )
 
             if not channels:
                 return

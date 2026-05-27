@@ -1,7 +1,8 @@
 """Watchdog externe du PriceFeed Arabesque.
 
-Détecte un engine `active` mais figé (aucune barre fermée depuis > N minutes)
-et envoie une alerte Telegram+ntfy avec cooldown anti-spam.
+Détecte un engine `active` mais figé (aucune barre fermée depuis > N minutes).
+Les observations ordinaires partent sur Telegram ; ntfy est reserve aux
+escalades qui exigent une intervention humaine rapide.
 
 Étages résilience (cf docs/INCIDENT_DASHUSD_RESILIENCE_BROKER_2026-05-21.md
 sections 3+7) :
@@ -38,6 +39,10 @@ import apprise
 import yaml
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT))
+
+from arabesque.notifications import select_notification_channels
+
 SECRETS = ROOT / "config" / "secrets.yaml"
 STATE = ROOT / "logs" / "feed_watchdog_state.json"
 RESTART_HISTORY = ROOT / "logs" / "watchdog_restart_history.jsonl"
@@ -258,16 +263,18 @@ def _can_alert(state: dict, now: dt.datetime) -> bool:
 
 
 def _send_alert(body: str, title: str, urgent: bool = False) -> bool:
-    """Envoie une notif Telegram+ntfy.
+    """Envoie une notification selon le niveau d'intervention.
 
-    Si ``urgent=True``, marque le titre ``[URGENT]`` (Telegram + ntfy support
-    via tag/priorité côté apprise — la mise en évidence visuelle suffit pour
-    distinguer les escalades du flux normal).
+    ``urgent=False`` = Telegram uniquement. ``urgent=True`` = Telegram et
+    ntfy, avec un titre distinct pour rendre l'action attendue visible.
     """
     if not SECRETS.exists():
         return False
     secrets = yaml.safe_load(SECRETS.read_text()) or {}
-    channels = (secrets.get("notifications") or {}).get("channels") or []
+    channels = select_notification_channels(
+        (secrets.get("notifications") or {}).get("channels") or [],
+        urgent=urgent,
+    )
     if not channels:
         return False
     ap = apprise.Apprise()

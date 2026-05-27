@@ -25,7 +25,7 @@ Derniere mise a jour : 2026-05-27 23:25 CEST (protection GFT chargee et restart 
 | **Balance GFT** | $142 105 (DD -5.3%) |
 | **Protection FTMO** | `NORMAL` individuel (Extension streak=1, Glissade streak=1, DD=-6.70%) |
 | **Protection GFT** | `CAUTION` individuel (Glissade streak=5, DD=-5.26%) ; politique pire broker => sizing effectif systeme `CAUTION x0.50` |
-| **Notifications** | ntfy ✅, Telegram ✅, **bot Telegram interactif** (lecture seule) ✅ |
+| **Notifications** | Telegram ✅ flux complet ; ntfy ✅ urgent uniquement (`DANGER`/`EMERGENCY`, integrite position, panne feed necessitant intervention, health `CRITIQUE`) ; **bot Telegram interactif** (lecture seule) ✅ |
 | **Watchdog feed** | ✅ Timer actif ; auto-restart `feed_stale` volontaire depuis Hot Path Mode 2026-05-23 (anti-boucle/backoff), sans démarrage possible lorsque l'engine est inactif |
 | **Positions observees** | `0` position / `0` pending sur FTMO et GFT avant le restart de 23:22:59 CEST ; reconciliation post-start : aucune position ouverte |
 | **Dernier incident** | 2026-05-27 — ancien PID signalait `cTrader not connected while reading pending orders` et `30/31` flux actifs alors que les comptes etaient plats. Restart controle apres chargement de `44755a8`/`e091571` : `31/31`, refresh token `12h`, moteur pret, watchdog OK. |

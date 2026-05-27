@@ -42,7 +42,7 @@ def reminder(tmp_path, monkeypatch):
     monkeypatch.setattr(sr, "WATCHDOG_STATE", tmp_path / "feed_watchdog_state.json")
     monkeypatch.setattr(sr, "SECRETS", tmp_path / "secrets.yaml")
     (tmp_path / "secrets.yaml").write_text(
-        "notifications:\n  channels:\n    - ntfy://test\n"
+        "notifications:\n  channels:\n    - tgram://bot/chat\n    - ntfy://test\n"
     )
     return sr
 
@@ -67,7 +67,7 @@ def _mock_apprise():
         def add(self, url):
             self._urls.append(url)
         async def async_notify(self, body, title, **kwargs):
-            sent.append({"body": body, "title": title})
+            sent.append({"body": body, "title": title, "urls": list(self._urls)})
             return True
 
     mod = MagicMock()
@@ -102,6 +102,7 @@ def test_escalate_on_loop_guard(reminder):
     assert len(sent) == 1
     assert "URGENT" in sent[0]["title"]
     assert "anti-boucle" in sent[0]["body"].lower()
+    assert sent[0]["urls"] == ["tgram://bot/chat", "ntfy://test"]
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +234,7 @@ def test_normal_reminder_unaffected_when_no_escalation(reminder):
     assert len(sent) == 1
     assert "Rappel" in sent[0]["body"]
     assert "URGENT" not in sent[0]["title"]
+    assert sent[0]["urls"] == ["tgram://bot/chat"]
 
 
 # ---------------------------------------------------------------------------
