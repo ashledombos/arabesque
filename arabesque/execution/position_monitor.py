@@ -1037,7 +1037,13 @@ class LivePositionMonitor:
             for attempt in range(1, self._cfg.max_amend_retries + 1):
                 try:
                     result = await broker.amend_position_sltp(
-                        pos.position_id, stop_loss=new_sl
+                        pos.position_id,
+                        stop_loss=new_sl,
+                        # cTrader interprets an omitted TP on
+                        # ProtoOAAmendPositionSLTPReq as TP removal.  Preserve
+                        # the strategy target whenever BE/trailing tightens
+                        # only the stop.
+                        take_profit=pos.tp if pos.tp > 0 else None,
                     )
                     pos.last_amend_time = time.time()
 

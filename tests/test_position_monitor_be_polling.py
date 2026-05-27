@@ -45,14 +45,14 @@ class _MockBroker:
 
     def __init__(self, fresh_quote: FreshQuote | None = None,
                  raise_on_fresh: Exception | None = None):
-        self.amends: list[tuple[str, float]] = []
+        self.amends: list[tuple[str, float, float | None]] = []
         self._fresh_quote = fresh_quote
         self._raise_on_fresh = raise_on_fresh
         self.fresh_quote_calls: list[tuple[str, str]] = []
 
     async def amend_position_sltp(self, position_id: str, stop_loss: float = None,
                                    take_profit: float = None):
-        self.amends.append((position_id, stop_loss))
+        self.amends.append((position_id, stop_loss, take_profit))
         return _AmendResult(success=True, message="mock_ok")
 
     async def get_fresh_quote(self, symbol: str, quote_type: str):
@@ -158,6 +158,7 @@ def test_pass_arms_be_with_fresh_ctrader_quote():
     assert pos.breakeven_set
     assert len(broker.amends) == 1
     assert broker.amends[0][1] == pytest.approx(100.20, abs=1e-9)
+    assert broker.amends[0][2] == pytest.approx(102.0)
     # Audit event émis
     assert len(audits) == 1
     ev = audits[0]

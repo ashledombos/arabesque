@@ -35,11 +35,11 @@ class _MockBroker:
     """Broker minimal pour test : compte les amend, ne valide pas le prix."""
 
     def __init__(self):
-        self.amends: list[tuple[str, float]] = []
+        self.amends: list[tuple[str, float, float | None]] = []
 
     async def amend_position_sltp(self, position_id: str, stop_loss: float = None,
                                    take_profit: float = None):
-        self.amends.append((position_id, stop_loss))
+        self.amends.append((position_id, stop_loss, take_profit))
         return _AmendResult(success=True, message="mock_ok")
 
 
@@ -89,6 +89,9 @@ def test_on_tick_arms_be_when_mfe_reaches_threshold():
     assert len(broker.amends) == 1
     assert broker.amends[0][1] == pytest.approx(100.20, abs=1e-9), (
         "SL doit être amendé à entry + 0.20R"
+    )
+    assert broker.amends[0][2] == pytest.approx(102.0), (
+        "Un amendement BE ne doit pas supprimer le TP serveur existant"
     )
 
 
