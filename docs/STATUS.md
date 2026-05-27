@@ -5,7 +5,7 @@
 > ce fichier est la référence rapide pour savoir ce qui tourne, sur quel compte, avec quel paramétrage.
 > **Mettre à jour à chaque changement de compte ou de configuration live.**
 
-Derniere mise a jour : 2026-05-27 11:15 CEST (maintenance de securite apres reboot)
+Derniere mise a jour : 2026-05-27 15:36 CEST (maintenance de securite apres reboot)
 
 ---
 
@@ -15,7 +15,7 @@ Derniere mise a jour : 2026-05-27 11:15 CEST (maintenance de securite apres rebo
 |---|---|
 | **Statut** | 🛑 **ARRETE volontairement** — maintenance de securite, `arabesque-live.service` inactive et disabled depuis le 2026-05-27 10:07 CEST |
 | **Phase** | Phase 4 bis suspendue pendant maintenance ; scope de verdict = Extension + Glissade uniquement depuis 2026-05-16 |
-| **Commande** | Ne pas lancer tant que l'audit d'exécution sizing (arrondi/min-volume/friction en R) n'a pas défini une règle de reprise ; service actuellement `disabled` pour empêcher un reboot de le relancer |
+| **Commande** | Ne pas lancer tant que la barriere sizing `max_executed_risk_ratio=1.25` n'est pas poussee/testee ; service actuellement `disabled` pour empêcher un reboot de le relancer |
 | **Log** | `journalctl --user -u arabesque-live -f` |
 | **Comptes actifs** | `ftmo_challenge` (cTrader 45667282) + `gft_compte1` (TradeLocker) |
 | **Type FTMO** | Challenge Phase 1 (2-step, 100k USD) |
@@ -42,7 +42,7 @@ Derniere mise a jour : 2026-05-27 11:15 CEST (maintenance de securite apres rebo
 | **Fouetté** (ORB M1) | M1 | — | Observation paper seulement | 🟡 0 trade live (bug cache OR bar_aggregator, cf HANDOFF) |
 
 Noyau Phase 4 bis : **Extension + Glissade uniquement** (cf `docs/PHASE4_BIS_CHECKLIST_2026-05-16.md`).
-La reprise est bloquée par la vérification du sizing exécuté. Le guard de
+La reprise est bloquée jusqu'a livraison de la barriere sizing. Le guard de
 pertes a aussi été corrigé pour compter les séries par broker et non doubler
 les exécutions miroir : FTMO serait `NORMAL`, mais GFT est réellement
 `CAUTION` (Glissade streak=5), et la politique pire broker maintient le
@@ -53,9 +53,11 @@ sous-dimensionnées par l'empilement DD/protection/rodage. Depuis le
 Ces entries precedent toutefois le fix sizing per-broker `ab5b81a` ; elles ne
 projettent pas directement la reprise. Avec les DD actuels et le code corrige,
 `CAUTION` donnerait environ Extension H1 `31$` FTMO / `73$` GFT et Glissade
-rodee `7.8$` / `18.2$`. Un cash faible ne fausse pas l'edge en `R` sans
-distorsion de minimum volume, spread ou commission. Ni un plancher `DANGER`
-aveugle, ni un passage automatique `CAUTION` ne sont valides avant cet audit.
+rodee `7.8$` / `18.2$`. L'audit mesure `1/7` distorsion materielle :
+GFT Glissade XAUUSD cible `4.82$`, executable `46.01$` au minimum (`9.54x`);
+les six autres entries sont dans `0.98x..1.16x`. La correction retenue rejette
+avant envoi tout volume broker depassant `1.25x` le budget cible. Apres push
+et verification comptes plats, reprise controlee en `CAUTION` recommandee.
 
 ---
 

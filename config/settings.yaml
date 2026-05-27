@@ -31,6 +31,11 @@ execution:
     enabled: true
     min_ms: 500
     max_ms: 3000
+  # Securite min-volume : si l'arrondi broker impose plus de 125% du risque
+  # cible apres tous les guards/rodages, rejeter l'ordre au lieu de sur-risquer.
+  # Incident fondateur : GFT Glissade XAUUSD 2026-05-19, cible 4.82$,
+  # minimum executable ~46.01$ (9.54x).
+  max_executed_risk_ratio: 1.25
 
 # -----------------------------------------------------------------------------
 # LIVE — Boucles de fond du moteur (BE polling backup, etc.)

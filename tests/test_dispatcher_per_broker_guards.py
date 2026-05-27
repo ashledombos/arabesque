@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from arabesque.broker.base import OrderType, PriceTick
+from arabesque.broker.base import OrderType, PriceTick, SymbolInfo
 from arabesque.core.guards import AccountState, PropConfig
 from arabesque.core.models import Signal, Side
 from arabesque.execution.live import LiveEngine
@@ -25,6 +25,19 @@ class _Broker:
 
     async def get_symbol_info(self, symbol: str):
         return None
+
+
+class _MinXauBroker(_Broker):
+    async def get_symbol_info(self, symbol: str):
+        return SymbolInfo(
+            symbol=symbol,
+            broker_symbol=symbol + ".X",
+            pip_size=0.01,
+            lot_size=100.0,
+            min_volume=0.01,
+            max_volume=10.0,
+            volume_step=0.01,
+        )
 
 
 def _signal() -> Signal:
@@ -137,6 +150,45 @@ def test_gft_daily_limit_blocks_order_even_when_primary_would_be_safe():
 
     assert result.success is False
     assert "DD daily" in result.message
+
+
+def test_min_volume_risk_overshoot_is_blocked_before_order(caplog):
+    dispatcher = _dispatcher(
+        PropConfig(
+            risk_per_trade_pct=0.30,
+            max_daily_dd_pct=2.5,
+            max_total_dd_pct=8.0,
+        )
+    )
+    dispatcher.brokers["gft_compte1"] = _MinXauBroker()
+    dispatcher._rodage_strategies = {"glissade"}
+    dispatcher._rodage_multiplier = 0.25
+    dispatcher.update_account_state(
+        AccountState(
+            balance=142110.0,
+            equity=142110.0,
+            start_balance=150000.0,
+            daily_start_balance=142110.0,
+        ),
+        broker_id="gft_compte1",
+    )
+    signal = _signal()
+    signal.strategy_type = "glissade"
+    signal.sl = 4400.0
+
+    with caplog.at_level("WARNING"):
+        result = asyncio.run(
+            dispatcher._place_on_broker(
+                "gft_compte1",
+                dispatcher.brokers["gft_compte1"],
+                _pending(signal),
+                PriceTick("XAUUSD", 4500.0, 4500.1),
+            )
+        )
+
+    assert result.success is False
+    assert "Volume calculé = 0" in result.message
+    assert "risk overshoot" in caplog.text
 
 
 def test_order_is_blocked_when_broker_risk_state_is_missing():

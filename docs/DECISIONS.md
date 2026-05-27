@@ -3154,3 +3154,19 @@ utilise des identifiants d'ordre et de position distincts.
   executee applique le pire niveau broker aux nouveaux ordres, donc GFT
   maintient le systeme en `CAUTION x0.50`. Le live reste arrete en attente de
   l'audit d'execution sizing.
+
+## Decision 2026-05-27 - guard de sur-risque impose par minimum volume
+
+- **Audit livre** : `docs/SIZING_DISTORTION_AUDIT_2026-05-27.md` et
+  `scripts/audit_sizing_distortion.py`. Sur `7` entries Phase 4 bis,
+  `6` restent dans `0.98x..1.16x` du budget cible. Une entry est
+  materiellement faussee : GFT Glissade XAUUSD du 19/05, `4.82$` demandes
+  mais `46.01$` imposes par `0.01` lot minimum (`9.54x`).
+- **Decision** : ajouter `execution.max_executed_risk_ratio: 1.25`. Le
+  dispatcher calcule le risque du volume arrondi/minimum avec sa convention
+  pip value et rejette l'ordre avant envoi si l'exposition executable depasse
+  `125%` du budget apres guards/rodage/protection.
+- **Raison** : ne pas remonter le risque pour obtenir une taille tradable ;
+  sauter les micro-trades sur-risques preserve le compte et la validite de
+  l'echantillon. `CAUTION x0.50` reste acceptable une fois cette barriere
+  chargee, sous surveillance des rejets.

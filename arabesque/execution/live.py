@@ -429,6 +429,9 @@ class LiveEngine:
             risk_multiplier_by_tf=tf_risk,
             rodage_config=rodage_cfg,
             max_slippage_atr=max_slippage_atr,
+            max_executed_risk_ratio=exec_raw.get(
+                "max_executed_risk_ratio", 1.25
+            ),
             settings=self.settings,
             prop_configs_by_broker=prop_configs_by_broker,
         )

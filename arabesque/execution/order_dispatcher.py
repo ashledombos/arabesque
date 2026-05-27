@@ -151,6 +151,7 @@ class OrderDispatcher:
         risk_multiplier_by_tf: Optional[Dict[str, float]] = None,
         rodage_config: Optional[Dict] = None,
         max_slippage_atr: float = 0.5,
+        max_executed_risk_ratio: float = 1.25,
         settings: Optional[dict] = None,
         prop_configs_by_broker: Optional[Dict[str, PropConfig]] = None,
     ):
@@ -177,6 +178,9 @@ class OrderDispatcher:
         self._risk_multiplier_fn = risk_multiplier_fn
         self._risk_multiplier_by_tf = risk_multiplier_by_tf or {}
         self._max_slippage_atr = max_slippage_atr
+        # Broker minimum/step rounding must not turn a reduced budget into
+        # materially larger exposure.
+        self._max_executed_risk_ratio = max_executed_risk_ratio
 
         # Weekend crypto guard config
         wcg = (settings or {}).get("weekend_crypto_guard", {})
@@ -1099,6 +1103,20 @@ class OrderDispatcher:
         lots = max(broker_min_vol, min(lots, broker_max_vol))
         if broker_step > 0:
             lots = round(round(lots / broker_step) * broker_step, 8)
+
+        executed_risk_cash = pips * pip_value * lots
+        if (
+            risk_cash > 0 and self._max_executed_risk_ratio > 0
+            and executed_risk_cash > risk_cash * self._max_executed_risk_ratio
+        ):
+            logger.warning(
+                f"[Dispatcher] ⛔ {broker_id} {sym}: risk overshoot apres "
+                f"minimum/step broker — cible={risk_cash:.2f}$, "
+                f"execute={executed_risk_cash:.2f}$ "
+                f"({executed_risk_cash / risk_cash:.2f}x > "
+                f"{self._max_executed_risk_ratio:.2f}x), ordre bloque"
+            )
+            return 0.0
 
         yaml_pip_value = inst.get("pip_value_per_lot", "N/A")
         logger.info(
