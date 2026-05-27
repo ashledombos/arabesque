@@ -36,6 +36,14 @@ execution:
   # Incident fondateur : GFT Glissade XAUUSD 2026-05-19, cible 4.82$,
   # minimum executable ~46.01$ (9.54x).
   max_executed_risk_ratio: 1.25
+  # TradeLocker n'utilise pas le feed cTrader declencheur. Avant un nouvel
+  # ordre GFT, relire son quote REST et refuser une entree deja degradee.
+  # 0.25R preserve la representativite de Phase 4 bis : au-dela, le fill
+  # mange une part materielle du risque avant meme que le trade commence.
+  gft_preflight:
+    enabled: true
+    require_quote: true
+    max_adverse_slippage_r: 0.25
 
 # -----------------------------------------------------------------------------
 # LIVE — Boucles de fond du moteur (BE polling backup, etc.)

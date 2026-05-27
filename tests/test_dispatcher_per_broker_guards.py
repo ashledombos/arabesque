@@ -6,11 +6,12 @@ orders on GFT too, and ``worst_case_budget`` was not enabled in live mode.
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from arabesque.broker.base import OrderType, PriceTick, SymbolInfo
+from arabesque.broker.base import OrderResult, OrderType, PriceTick, SymbolInfo
 from arabesque.core.guards import AccountState, PropConfig
 from arabesque.core.models import Signal, Side
 from arabesque.execution.live import LiveEngine
@@ -38,6 +39,19 @@ class _MinXauBroker(_Broker):
             max_volume=10.0,
             volume_step=0.01,
         )
+
+
+class _LiveGftBroker(_Broker):
+    def __init__(self, quote):
+        self.quote = quote
+        self.placed = []
+
+    async def get_quote(self, symbol: str):
+        return self.quote
+
+    async def place_order(self, order):
+        self.placed.append(order)
+        return OrderResult(success=True, order_id="P1")
 
 
 def _signal() -> Signal:
@@ -205,6 +219,72 @@ def test_order_is_blocked_when_broker_risk_state_is_missing():
 
     assert result.success is False
     assert "Etat risque indisponible" in result.message
+
+
+def test_live_gft_preflight_blocks_when_rest_quote_unavailable():
+    dispatcher = _dispatcher(PropConfig())
+    dispatcher.dry_run = False
+    broker = _LiveGftBroker(None)
+    dispatcher.brokers["gft_compte1"] = broker
+    dispatcher.update_account_state(AccountState(), broker_id="gft_compte1")
+
+    result = asyncio.run(
+        dispatcher._place_on_broker(
+            "gft_compte1", broker, _pending(_signal()),
+            PriceTick("XAUUSD", 4500.0, 4500.1),
+        )
+    )
+
+    assert result.success is False
+    assert "quote REST indisponible" in result.message
+    assert broker.placed == []
+
+
+def test_live_gft_preflight_blocks_adverse_price_in_r(tmp_path, monkeypatch):
+    reject_log = tmp_path / "broker_guard_rejects.jsonl"
+    monkeypatch.setattr(
+        "arabesque.execution.order_dispatcher.BROKER_REJECT_LOG_PATH",
+        reject_log,
+    )
+    dispatcher = _dispatcher(PropConfig())
+    dispatcher.dry_run = False
+    # LONG entry target=4500, SL=4490: ask=4503 consumes 0.30R.
+    broker = _LiveGftBroker(PriceTick("XAUUSD", 4502.9, 4503.0))
+    dispatcher.brokers["gft_compte1"] = broker
+    dispatcher.update_account_state(AccountState(), broker_id="gft_compte1")
+
+    result = asyncio.run(
+        dispatcher._place_on_broker(
+            "gft_compte1", broker, _pending(_signal()),
+            PriceTick("XAUUSD", 4500.0, 4500.1),
+        )
+    )
+
+    assert result.success is False
+    assert "dérive défavorable 0.30R" in result.message
+    assert broker.placed == []
+    row = json.loads(reject_log.read_text().splitlines()[0])
+    assert row["reason"] == "gft_adverse_entry_slippage"
+    assert row["adverse_r"] == pytest.approx(0.30)
+
+
+def test_execution_quarantine_blocks_new_order_without_touching_broker():
+    dispatcher = _dispatcher(PropConfig())
+    dispatcher.dry_run = False
+    broker = _LiveGftBroker(PriceTick("XAUUSD", 4500.0, 4500.1))
+    dispatcher.brokers["gft_compte1"] = broker
+    dispatcher.block_broker_entries("gft_compte1", "protection absente")
+
+    result = asyncio.run(
+        dispatcher._place_on_broker(
+            "gft_compte1", broker, _pending(_signal()),
+            PriceTick("XAUUSD", 4500.0, 4500.1),
+        )
+    )
+
+    assert result.success is False
+    assert "Quarantaine exécution" in result.message
+    assert broker.placed == []
 
 
 def test_signal_is_blocked_when_primary_risk_state_has_been_invalidated():

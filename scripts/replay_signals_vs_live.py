@@ -39,6 +39,7 @@ INSTRUMENTS = ROOT / "config" / "instruments.yaml"
 ACCOUNTS = ROOT / "config" / "accounts.yaml"
 JOURNAL = ROOT / "logs" / "trade_journal.jsonl"
 GUARD_LOG = ROOT / "logs" / "weekend_crypto_guard.jsonl"
+BROKER_REJECT_LOG = ROOT / "logs" / "broker_guard_rejects.jsonl"
 SHADOW_LOG = ROOT / "logs" / "shadow_filters.jsonl"
 
 ENTRY_TOL_HOURS = {"M1": 0.5, "H1": 2.0, "H4": 6.0, "1h": 2.0, "4h": 6.0, "min1": 0.5}
@@ -185,26 +186,35 @@ def _load_live_entries(since: dt.datetime, until: dt.datetime) -> dict:
 
 
 def _load_blocked(since: dt.datetime, until: dt.datetime) -> dict:
-    """Renvoie {(strategy, instrument, broker): [ts, ...]} des blocked weekend events."""
+    """Renvoie les signaux consciemment bloques par un guard live.
+
+    Inclut le weekend guard et les rejets propres a un broker (pre-vol GFT,
+    quarantaine integrite). Sans ce second journal, un ordre GFT refuse pour
+    securite ressortirait a tort comme panne silencieuse du connecteur.
+    """
     out: dict[tuple[str, str, str], list[pd.Timestamp]] = defaultdict(list)
-    if not GUARD_LOG.exists():
-        return out
-    for line in GUARD_LOG.read_text().splitlines():
-        if not line.strip():
+    for path, expected_event in (
+        (GUARD_LOG, "blocked"),
+        (BROKER_REJECT_LOG, "broker_guard_reject"),
+    ):
+        if not path.exists():
             continue
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if obj.get("event") != "blocked":
-            continue
-        ts = pd.Timestamp(obj["ts"])
-        if ts < since or ts > until:
-            continue
-        strat = obj.get("strategy") or "?"
-        instr = obj.get("instrument") or "?"
-        broker = obj.get("broker_id") or "?"
-        out[(strat, instr, broker)].append(ts)
+        for line in path.read_text().splitlines():
+            if not line.strip():
+                continue
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if obj.get("event") != expected_event:
+                continue
+            ts = pd.Timestamp(obj["ts"])
+            if ts < since or ts > until:
+                continue
+            strat = obj.get("strategy") or "?"
+            instr = obj.get("instrument") or "?"
+            broker = obj.get("broker_id") or "?"
+            out[(strat, instr, broker)].append(ts)
     return out
 
 

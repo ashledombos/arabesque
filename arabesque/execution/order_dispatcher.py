@@ -49,6 +49,11 @@ SHADOW_LOG_PATH = Path("logs/shadow_filters.jsonl")
 # JSONL pour le weekend crypto guard — trace chaque blocage et chaque gap weekend
 WEEKEND_GUARD_LOG_PATH = Path("logs/weekend_crypto_guard.jsonl")
 
+# JSONL pour les rejets propres a un broker (quote/preflight/quarantaine).
+# Necessaire pour distinguer une execution volontairement bloquee d'un signal
+# silencieusement perdu lors des replays live/theorie.
+BROKER_REJECT_LOG_PATH = Path("logs/broker_guard_rejects.jsonl")
+
 
 # =============================================================================
 # PendingSignal
@@ -181,6 +186,19 @@ class OrderDispatcher:
         # Broker minimum/step rounding must not turn a reduced budget into
         # materially larger exposure.
         self._max_executed_risk_ratio = max_executed_risk_ratio
+        # Fail-closed quarantine for a broker whose last accepted position
+        # cannot be proven safe (e.g. missing server-side SL/TP after fill).
+        # Existing positions continue to be monitored; only new entries stop.
+        self._execution_blocked_brokers: Dict[str, str] = {}
+
+        gft_preflight = ((settings or {}).get("execution", {}) or {}).get(
+            "gft_preflight", {}
+        )
+        self._gft_preflight_enabled = gft_preflight.get("enabled", True)
+        self._gft_require_quote = gft_preflight.get("require_quote", True)
+        self._gft_max_adverse_slippage_r = float(
+            gft_preflight.get("max_adverse_slippage_r", 0.25)
+        )
 
         # Weekend crypto guard config
         wcg = (settings or {}).get("weekend_crypto_guard", {})
@@ -251,6 +269,44 @@ class OrderDispatcher:
             "orders_placed": 0,
             "orders_failed": 0,
         }
+
+    # ------------------------------------------------------------------
+    # Quarantaine d'integrite broker
+    # ------------------------------------------------------------------
+
+    def block_broker_entries(self, broker_id: str, reason: str) -> None:
+        """Block new entries on a broker after an execution-integrity failure."""
+        self._execution_blocked_brokers[broker_id] = reason
+        logger.error(
+            f"[Dispatcher] 🔒 {broker_id}: nouvelles entrées bloquées — {reason}"
+        )
+
+    def unblock_broker_entries(self, broker_id: str) -> None:
+        """Administrative reset after an operator has validated broker safety."""
+        self._execution_blocked_brokers.pop(broker_id, None)
+
+    def _log_broker_reject(
+        self, broker_id: str, signal: Signal, reason: str, metrics: dict | None = None
+    ) -> None:
+        """Persist a broker-local reject for later live/theory attribution."""
+        try:
+            BROKER_REJECT_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            row = {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "event": "broker_guard_reject",
+                "broker_id": broker_id,
+                "instrument": signal.instrument,
+                "strategy": getattr(signal, "strategy_type", ""),
+                "side": signal.side.value,
+                "signal_id": signal.signal_id,
+                "reason": reason,
+            }
+            if metrics:
+                row.update(metrics)
+            with BROKER_REJECT_LOG_PATH.open("a") as f:
+                f.write(json.dumps(row) + "\n")
+        except Exception as e:
+            logger.warning(f"[Dispatcher] broker reject log failed: {e}")
 
     # ------------------------------------------------------------------
     # API publique
@@ -751,6 +807,21 @@ class OrderDispatcher:
         signal = ps.signal
         sym = signal.instrument
 
+        blocked_reason = self._execution_blocked_brokers.get(broker_id)
+        if blocked_reason:
+            logger.error(
+                f"[Dispatcher] ⛔ {broker_id}: ordre {sym} bloqué — "
+                f"quarantaine exécution: {blocked_reason}"
+            )
+            self._log_broker_reject(
+                broker_id, signal, "execution_quarantine",
+                {"detail": blocked_reason},
+            )
+            return OrderResult(
+                success=False,
+                message=f"Quarantaine exécution {broker_id}: {blocked_reason}",
+            )
+
         # Strategy × broker exclusion — block the pair (config-driven).
         excluded = self._strategy_broker_exclusions.get(
             signal.strategy_type, set()
@@ -800,6 +871,87 @@ class OrderDispatcher:
                 success=False,
                 message=f"Etat risque indisponible pour {broker_id}",
             )
+
+        # TradeLocker does not share the cTrader feed used to trigger the
+        # signal. Read its REST quote immediately before submitting the order
+        # so GFT cannot accept an entry already materially worse than theory.
+        is_tradelocker = broker.config.get("type", "") == "tradelocker"
+        if is_tradelocker and self._gft_preflight_enabled and not self.dry_run:
+            try:
+                broker_tick = await broker.get_quote(sym)
+            except Exception as e:
+                broker_tick = None
+                logger.warning(
+                    f"[Dispatcher] GFT preflight quote error {sym}: {e}"
+                )
+            if broker_tick is None:
+                if self._gft_require_quote:
+                    logger.warning(
+                        f"[Dispatcher] ⛔ {broker_id}: pré-vol {sym} rejeté — "
+                        "quote REST TradeLocker indisponible"
+                    )
+                    self._log_broker_reject(broker_id, signal, "gft_quote_unavailable")
+                    return OrderResult(
+                        success=False,
+                        message="Pre-flight GFT: quote REST indisponible",
+                    )
+            else:
+                broker_price = (
+                    broker_tick.ask if signal.side == Side.LONG
+                    else broker_tick.bid
+                )
+                direction = 1.0 if signal.side == Side.LONG else -1.0
+                adverse = max(0.0, (broker_price - signal.close) * direction)
+                risk_distance = abs(signal.close - signal.sl)
+                adverse_r = adverse / risk_distance if risk_distance > 0 else 0.0
+                adverse_atr = adverse / signal.atr if signal.atr > 0 else 0.0
+                spread_atr = (
+                    broker_tick.spread / signal.atr if signal.atr > 0 else 0.0
+                )
+                if signal.atr > 0 and spread_atr > signal.max_spread_atr:
+                    self._log_broker_reject(
+                        broker_id, signal, "gft_spread_too_wide",
+                        {"spread_atr": round(spread_atr, 4)},
+                    )
+                    return OrderResult(
+                        success=False,
+                        message=(
+                            f"Pre-flight GFT: spread {spread_atr:.2f}ATR > "
+                            f"{signal.max_spread_atr:.2f}"
+                        ),
+                    )
+                if (
+                    (signal.atr > 0 and adverse_atr > self._max_slippage_atr)
+                    or (
+                        self._gft_max_adverse_slippage_r > 0
+                        and adverse_r > self._gft_max_adverse_slippage_r
+                    )
+                ):
+                    logger.warning(
+                        f"[Dispatcher] ⛔ {broker_id}: pré-vol {sym} rejeté — "
+                        f"dérive défavorable={adverse_r:.2f}R/"
+                        f"{adverse_atr:.2f}ATR"
+                    )
+                    self._log_broker_reject(
+                        broker_id, signal, "gft_adverse_entry_slippage",
+                        {
+                            "adverse_r": round(adverse_r, 4),
+                            "adverse_atr": round(adverse_atr, 4),
+                            "spread_atr": round(spread_atr, 4),
+                        },
+                    )
+                    return OrderResult(
+                        success=False,
+                        message=(
+                            f"Pre-flight GFT: dérive défavorable "
+                            f"{adverse_r:.2f}R/{adverse_atr:.2f}ATR"
+                        ),
+                    )
+                logger.info(
+                    f"[Dispatcher] GFT pré-vol {sym}: quote={broker_price:.5f} "
+                    f"spread={spread_atr:.2f}ATR adverse={adverse_r:.2f}R/"
+                    f"{adverse_atr:.2f}ATR"
+                )
 
         safe, reason = broker_guards.check_account_limits(signal, broker_state)
         if not safe:

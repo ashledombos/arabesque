@@ -23,6 +23,11 @@ execution:
     enabled: true
     min_ms: 500
     max_ms: 3000
+  max_executed_risk_ratio: 1.25
+  gft_preflight:
+    enabled: true
+    require_quote: true
+    max_adverse_slippage_r: 0.25
 
 # -----------------------------------------------------------------------------
 # PRICE FEED (surveillance prix cTrader)

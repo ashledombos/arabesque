@@ -16,7 +16,9 @@ en H1 par les scripts d'audit car ils lisaient `tf` au lieu de `timeframe`.
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -116,6 +118,27 @@ def test_build_targets_default_h1_when_no_timeframe(settings_cfg):
     targets = mod._build_targets(settings_cfg, fake_cfg)
     ext = [t for t in targets if t[2] == "FAKEUSD"]
     assert ext and ext[0][1] == "H1", f"Défaut attendu H1, obtenu : {ext}"
+
+
+def test_replay_treats_broker_preflight_reject_as_known_block(tmp_path):
+    mod = _load_script_as_module("replay_signals_vs_live.py", "rsl_guard_test")
+    mod.GUARD_LOG = tmp_path / "weekend.jsonl"
+    mod.BROKER_REJECT_LOG = tmp_path / "broker_guard.jsonl"
+    mod.BROKER_REJECT_LOG.write_text(json.dumps({
+        "ts": "2026-05-27T20:00:00+00:00",
+        "event": "broker_guard_reject",
+        "strategy": "extension",
+        "instrument": "XAUUSD",
+        "broker_id": "gft_compte1",
+        "reason": "gft_adverse_entry_slippage",
+    }) + "\n")
+
+    blocked = mod._load_blocked(
+        datetime(2026, 5, 27, 19, tzinfo=timezone.utc),
+        datetime(2026, 5, 27, 21, tzinfo=timezone.utc),
+    )
+
+    assert blocked[("extension", "XAUUSD", "gft_compte1")]
 
 
 # ────────────────────────────────────────────────────────────────────────────

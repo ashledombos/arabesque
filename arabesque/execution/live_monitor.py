@@ -683,6 +683,34 @@ class LiveMonitor:
         auditer post-hoc. On se contente de relayer vers le journal."""
         self._append_journal(payload)
 
+    def record_protection_check(
+        self,
+        *,
+        broker_id: str,
+        position_id: str,
+        instrument: str,
+        expected_sl: float,
+        expected_tp: float,
+        observed_sl: float | None,
+        observed_tp: float | None,
+        confirmed: bool,
+        action: str,
+    ) -> None:
+        """Persist server-side SL/TP verification immediately after a fill."""
+        self._append_journal({
+            "event": "protection_check",
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "broker_id": broker_id,
+            "position_id": str(position_id),
+            "instrument": instrument,
+            "expected_sl": expected_sl,
+            "expected_tp": expected_tp,
+            "observed_sl": observed_sl,
+            "observed_tp": observed_tp,
+            "confirmed": confirmed,
+            "action": action,
+        })
+
     def record_entry(
         self,
         signal,

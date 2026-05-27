@@ -716,6 +716,12 @@ class LiveEngine:
                 stub.close = info["signal_close"]
                 stub.sl = info["signal_sl"]
                 stub.tp_indicative = info.get("signal_tp", 0.0)
+                slip_in_r = await self._flag_extreme_fill_if_needed(
+                    broker_id, stub, resolved_position_id, match.entry_price
+                )
+                effective_sl, effective_tp = await self._confirm_post_fill_protection(
+                    broker_id, broker, stub, resolved_position_id, match
+                )
 
                 if self._live_monitor:
                     bid_e, ask_e = 0.0, 0.0
@@ -750,8 +756,8 @@ class LiveEngine:
                         symbol=info["instrument"],
                         side=stub.side,
                         entry=match.entry_price,
-                        sl=match.stop_loss or info["signal_sl"],
-                        tp=match.take_profit or info.get("signal_tp", 0.0),
+                        sl=effective_sl,
+                        tp=effective_tp,
                         volume=match.volume,
                         digits=digits,
                     )
@@ -759,6 +765,7 @@ class LiveEngine:
                 logger.info(
                     f"[Engine] 🎯 Pending fill confirmé: {info['instrument']} "
                     f"{info['side']} entry={match.entry_price:.5f} "
+                    f"slip={slip_in_r:.2f}R "
                     f"({broker_id}:order={order_id} position={resolved_position_id})"
                 )
                 self._pending_fills.pop(key, None)
@@ -1816,6 +1823,130 @@ class LiveEngine:
     # Callback ordre
     # ------------------------------------------------------------------
 
+    async def _alert_execution_integrity(self, message: str) -> None:
+        """Alert without allowing telemetry failures to interrupt monitoring."""
+        logger.error(message)
+        if not self._live_monitor:
+            return
+        for notify in (
+            self._live_monitor._notify_telegram,
+            self._live_monitor._notify_ntfy,
+        ):
+            try:
+                await notify(message)
+            except Exception as e:
+                logger.warning(f"[Engine] execution integrity notification: {e}")
+
+    async def _confirm_post_fill_protection(
+        self,
+        broker_id: str,
+        broker,
+        signal,
+        position_id: str,
+        position,
+    ) -> tuple[float, float]:
+        """Verify TradeLocker linked SL/TP after fill, repairing once if needed.
+
+        TradeLocker omits SL/TP from its Position payload and exposes them as
+        attached working orders. A real filled position is always monitored,
+        but new entries on that broker are quarantined if its protection
+        cannot be proven server-side.
+        """
+        expected_sl = float(signal.sl or 0.0)
+        expected_tp = float(getattr(signal, "tp_indicative", 0.0) or 0.0)
+        observed_sl = getattr(position, "stop_loss", None)
+        observed_tp = getattr(position, "take_profit", None)
+        if broker.config.get("type", "") != "tradelocker":
+            return observed_sl or expected_sl, observed_tp or expected_tp
+
+        get_protection = getattr(broker, "get_position_protection", None)
+        if get_protection and (not observed_sl or not observed_tp):
+            linked = await get_protection(str(position_id))
+            if linked:
+                observed_sl, observed_tp = linked
+
+        tolerance = 1e-5
+        try:
+            info = await broker.get_symbol_info(signal.instrument)
+            if info:
+                tolerance = max(tolerance, float(info.tick_size or 0.0) * 1.1)
+        except Exception:
+            pass
+
+        def matches(actual: float | None, expected: float) -> bool:
+            if expected <= 0:
+                return True
+            return actual is not None and abs(float(actual) - expected) <= tolerance
+
+        confirmed = matches(observed_sl, expected_sl) and matches(
+            observed_tp, expected_tp
+        )
+        action = "verified"
+        if not confirmed:
+            action = "amend_attempted"
+            try:
+                amend = await broker.amend_position_sltp(
+                    str(position_id),
+                    stop_loss=expected_sl or None,
+                    take_profit=expected_tp or None,
+                )
+                if amend.success and get_protection:
+                    linked = await get_protection(str(position_id))
+                    if linked:
+                        observed_sl, observed_tp = linked
+                        confirmed = matches(observed_sl, expected_sl) and matches(
+                            observed_tp, expected_tp
+                        )
+                action = "amend_confirmed" if confirmed else "amend_unconfirmed"
+            except Exception as e:
+                action = f"amend_failed:{e}"
+
+        if self._live_monitor:
+            self._live_monitor.record_protection_check(
+                broker_id=broker_id,
+                position_id=str(position_id),
+                instrument=signal.instrument,
+                expected_sl=expected_sl,
+                expected_tp=expected_tp,
+                observed_sl=observed_sl,
+                observed_tp=observed_tp,
+                confirmed=confirmed,
+                action=action,
+            )
+        if not confirmed:
+            reason = f"protection non confirmée {signal.instrument} position={position_id}"
+            if getattr(self, "_dispatcher", None):
+                self._dispatcher.block_broker_entries(broker_id, reason)
+            await self._alert_execution_integrity(
+                f"🚨 GFT protection non confirmée — {signal.instrument}\n"
+                f"position_id={position_id} attendu SL={expected_sl} TP={expected_tp}\n"
+                f"observé SL={observed_sl} TP={observed_tp} action={action}\n"
+                "Nouvelles entrées GFT bloquées ; position conservée sous surveillance."
+            )
+        return observed_sl or expected_sl, observed_tp or expected_tp
+
+    async def _flag_extreme_fill_if_needed(
+        self, broker_id: str, signal, position_id: str, entry: float
+    ) -> float:
+        """Alert/quarantine on impossible-looking fill; never drop monitoring."""
+        slip = abs(entry - signal.close)
+        risk_distance = abs(signal.close - signal.sl) if signal.sl else 1.0
+        slip_in_r = slip / risk_distance if risk_distance > 0 else 0.0
+        if slip_in_r > 5.0:
+            reason = (
+                f"fill mismatch {signal.instrument} position={position_id} "
+                f"{slip_in_r:.1f}R"
+            )
+            if getattr(self, "_dispatcher", None):
+                self._dispatcher.block_broker_entries(broker_id, reason)
+            await self._alert_execution_integrity(
+                f"🚨 FILL MISMATCH — {broker_id} {signal.instrument}\n"
+                f"position_id={position_id} signal={signal.close:.5f} "
+                f"fill={entry:.5f} écart={slip_in_r:.1f}R\n"
+                "Position enregistrée et surveillée ; nouvelles entrées broker bloquées."
+            )
+        return slip_in_r
+
     async def _on_order_result(self, broker_id, signal, result) -> None:
         status = "✅" if result.success else "❌"
         if result.success:
@@ -1985,19 +2116,16 @@ class LiveEngine:
                 )
                 return
 
-            # Fill confirmé broker-side : validation slippage puis enregistrement
+            # Fill confirmé broker-side : même anormal, une position réelle
+            # doit être journalisée et monitorée ; l'alerte/quarantaine traite
+            # les nouvelles entrées sans perdre celle qui existe déjà.
             slip = abs(entry - signal.close)
-            risk_distance = abs(signal.close - signal.sl) if signal.sl else 1.0
-            slip_in_r = slip / risk_distance if risk_distance > 0 else 0
-
-            if slip_in_r > 5.0:
-                logger.error(
-                    f"[Engine] 🔴 FILL MISMATCH DÉTECTÉ: {signal.instrument} "
-                    f"signal_close={signal.close:.5f} fill_entry={entry:.5f} "
-                    f"slip={slip:.5f} ({slip_in_r:.1f}R) — position NON enregistrée. "
-                    f"Vérifier manuellement position_id={result.order_id}"
-                )
-                return
+            slip_in_r = await self._flag_extreme_fill_if_needed(
+                broker_id, signal, str(result.order_id), entry
+            )
+            effective_sl, effective_tp = await self._confirm_post_fill_protection(
+                broker_id, broker, signal, str(result.order_id), pos
+            )
 
             logger.info(
                 f"[Engine] 📋 Fill confirmé: {signal.instrument} "
@@ -2039,17 +2167,14 @@ class LiveEngine:
             except Exception:
                 pass
 
-            sl = pos.stop_loss if pos.stop_loss else signal.sl
-            tp = pos.take_profit if pos.take_profit else signal.tp_indicative
-
             self._position_monitor.register_position(
                 broker_id=broker_id,
                 position_id=str(result.order_id),
                 symbol=signal.instrument,
                 side=signal.side,
                 entry=entry,
-                sl=sl,
-                tp=tp,
+                sl=effective_sl,
+                tp=effective_tp,
                 volume=volume,
                 digits=digits,
             )
