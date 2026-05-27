@@ -77,6 +77,37 @@ def test_pending_orders_read_is_unknown_when_ctrader_disconnected():
         asyncio.run(broker.get_pending_orders())
 
 
+def test_reconcile_requests_are_serialized_between_refresh_and_heartbeat():
+    async def run():
+        broker = _build_broker_stub()
+        broker._connected = True
+        broker._pending_orders = []
+        broker._positions = []
+        broker._reconcile_lock = asyncio.Lock()
+        sent = []
+        broker._send_via_reactor = lambda req: sent.append(req)
+
+        pending_task = asyncio.create_task(broker.get_pending_orders())
+        await asyncio.sleep(0)
+        heartbeat_task = asyncio.create_task(
+            broker.list_open_positions_proto(timeout_s=1.0)
+        )
+        await asyncio.sleep(0)
+
+        assert len(sent) == 1
+        first = broker._pending_requests["reconcile"]
+        first.set_result(True)
+        await pending_task
+        await asyncio.sleep(0)
+
+        assert len(sent) == 2
+        second = broker._pending_requests["reconcile"]
+        second.set_result(True)
+        await heartbeat_task
+
+    asyncio.run(run())
+
+
 # ---------------------------------------------------------------------------
 # 1. Reconnect réussi → l'ordre peut continuer
 # ---------------------------------------------------------------------------

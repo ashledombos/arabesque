@@ -5,7 +5,7 @@
 > ce fichier est la référence rapide pour savoir ce qui tourne, sur quel compte, avec quel paramétrage.
 > **Mettre à jour à chaque changement de compte ou de configuration live.**
 
-Derniere mise a jour : 2026-05-27 15:45 CEST (reprise controlee Phase 4 bis)
+Derniere mise a jour : 2026-05-27 18:02 CEST (live actif, positions ouvertes et fix de controle en attente de chargement)
 
 ---
 
@@ -15,7 +15,7 @@ Derniere mise a jour : 2026-05-27 15:45 CEST (reprise controlee Phase 4 bis)
 |---|---|
 | **Statut** | 🟢 **ACTIF** — reprise controlee, `arabesque-live.service` active/enabled depuis le 2026-05-27 15:41:56 CEST, PID `75323` |
 | **Phase** | Phase 4 bis active ; scope de verdict = Extension + Glissade uniquement depuis 2026-05-16 |
-| **Commande** | Surveillance : logs `risk overshoot`, feed/watchdog et prochaine entry ; ne pas ramper le risque avant echantillon suffisant |
+| **Commande** | Ne pas restart pendant positions ouvertes ; surveiller exits/protection/feed. Charger le fix pending/reconcile au prochain retour a plat |
 | **Log** | `journalctl --user -u arabesque-live -f` |
 | **Comptes actifs** | `ftmo_challenge` (cTrader 45667282) + `gft_compte1` (TradeLocker) |
 | **Type FTMO** | Challenge Phase 1 (2-step, 100k USD) |
@@ -27,7 +27,8 @@ Derniere mise a jour : 2026-05-27 15:45 CEST (reprise controlee Phase 4 bis)
 | **Protection GFT** | `CAUTION` individuel (Glissade streak=5, DD=-5.26%) ; politique pire broker => sizing effectif systeme `CAUTION x0.50` |
 | **Notifications** | ntfy ✅, Telegram ✅, **bot Telegram interactif** (lecture seule) ✅ |
 | **Watchdog feed** | ✅ Timer actif ; auto-restart `feed_stale` volontaire depuis Hot Path Mode 2026-05-23 (anti-boucle/backoff), sans démarrage possible lorsque l'engine est inactif |
-| **Dernier incident** | 2026-05-27 — reboot/réseau : auto-start live imprévu à 10:04 CEST, boucle cTrader `ALREADY_LOGGED_IN`, jamais arrivé à `Moteur prêt`, arrêté à 10:07 et service désactivé. Aucun ordre/position/pending observé. Cause startup corrigée et poussée (`38b7277`) : timeout nettoyé complètement + retry cTrader espacé >=60s ; `278 passed`. |
+| **Positions observees** | `XAUUSD SHORT` Extension FTMO+GFT ouverts a 16:00 CEST ; `BTCUSD SHORT` Glissade FTMO ouvert a 18:01 CEST. Protection GFT XAU verifiee serveur : `SL=4458.85`, `TP=4364.54` |
+| **Dernier incident** | 2026-05-27 — TradeLocker expose SL/TP GFT comme ordres lies ; ils etaient classes pending d'entree inconnus, invalidant l'etat GFT et bloquant l'execution `BTCUSD SHORT` de 18:00 sur GFT (FTMO execute). En parallele, collision de requetes `reconcile` cTrader causait des timeouts FTMO. Correctif teste (`289 passed`) a charger apres fermeture des positions, sans restart a chaud. |
 
 ---
 
@@ -35,9 +36,9 @@ Derniere mise a jour : 2026-05-27 15:45 CEST (reprise controlee Phase 4 bis)
 
 | Stratégie | Timeframe | Instruments | Mode | Statut |
 |---|---|---|---|---|
-| **Extension** (trend BB) | H1 | XAUUSD, GBPJPY, AUDJPY, CHFJPY | Phase 4 bis | Configurée — exécution suspendue |
-| **Extension** (trend BB) | H4 | 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…) | Phase 4 bis | Configurée — exécution suspendue |
-| **Glissade** (RSI div) | H1 | XAUUSD, BTCUSD | Phase 4 bis | Configurée — exécution suspendue |
+| **Extension** (trend BB) | H1 | XAUUSD, GBPJPY, AUDJPY, CHFJPY | Phase 4 bis | LIVE |
+| **Extension** (trend BB) | H4 | 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…) | Phase 4 bis | LIVE |
+| **Glissade** (RSI div) | H1 | XAUUSD, BTCUSD | Phase 4 bis | LIVE |
 | **Cabriole** (Donchian) | H4 | — | — | 🛑 **Désactivée** (Phase 4 bis — drift `drift_modere` répété, à réexpliquer) |
 | **Fouetté** (ORB M1) | M1 | — | Observation paper seulement | 🟡 0 trade live (bug cache OR bar_aggregator, cf HANDOFF) |
 
@@ -295,13 +296,13 @@ Exécuté automatiquement par le timer daily (21h UTC) et weekly (dim 20h UTC).
 
 ---
 
-## Architecture configurée (Phase 4 bis, exécution suspendue le 2026-05-27)
+## Architecture configurée (Phase 4 bis, execution live reprise le 2026-05-27)
 
 ```
 Live actif (compte ftmo_challenge, 45667282, démo cTrader) :
-  Extension H1 → XAUUSD, GBPJPY, AUDJPY, CHFJPY (configurée, non exécutée)
-  Extension H4 → 27 crypto (configurée, non exécutée)
-  Glissade H1  → XAUUSD, BTCUSD (configurée, non exécutée)
+  Extension H1 → XAUUSD, GBPJPY, AUDJPY, CHFJPY
+  Extension H4 → 27 crypto
+  Glissade H1  → XAUUSD, BTCUSD
 
 Désactivée Phase 4 bis :
   Cabriole 4H  → drift_modere répété, à réexpliquer avant réactivation

@@ -216,6 +216,38 @@ def test_unknown_broker_pending_invalidates_state(tmp_path, monkeypatch):
     assert "gft_compte1" not in engine._dispatcher.states
 
 
+def test_protective_pending_linked_to_open_position_is_not_unknown_exposure(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        "arabesque.execution.live.TRADE_JOURNAL_PATH",
+        tmp_path / "missing.jsonl",
+    )
+    position = SimpleNamespace(symbol="XAUUSD", position_id="position-42")
+    sl_leg = SimpleNamespace(
+        order_id="sl-42", raw_data={"position_id": "position-42"}
+    )
+    tp_leg = SimpleNamespace(
+        order_id="tp-42", raw_data={"position_id": "position-42"}
+    )
+    engine = _engine(
+        _Broker(positions=[position], pending=[sl_leg, tp_leg]),
+        _Monitor(
+            [{
+                "broker_id": "gft_compte1",
+                "position_id": "position-42",
+                "risk_cash": 73.0,
+            }]
+        ),
+    )
+
+    asyncio.run(engine._refresh_account_state())
+
+    assert engine._dispatcher.invalidated == []
+    assert engine._dispatcher.states["gft_compte1"].open_positions == 1
+    assert engine._dispatcher.states["gft_compte1"].open_risk_cash == pytest.approx(73.0)
+
+
 def test_daily_journal_read_failure_invalidates_state(tmp_path, monkeypatch):
     monkeypatch.setattr("arabesque.execution.live.TRADE_JOURNAL_PATH", tmp_path)
     engine = _engine(_Broker())

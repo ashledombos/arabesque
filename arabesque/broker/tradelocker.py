@@ -485,17 +485,38 @@ class TradeLockerBroker(BaseBroker):
                                 continue
                     if created_time is None:
                         created_time = datetime.now(timezone.utc)
+                    kind = str(order.get("type", "")).lower()
+                    order_type = OrderType.STOP if kind == "stop" else OrderType.LIMIT
+                    if order_type == OrderType.STOP:
+                        entry_price = float(
+                            order.get("stopPrice", 0) or order.get("price", 0) or 0
+                        )
+                    else:
+                        entry_price = float(order.get("price", 0) or 0)
+                    position_id = order.get("positionId")
                     pending.append(PendingOrder(
                         order_id=str(order.get('id', '')),
                         symbol=symbol,
                         side=OrderSide.BUY if str(order.get('side', '')).lower() == 'buy' else OrderSide.SELL,
-                        order_type=OrderType.LIMIT,
+                        order_type=order_type,
                         volume=float(order.get('qty', 0)),
-                        entry_price=float(order.get('price', 0)),
+                        entry_price=entry_price,
                         stop_loss=float(order.get('stopLoss', 0)) if order.get('stopLoss') else None,
                         take_profit=float(order.get('takeProfit', 0)) if order.get('takeProfit') else None,
                         created_time=created_time,
-                        broker_id=self.broker_id
+                        broker_id=self.broker_id,
+                        # A TradeLocker open position exposes its SL/TP as
+                        # separate pending orders. Preserve the relationship
+                        # so risk refresh can distinguish protective legs
+                        # from untracked entry exposure.
+                        raw_data={
+                            "position_id": (
+                                str(position_id)
+                                if position_id is not None
+                                else None
+                            ),
+                            "order_kind": kind,
+                        },
                     ))
             return pending
         except Exception as e:

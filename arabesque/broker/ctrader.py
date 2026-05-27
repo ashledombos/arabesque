@@ -134,6 +134,12 @@ class CTraderBroker(BaseBroker):
         # ne contient ni symbolId ni quote type, on ne peut pas dédupliquer les
         # requêtes concurrentes. Un seul appel en vol à la fois.
         self._tick_data_lock = asyncio.Lock()
+        # Lock pour sérialiser ProtoOAReconcileReq.  get_positions(),
+        # get_pending_orders() et le heartbeat hot-path partagent la clé
+        # fixe ``_pending_requests["reconcile"]`` ; deux requêtes en vol
+        # écraseraient le Future de la première et produiraient un faux
+        # timeout pendant une position ouverte.
+        self._reconcile_lock = asyncio.Lock()
         # Référence au loop asyncio pour les callbacks thread-safe depuis Twisted
         self._asyncio_loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -1874,19 +1880,24 @@ class CTraderBroker(BaseBroker):
     async def get_pending_orders(self) -> List[PendingOrder]:
         if not self._connected:
             raise ConnectionError("cTrader not connected while reading pending orders")
-        loop = asyncio.get_event_loop()
-        future = loop.create_future()
-        self._pending_requests["reconcile"] = future
-        req = ProtoOAReconcileReq()
-        req.ctidTraderAccountId = self.account_id
-        from twisted.internet import reactor
-        self._send_via_reactor(req)
-        try:
-            await asyncio.wait_for(future, timeout=15)
-            return self._pending_orders
-        except asyncio.TimeoutError:
-            self._pending_requests.pop("reconcile", None)
-            raise TimeoutError("cTrader pending orders reconcile timeout")
+        lock = getattr(self, "_reconcile_lock", None)
+        if lock is None:
+            # Compatibility for lightweight test doubles built via __new__.
+            lock = self._reconcile_lock = asyncio.Lock()
+        async with lock:
+            loop = asyncio.get_event_loop()
+            future = loop.create_future()
+            self._pending_requests["reconcile"] = future
+            req = ProtoOAReconcileReq()
+            req.ctidTraderAccountId = self.account_id
+            from twisted.internet import reactor
+            self._send_via_reactor(req)
+            try:
+                await asyncio.wait_for(future, timeout=15)
+                return self._pending_orders
+            except asyncio.TimeoutError:
+                self._pending_requests.pop("reconcile", None)
+                raise TimeoutError("cTrader pending orders reconcile timeout")
 
     async def get_positions(self) -> List[Position]:
         await self.get_pending_orders()
@@ -1915,21 +1926,25 @@ class CTraderBroker(BaseBroker):
         if not self._connected:
             if not await self._try_reconnect_for_order("hot_path_reconcile"):
                 return None
-        loop = asyncio.get_event_loop()
-        future = loop.create_future()
-        self._pending_requests["reconcile"] = future
-        req = ProtoOAReconcileReq()
-        req.ctidTraderAccountId = self.account_id
-        self._send_via_reactor(req)
-        try:
-            await asyncio.wait_for(future, timeout=timeout_s)
-            return list(self._positions)
-        except asyncio.TimeoutError:
-            self._pending_requests.pop("reconcile", None)
-            return None
-        except Exception:
-            self._pending_requests.pop("reconcile", None)
-            return None
+        lock = getattr(self, "_reconcile_lock", None)
+        if lock is None:
+            lock = self._reconcile_lock = asyncio.Lock()
+        async with lock:
+            loop = asyncio.get_event_loop()
+            future = loop.create_future()
+            self._pending_requests["reconcile"] = future
+            req = ProtoOAReconcileReq()
+            req.ctidTraderAccountId = self.account_id
+            self._send_via_reactor(req)
+            try:
+                await asyncio.wait_for(future, timeout=timeout_s)
+                return list(self._positions)
+            except asyncio.TimeoutError:
+                self._pending_requests.pop("reconcile", None)
+                return None
+            except Exception:
+                self._pending_requests.pop("reconcile", None)
+                return None
 
     async def amend_position_sltp(
         self, position_id: str,

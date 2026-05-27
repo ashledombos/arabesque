@@ -3189,3 +3189,34 @@ utilise des identifiants d'ordre et de position distincts.
   `CAUTION x0.50` au systeme. Surveiller les warnings
   `risk overshoot apres minimum/step broker`, qui indiquent un trade saute
   par la nouvelle barriere de securite.
+
+## Incident/decision 2026-05-27 - protections TradeLocker et reconcile cTrader en position ouverte
+
+- **Observation live** : Extension `XAUUSD SHORT` a ete executee le 27/05 a
+  `16:00 CEST` sur FTMO (`risk_cash=31.12$`) et GFT (`risk_cash=72.75$`).
+  Une lecture TradeLocker independante confirme que la position GFT ouverte
+  possede deux protections liees valides : `SL=4458.85`, `TP=4364.54`.
+- **Bug GFT confirme** : `get_pending_orders()` exposait ces legs lies comme
+  deux ordres LIMIT generiques sans relation `positionId`. Le refresh risque
+  les classait alors comme pending d'entree inconnus et invalidait l'etat
+  `gft_compte1` toutes les deux minutes. A `18:00 CEST`, cette invalidation a
+  bloque l'execution GFT du signal Glissade `BTCUSD SHORT`, execute sur FTMO
+  (`risk_cash=7.71$`). Cet evenement est une execution manquee causee par
+  l'infrastructure, pas une decision de strategie.
+- **Bug FTMO confirme** : `get_positions()`/`get_pending_orders()` et le
+  heartbeat `list_open_positions_proto()` envoyaient des
+  `ProtoOAReconcileReq` concurrents en reutilisant tous
+  `_pending_requests["reconcile"]`. Une reponse pouvait resoudre le Future du
+  mauvais appel et laisser l'autre expirer, expliquant les warnings
+  `cTrader pending orders reconcile timeout` observes avec les positions
+  ouvertes.
+- **Correction** : TradeLocker conserve desormais le vrai type/prix de
+  l'ordre et son `position_id`; le gate risque ignore uniquement un pending
+  lie a une position que le broker confirme ouverte. cTrader serialise tous
+  les `ProtoOAReconcileReq` avec un lock dedie. Trois tests de regression
+  reproduisent respectivement le SL STOP lie, le gate risque GFT, et la
+  concurrence refresh/heartbeat. Suite complete : `289 passed`.
+- **Action operateur** : le service actuellement en memoire precede le fix.
+  Ne pas redemarrer tant que `XAUUSD`/`BTCUSD` restent ouverts : les
+  protections serveur sont en place et un restart ajouterait un risque de
+  reconciliation. Charger le patch au prochain retour a plat.

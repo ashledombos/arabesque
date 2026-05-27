@@ -1562,10 +1562,16 @@ class LiveEngine:
                     for pending in pending_for_broker
                     if pending.get("order_id")
                 }
+                open_position_ids = {
+                    str(pos.position_id) for pos in positions
+                    if getattr(pos, "position_id", None)
+                }
                 unknown_pending_ids = [
                     str(order.order_id)
                     for order in broker_pending
                     if str(order.order_id) not in tracked_pending_ids
+                    and str((getattr(order, "raw_data", None) or {}).get("position_id", ""))
+                    not in open_position_ids
                 ]
                 if unknown_pending_ids:
                     logger.warning(

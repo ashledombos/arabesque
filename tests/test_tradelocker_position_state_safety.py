@@ -13,6 +13,7 @@ import pandas as pd
 import pytest
 
 from arabesque.broker.tradelocker import TradeLockerBroker
+from arabesque.broker.base import OrderType
 from arabesque.core.models import Side
 from arabesque.execution.position_monitor import LivePositionMonitor
 
@@ -46,6 +47,7 @@ def _broker(api: _Api) -> TradeLockerBroker:
     broker = TradeLockerBroker.__new__(TradeLockerBroker)
     broker._api = api
     broker._instruments_reverse_map = {}
+    broker.broker_id = "gft_compte1"
     return broker
 
 
@@ -112,6 +114,25 @@ def test_open_position_protection_is_read_from_attached_orders():
     protection = asyncio.run(broker.get_position_protection("42"))
 
     assert protection == pytest.approx((114.016, 114.578))
+
+
+def test_pending_attached_stop_preserves_stop_price_and_position_link():
+    orders = pd.DataFrame([
+        {
+            "id": 11, "positionId": 42, "tradableInstrumentId": 7,
+            "side": "buy", "type": "stop", "status": "Working",
+            "stopPrice": 4458.85, "price": 0.0, "qty": 0.02,
+        },
+    ])
+    broker = _broker(_Api(orders=orders))
+    broker._instruments_reverse_map = {7: "XAUUSD"}
+
+    pending = asyncio.run(broker.get_pending_orders())
+
+    assert len(pending) == 1
+    assert pending[0].order_type is OrderType.STOP
+    assert pending[0].entry_price == pytest.approx(4458.85)
+    assert pending[0].raw_data["position_id"] == "42"
 
 
 def test_get_closed_detail_requires_a_closing_execution():
