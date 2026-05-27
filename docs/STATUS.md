@@ -5,7 +5,7 @@
 > ce fichier est la référence rapide pour savoir ce qui tourne, sur quel compte, avec quel paramétrage.
 > **Mettre à jour à chaque changement de compte ou de configuration live.**
 
-Derniere mise a jour : 2026-05-27 19:43 CEST (correctifs reprise charges et verifies en live)
+Derniere mise a jour : 2026-05-27 23:25 CEST (protection GFT chargee et restart controle verifie)
 
 ---
 
@@ -13,7 +13,7 @@ Derniere mise a jour : 2026-05-27 19:43 CEST (correctifs reprise charges et veri
 
 | Paramètre | Valeur |
 |---|---|
-| **Statut** | 🟢 **ACTIF** — restart controle final le 2026-05-27 19:39:08 CEST, PID `123084`, code `57f7ca4` charge |
+| **Statut** | 🟢 **ACTIF** — restart controle le 2026-05-27 23:22:59 CEST, PID `165502`, code `e091571` charge |
 | **Phase** | Phase 4 bis active ; scope de verdict = Extension + Glissade uniquement depuis 2026-05-16 |
 | **Commande** | Surveiller exits/protections/feed et tout retour de `pending broker non trackes` / `reconcile timeout`. Restart en position uniquement en recuperation controlee apres confirmation broker-side des protections |
 | **Log** | `journalctl --user -u arabesque-live -f` |
@@ -27,8 +27,8 @@ Derniere mise a jour : 2026-05-27 19:43 CEST (correctifs reprise charges et veri
 | **Protection GFT** | `CAUTION` individuel (Glissade streak=5, DD=-5.26%) ; politique pire broker => sizing effectif systeme `CAUTION x0.50` |
 | **Notifications** | ntfy ✅, Telegram ✅, **bot Telegram interactif** (lecture seule) ✅ |
 | **Watchdog feed** | ✅ Timer actif ; auto-restart `feed_stale` volontaire depuis Hot Path Mode 2026-05-23 (anti-boucle/backoff), sans démarrage possible lorsque l'engine est inactif |
-| **Positions observees** | `XAUUSD SHORT` Extension FTMO+GFT ouverts a 16:00 CEST et restaures au restart ; protections confirmees `SL=4458.85`, `TP=4364.54`. `BTCUSD SHORT` FTMO ferme pendant maintenance, reconcilie `+0.193R` / `+$1.49` |
-| **Dernier incident** | 2026-05-27 — 3 defauts corriges et charges : protections TradeLocker classees pending + collision reconcile cTrader (`774f7ca`), TP cTrader efface par amend SL/BE (`3b0fb49`), positions post-restart absentes de `LiveMonitor` (`57f7ca4`). Validation live : `31/31`, `HEALTH ... 2 ouverts`, aucun faux pending/timeouts au premier cycle. |
+| **Positions observees** | `0` position / `0` pending sur FTMO et GFT avant le restart de 23:22:59 CEST ; reconciliation post-start : aucune position ouverte |
+| **Dernier incident** | 2026-05-27 — ancien PID signalait `cTrader not connected while reading pending orders` et `30/31` flux actifs alors que les comptes etaient plats. Restart controle apres chargement de `44755a8`/`e091571` : `31/31`, refresh token `12h`, moteur pret, watchdog OK. |
 
 ---
 
@@ -294,7 +294,7 @@ Exécuté automatiquement par le timer daily (21h UTC) et weekly (dim 20h UTC).
 ## Prochaines étapes structurelles
 
 - [x] ~~Activer GFT compte1~~ (fait 2026-03-23)
-- [ ] **Charger la protection GFT pre/post-fill au prochain restart controle** — code en attente de deploiement pendant que `XAUUSD SHORT` FTMO+GFT reste ouvert : quote REST GFT obligatoire avant ordre, seuil de derive adverse `0.25R`, confirmation/amend SL/TP apres fill, quarantaine des nouvelles entrees GFT si protection non prouvee, et conservation du monitoring sur fill extreme.
+- [x] **Charger la protection GFT pre/post-fill** — active depuis le restart controle du 2026-05-27 23:22:59 CEST (`44755a8`) : quote REST GFT obligatoire avant ordre, seuil de derive adverse `0.25R`, confirmation/amend SL/TP apres fill, quarantaine des nouvelles entrees GFT si protection non prouvee, et conservation du monitoring sur fill extreme.
 - [ ] **Construire le shadow reference** — specification dans `docs/VALIDATION_CONTRACT.md`; chantier d'observabilite requis avant conclusion forte de rentabilite ou hausse de risque, sans modifier la logique de trading courante.
 
 ---

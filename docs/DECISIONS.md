@@ -3260,7 +3260,7 @@ utilise des identifiants d'ordre et de position distincts.
   analyses de rentabilite. Le connecteur TradeLocker fournit une quote REST
   et les ordres lies SL/TP, meme s'il ne fournit pas de stream tick equivalent
   a cTrader.
-- **Patch code (a charger au prochain restart controle)** :
+- **Patch code** :
   - pre-envoi GFT : quote REST obligatoire ; refuser si spread depasse le
     seuil signal ou si derive defavorable depasse `0.25R` / le seuil ATR ;
   - post-fill GFT : lire SL/TP lies, tenter un amend unique si absents ou
@@ -3272,9 +3272,13 @@ utilise des identifiants d'ordre et de position distincts.
     nouvelles entrees GFT, sans retirer la position existante du monitoring ;
   - si fill extreme `>5R` : alerte/quarantaine, mais la position est
     desormais toujours journalisee et monitoree.
-- **Deploiement** : ne pas perturber les positions XAU actuellement protegees
-  uniquement pour charger ce patch ; deployer au prochain restart controle,
-  ou plus tot si un incident exige une reprise.
+- **Deploiement** : les positions XAU etaient fermees au controle de
+  `23:21 CEST` (`0 position / 0 pending` FTMO et GFT). L'ancien processus
+  exposait simultanement `cTrader not connected while reading pending orders`
+  et `30/31` flux actifs ; le restart controle etait donc justifie. Apres
+  `stop` + attente `60s`, restart a `23:22:59 CEST` sur `e091571`
+  (incluant `44755a8`) : `31/31` souscrit, token refresh `12h`,
+  reconciliation sans position ouverte, moteur pret et watchdog OK.
 - **Decision portable** : `docs/VALIDATION_CONTRACT.md` devient la doctrine
   lisible par tout humain/agent, accompagnee de
   `config/validation_policy.yaml` pour les seuils structures. Les instructions
