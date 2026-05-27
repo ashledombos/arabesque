@@ -3170,3 +3170,22 @@ utilise des identifiants d'ordre et de position distincts.
   sauter les micro-trades sur-risques preserve le compte et la validite de
   l'echantillon. `CAUTION x0.50` reste acceptable une fois cette barriere
   chargee, sous surveillance des rejets.
+
+## Decision 2026-05-27 - reprise controlee Phase 4 bis
+
+- **Preconditions verifiees** : `origin/main=deb29d0`, suite `286 passed`,
+  FTMO et GFT `0 position / 0 pending`, live reste arrete pendant les lectures
+  broker. L'invariant FTMO `be_inferred_but_loser` reste en `ALERT` pour
+  l'incident historique XAUUSD du 14/05 ; il est attendu et conserve comme
+  trace, sans indiquer un defaut post-correctifs.
+- **Action** : apres `60s` de liberation cTrader, reactivation manuelle
+  `arabesque-live.service` le 27/05 a `15:41:56 CEST`.
+- **Validation post-start** : PID `75323`, authentification cTrader sans
+  `ALREADY_LOGGED_IN`, `31/31` souscriptions, token refresh `12h`,
+  `Moteur pret` a `15:42:59`, premier resume `5 barres / 0 signal` a
+  `15:45:00`, watchdog OK, health report `CAUTION` a `15:45:04`.
+- **Niveau de risque execute** : FTMO individuel `NORMAL`, GFT individuel
+  `CAUTION` (serie Glissade), donc politique pire broker applique
+  `CAUTION x0.50` au systeme. Surveiller les warnings
+  `risk overshoot apres minimum/step broker`, qui indiquent un trade saute
+  par la nouvelle barriere de securite.
