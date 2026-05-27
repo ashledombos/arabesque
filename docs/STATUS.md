@@ -5,7 +5,7 @@
 > ce fichier est la référence rapide pour savoir ce qui tourne, sur quel compte, avec quel paramétrage.
 > **Mettre à jour à chaque changement de compte ou de configuration live.**
 
-Derniere mise a jour : 2026-05-26 (incident GFT position-state)
+Derniere mise a jour : 2026-05-27 10:08 CEST (maintenance de securite apres reboot)
 
 ---
 
@@ -13,9 +13,9 @@ Derniere mise a jour : 2026-05-26 (incident GFT position-state)
 
 | Paramètre | Valeur |
 |---|---|
-| **Statut** | ✅ En marche — **Phase 4 bis** depuis 2026-05-16 (noyau Extension + Glissade, Cabriole désactivée) |
-| **Phase** | Phase 4 revalidation (≥ 50 trades à risk ×0.25 depuis 2026-05-07T23:45 UTC) + Phase 2.5 BE polling broker-side actif |
-| **Commande** | `systemctl --user start arabesque-live` (service systemd, auto-restart) |
+| **Statut** | 🛑 **ARRETE volontairement** — maintenance de securite, `arabesque-live.service` inactive et disabled depuis le 2026-05-27 10:07 CEST |
+| **Phase** | Phase 4 bis suspendue pendant maintenance ; scope de verdict = Extension + Glissade uniquement depuis 2026-05-16 |
+| **Commande** | Ne pas lancer tant que le niveau de protection de reprise et l'audit watchdog ne sont pas actés ; service actuellement `disabled` pour empêcher un reboot de le relancer |
 | **Log** | `journalctl --user -u arabesque-live -f` |
 | **Comptes actifs** | `ftmo_challenge` (cTrader 45667282) + `gft_compte1` (TradeLocker) |
 | **Type FTMO** | Challenge Phase 1 (2-step, 100k USD) |
@@ -23,11 +23,11 @@ Derniere mise a jour : 2026-05-26 (incident GFT position-state)
 | **Environnement cTrader** | **Démo** (`is_demo: true` — les challenges FTMO utilisent l'endpoint démo) |
 | **Balance FTMO** | $93 298 (DD -6.7%) |
 | **Balance GFT** | $142 105 (DD -5.3%) |
-| **Protection FTMO** | LiveMonitor **DANGER** (risk x0.25) |
-| **Protection GFT** | LiveMonitor **DANGER** (risk x0.25) |
+| **Protection FTMO** | Aucun monitor actif. Après chargement du fix scope stratégies : niveau calculé attendu **CAUTION** (risk protection x0.50), sauf plancher temporaire explicite `DANGER x0.25` |
+| **Protection GFT** | Aucun monitor actif. Même arbitrage de reprise FTMO/GFT : `CAUTION x0.50` corrigé ou plancher conservateur `DANGER x0.25` |
 | **Notifications** | ntfy ✅, Telegram ✅, **bot Telegram interactif** (lecture seule) ✅ |
-| **Watchdog feed** | ✅ Actif (`arabesque-feed-watchdog.timer`, 5min, détection silent-fail PriceFeed) |
-| **Dernier incident** | 2026-05-26 — GFT faux exit AUDJPY + pending XAUUSD orphelin (`docs/INCIDENT_GFT_POSITION_STATE_2026-05-26.md`) |
+| **Watchdog feed** | ✅ Timer actif ; son chemin `feed_stale` comporte un auto-restart (contraire à certaines décisions antérieures), à auditer avant reprise live |
+| **Dernier incident** | 2026-05-27 — reboot/réseau : auto-start live imprévu à 10:04 CEST, boucle cTrader `ALREADY_LOGGED_IN`, jamais arrivé à `Moteur prêt`, arrêté à 10:07 et service désactivé. Aucun ordre/position/pending observé. |
 
 ---
 
@@ -35,15 +35,17 @@ Derniere mise a jour : 2026-05-26 (incident GFT position-state)
 
 | Stratégie | Timeframe | Instruments | Mode | Statut |
 |---|---|---|---|---|
-| **Extension** (trend BB) | H1 | XAUUSD, GBPJPY, AUDJPY, CHFJPY | Phase 4 revalidation (risk ×0.25) | ✅ Actif — noyau |
-| **Extension** (trend BB) | H4 | 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…) | Phase 4 revalidation (risk ×0.25) | ✅ Actif — noyau |
-| **Glissade** (RSI div) | H1 | XAUUSD, BTCUSD | Phase 4 revalidation (risk ×0.25) | ✅ Actif — noyau |
+| **Extension** (trend BB) | H1 | XAUUSD, GBPJPY, AUDJPY, CHFJPY | Phase 4 bis | Configurée — exécution suspendue |
+| **Extension** (trend BB) | H4 | 27 crypto (BTCUSD, ETHUSD, BNBUSD, SOLUSD…) | Phase 4 bis | Configurée — exécution suspendue |
+| **Glissade** (RSI div) | H1 | XAUUSD, BTCUSD | Phase 4 bis | Configurée — exécution suspendue |
 | **Cabriole** (Donchian) | H4 | — | — | 🛑 **Désactivée** (Phase 4 bis — drift `drift_modere` répété, à réexpliquer) |
 | **Fouetté** (ORB M1) | M1 | — | Observation paper seulement | 🟡 0 trade live (bug cache OR bar_aggregator, cf HANDOFF) |
 
 Noyau Phase 4 bis : **Extension + Glissade uniquement** (cf `docs/PHASE4_BIS_CHECKLIST_2026-05-16.md`).
-Risk global ×0.25 maintenu jusqu'à ≥ 50 trades de revalidation depuis 2026-05-07T23:45 UTC.
-Critère go (auto via trigger `phase4_revalidation` dans `/suivi`) : `check_execution_invariants.py --per-broker` = `global_verdict=ok` + `mfe_zero_loser=0`.
+La reprise est bloquée par décision de risque : charger le fix de scope enlève
+la série Cabriole désactivée du guard et produirait `CAUTION x0.50` au lieu du
+`DANGER x0.25` historique. Option conservatrice recommandée : plancher
+temporaire explicite `DANGER x0.25`, puis audit de distorsion sizing.
 
 ---
 
@@ -67,9 +69,10 @@ ftmo_challenge:
 App OpenAPI "arabesque" (client_id 23710, basculé 2026-03-28). Ancien compte (19907) gardé dans `ctrader_oauth_old`.
 Le compte challenge référence `oauth: ctrader_oauth` (pas de duplication de tokens).
 
-**Réduction linéaire de risque** : le compte FTMO est en DD -5.5%. Le `compute_sizing` réduit
-automatiquement le risque. En plus, CAUTION applique ×0.50.
-Le compte GFT est en DD -4.8%, protection NORMAL.
+**Etat vérifié le 2026-05-27 10:07 CEST** : FTMO balance/equity
+`93298.21`, GFT balance/equity `142105.25`, `0 position / 0 pending` sur
+les deux comptes. Aucun niveau de protection n'est en exécution puisque le
+moteur est arrêté.
 
 **État Wilson CI au 2026-05-04** (cumul live depuis activation, cf HANDOFF.md) :
 - extension FTMO n=46 WR~32% Exp -0.27R, GFT n=13 WR 34.6% Exp -0.305R — < P0
@@ -113,8 +116,8 @@ Le token refresh sauvegarde dans la section partagée `ctrader_oauth`.
 
 | Compte | Broker | Type | Balance | Objectif | Daily DD | Total DD | Risk/trade | Protected | Statut |
 |---|---|---|---|---|---|---|---|---|---|
-| `ftmo_challenge` | cTrader (FTMO) | Challenge P1 2-step | 100k (act. ~95k) | +10% | 5% | 10% | 0.45% | false | ✅ **Actif** |
-| `gft_compte1` | TradeLocker (GFT) | Challenge P1 GOAT 2-step | 150k (act. ~143k) | +8% | **4%** | 10% | 0.30% | false | ✅ **Actif** |
+| `ftmo_challenge` | cTrader (FTMO) | Challenge P1 2-step | 100k (act. $93 298) | +10% | 5% | 10% | 0.45% | false | Configuré, live arrêté |
+| `gft_compte1` | TradeLocker (GFT) | Challenge P1 GOAT 2-step | 150k (act. $142 105) | +8% | **4%** | 10% | 0.30% | false | Configuré, live arrêté |
 
 ### Architecture multi-prop firm
 
@@ -192,10 +195,10 @@ python scripts/health_check.py
 ### Paliers de protection actifs (LiveMonitor)
 | Palier | Daily DD | Total DD | Action automatique |
 |---|---|---|---|
-| NORMAL | > -2.5% | > -5% | Rien |
-| CAUTION | ≤ -2.5% | ≤ -5% | Risk × 0.5 |
-| DANGER | ≤ -3.0% | ≤ -6.5% | Risk × 0.25 + ferme positions sans BE |
-| EMERGENCY | ≤ -3.5% | ≤ -8.0% | Risk × 0.10 (lot min) + ferme positions sans BE |
+| NORMAL | > -2.5% | > -7% et pertes actives < 5 | Rien |
+| CAUTION | ≤ -2.5% | ≤ -7% ou ≥ 5 pertes consécutives (stratégies actives seulement) | Risk × 0.50 |
+| DANGER | ≤ -3.0% | ≤ -8% ou ≥ 8 pertes consécutives (stratégies actives seulement) | Risk × 0.25 |
+| EMERGENCY | ≤ -3.5% | ≤ -9% | Risk × 0.10 (lot min) |
 
 ---
 
@@ -279,13 +282,13 @@ Exécuté automatiquement par le timer daily (21h UTC) et weekly (dim 20h UTC).
 
 ---
 
-## Architecture snapshot (v9 — Phase 4 bis 2026-05-16)
+## Architecture configurée (Phase 4 bis, exécution suspendue le 2026-05-27)
 
 ```
 Live actif (compte ftmo_challenge, 45667282, démo cTrader) :
-  Extension H1 → XAUUSD, GBPJPY, AUDJPY, CHFJPY (Phase 4 revalidation, risk ×0.25)
-  Extension H4 → 27 crypto (Phase 4 revalidation, risk ×0.25)
-  Glissade H1  → XAUUSD, BTCUSD (Phase 4 revalidation, risk ×0.25)
+  Extension H1 → XAUUSD, GBPJPY, AUDJPY, CHFJPY (configurée, non exécutée)
+  Extension H4 → 27 crypto (configurée, non exécutée)
+  Glissade H1  → XAUUSD, BTCUSD (configurée, non exécutée)
 
 Désactivée Phase 4 bis :
   Cabriole 4H  → drift_modere répété, à réexpliquer avant réactivation

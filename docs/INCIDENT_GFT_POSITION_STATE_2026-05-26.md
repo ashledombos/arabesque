@@ -87,3 +87,24 @@ de la strategie.
 - Auditer la pression d'appels TradeLocker afin de reduire le risque de 429.
 - Consommer/implementer la Task #39 cTrader trading channel (`SCOPE_TASK_39...`).
 - Observer le prochain health report apres remise en service.
+
+## Addendum 2026-05-27 - corrections de surete et reboot maintenance
+
+La relecture du hot path apres l'incident a ajoute trois protections :
+
+- guards et sizing sont executes par broker avec leurs limites propres ;
+- les ordres `STOP/LIMIT` pending reservent leur risque et leurs slots
+  quotidiens ; un pending broker non trace ou une lecture d'etat indisponible
+  bloque les nouveaux ordres ;
+- la telemetrie protection/equity est desormais coherente par broker, et la
+  serie de pertes d'une strategie desactivee (`cabriole`) ne pilote plus le
+  sizing des strategies actives.
+
+Commits pousses : `5b7e5fa`, `243050f`, `ab5b81a`, `fce6f9f`.
+Validation : `276 passed`, warning protobuf preexistante uniquement.
+
+Le 2026-05-27 a `10:04 CEST`, un reboot a relance automatiquement le service
+encore enabled pendant la maintenance. Le processus est reste bloque dans la
+connexion cTrader (`ALREADY_LOGGED_IN`) et n'a jamais atteint `Moteur pret`.
+Il a ete stoppe a `10:07:09`, puis l'auto-start a ete desactive. Controle
+broker post-arret : FTMO et GFT `0 position / 0 pending`.

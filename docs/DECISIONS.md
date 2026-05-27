@@ -3061,3 +3061,28 @@ utilise des identifiants d'ordre et de position distincts.
 - **Portee live** : correction de securite pre-ordre et de telemetrie. Le
   moteur reste arrete ; ce patch ne constitue pas une autorisation de
   redemarrage ni de passage automatique de `DANGER x0.25` a `CAUTION x0.50`.
+
+## Incident/decision 2026-05-27 - reboot pendant maintenance et auto-start neutralise
+
+- **Evenement** : apres une coupure reseau/reboot, l'unite
+  `arabesque-live.service` encore `enabled` a redemarre automatiquement le
+  2026-05-27 a `10:04:00 CEST`, alors que la remise en route et le passage
+  potentiel de `DANGER x0.25` a `CAUTION x0.50` n'etaient pas arbitres.
+- **Constat logs** : le processus n'a jamais atteint `Moteur pret`. Il est
+  reste dans la connexion FTMO cTrader, d'abord DNS indisponible puis boucles
+  `ALREADY_LOGGED_IN`/timeouts Twisted. Le watchdog a notifie
+  `no_bar_data_in_window` a `10:06:00 CEST`.
+- **Action immediate** : `arabesque-live.service` stoppe a `10:07:09 CEST`
+  puis `disabled` afin qu'un prochain reboot ne relance pas le live pendant
+  la maintenance. Verification post-arret : FTMO et GFT `0 position /
+  0 pending`.
+- **Contradiction documentaire relevee** : `scripts/feed_watchdog.py`
+  implemente maintenant un auto-restart sur `feed_stale` persistant (avec
+  anti-boucle), alors que les decisions des 18/21/22 mai le notaient differe.
+  Le code est documente dans `docs/HOT_PATH_MODE_2026-05-23.md`, mais la
+  decision centrale n'avait pas ete consolidee. Avant reprise live, auditer
+  son comportement avec l'etat maintenance/startup et acter la politique.
+- **Blocage de reprise** : ne pas re-enable/start le service avant
+  (1) choix explicite du plancher de protection de reprise et
+  (2) validation de la politique watchdog/restart pendant startup et
+  maintenance.
