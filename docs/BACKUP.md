@@ -43,6 +43,7 @@ Placeholders restant à remplacer **au moment de l'activation** (pas tant que rc
 | `logs/equity_snapshots.jsonl` | courbe d'équité (DD reconstruit) | ~350 KB |
 | `logs/maintenance_state.jsonl` | mémoire `/suivi` | ~20 KB |
 | `logs/replay_live_vs_theory*.jsonl` | replay détail par trade | ~200 KB |
+| `logs/broker_guard_rejects.jsonl` | rejets de securite broker, dont pre-vol GFT | faible |
 | `logs/edge_decomposition.jsonl` | décomposition catégorielle ΔExp | ~2 KB |
 | `logs/rolling_baseline_distribution.jsonl` | baseline rolling 20 mois | ~2 KB |
 | `logs/audit/decisions_2026-03-16.jsonl` | décisions formalisées | ~80 KB |

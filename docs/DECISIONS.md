@@ -3253,3 +3253,34 @@ utilise des identifiants d'ordre et de position distincts.
   2 ouverts` a `19:42:22`. Aucun retour de `pending broker non trackes`,
   `cTrader pending orders reconcile timeout`, `ALREADY_LOGGED_IN` ou
   `Feed stale` au cycle de verification. Suite complete : `291 passed`.
+
+## Decision 2026-05-27 - integrite nouvel ordre GFT et contrat de validation
+
+- **Priorite** : securiser une prochaine position reelle avant d'etendre les
+  analyses de rentabilite. Le connecteur TradeLocker fournit une quote REST
+  et les ordres lies SL/TP, meme s'il ne fournit pas de stream tick equivalent
+  a cTrader.
+- **Patch code (a charger au prochain restart controle)** :
+  - pre-envoi GFT : quote REST obligatoire ; refuser si spread depasse le
+    seuil signal ou si derive defavorable depasse `0.25R` / le seuil ATR ;
+  - post-fill GFT : lire SL/TP lies, tenter un amend unique si absents ou
+    incoherents, journaliser `protection_check` ;
+  - rejets GFT/quarantaine : persister `logs/broker_guard_rejects.jsonl` afin
+    qu'un trade volontairement refuse ne ressemble pas a une panne silencieuse ;
+    `replay_signals_vs_live.py` les consomme comme blocages connus ;
+  - si protection non confirmee : alerte Telegram/ntfy et quarantaine des
+    nouvelles entrees GFT, sans retirer la position existante du monitoring ;
+  - si fill extreme `>5R` : alerte/quarantaine, mais la position est
+    desormais toujours journalisee et monitoree.
+- **Deploiement** : ne pas perturber les positions XAU actuellement protegees
+  uniquement pour charger ce patch ; deployer au prochain restart controle,
+  ou plus tot si un incident exige une reprise.
+- **Decision portable** : `docs/VALIDATION_CONTRACT.md` devient la doctrine
+  lisible par tout humain/agent, accompagnee de
+  `config/validation_policy.yaml` pour les seuils structures. Les instructions
+  `/suivi` sont corrigees : Phase 4 bis porte sur `extension + glissade`
+  depuis `2026-05-16T08:44:00Z`, pas sur Cabriole ni sur la fenetre initiale.
+- **Differe documente** : un `shadow_reference` permanent, lie aux donnees
+  effectivement vues live et aux decisions par broker, est requis avant
+  toute affirmation forte de rentabilite ou hausse de risque ; il reste
+  observationnel et ne doit pas modifier l'edge actuel.

@@ -1,0 +1,35 @@
+# Source structuree des seuils de docs/VALIDATION_CONTRACT.md.
+# Ce fichier est normatif pour les decisions d'agent, mais n'est pas encore
+# consomme automatiquement par un runner de validation.
+phase:
+  name: phase4_bis
+  since_utc: "2026-05-16T08:44:00Z"
+  verdict_strategies:
+    - extension
+    - glissade
+  informational_only_strategies:
+    - cabriole
+    - trend
+  brokers:
+    - ftmo_challenge
+    - gft_compte1
+
+risk_increase_gate:
+  minimum_clean_exits_for_review: 30
+  preferred_clean_exits_for_decision: 50
+  minimum_mean_delta_r: -0.10
+  require_execution_invariants_ok: true
+  require_no_open_integrity_incident: true
+  require_sizing_distortion_review: true
+
+execution_integrity:
+  gft:
+    require_rest_quote_before_entry: true
+    maximum_adverse_entry_r: 0.25
+    require_server_side_protection_after_fill: true
+    quarantine_new_entries_if_unconfirmed: true
+
+deferred:
+  shadow_reference:
+    required_before_profitability_claim: true
+    may_change_trading_logic: false

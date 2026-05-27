@@ -294,6 +294,8 @@ Exécuté automatiquement par le timer daily (21h UTC) et weekly (dim 20h UTC).
 ## Prochaines étapes structurelles
 
 - [x] ~~Activer GFT compte1~~ (fait 2026-03-23)
+- [ ] **Charger la protection GFT pre/post-fill au prochain restart controle** — code en attente de deploiement pendant que `XAUUSD SHORT` FTMO+GFT reste ouvert : quote REST GFT obligatoire avant ordre, seuil de derive adverse `0.25R`, confirmation/amend SL/TP apres fill, quarantaine des nouvelles entrees GFT si protection non prouvee, et conservation du monitoring sur fill extreme.
+- [ ] **Construire le shadow reference** — specification dans `docs/VALIDATION_CONTRACT.md`; chantier d'observabilite requis avant conclusion forte de rentabilite ou hausse de risque, sans modifier la logique de trading courante.
 
 ---
 
@@ -316,3 +318,8 @@ Testé, edge insuffisant :
 Non viable :
   Pas de Deux  → pairs trading (mean-reversion, incompatible boussole)
 ```
+
+Source de decision de validation courante : `docs/VALIDATION_CONTRACT.md` et
+`config/validation_policy.yaml` (Phase 4 bis = Extension + Glissade depuis
+`2026-05-16T08:44:00Z`, aucune hausse de risque avant echantillon propre,
+invariants OK et audit sizing).

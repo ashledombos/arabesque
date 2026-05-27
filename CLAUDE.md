@@ -4,6 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 # Arabesque — Système de trading algorithmique pour prop firms
 
+## Source de decision live
+
+Avant toute recommandation de risque, de changement de strategie ou de
+classement d'un incident, lire `docs/VALIDATION_CONTRACT.md`,
+`config/validation_policy.yaml`, `docs/STATUS.md` et `HANDOFF.md`.
+`docs/VALIDATION_CONTRACT.md` prime sur les anciens resumes ou souvenirs de
+session lorsqu'un scope Phase 4 ou un seuil diverge.
+
 ## Boussole stratégique — IMMUABLE
 
 ```
