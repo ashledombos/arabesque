@@ -3216,7 +3216,40 @@ utilise des identifiants d'ordre et de position distincts.
   les `ProtoOAReconcileReq` avec un lock dedie. Trois tests de regression
   reproduisent respectivement le SL STOP lie, le gate risque GFT, et la
   concurrence refresh/heartbeat. Suite complete : `289 passed`.
-- **Action operateur** : le service actuellement en memoire precede le fix.
-  Ne pas redemarrer tant que `XAUUSD`/`BTCUSD` restent ouverts : les
-  protections serveur sont en place et un restart ajouterait un risque de
-  reconciliation. Charger le patch au prochain retour a plat.
+- **Decision initiale depassee** : la premiere consigne etait de ne pas
+  redemarrer tant que `XAUUSD`/`BTCUSD` restaient ouverts. Elle a ete revisee
+  apres constat que le runtime non corrige avait deja bloque une execution
+  GFT tout en laissant FTMO trader. Avec les protections serveur verifiees,
+  le risque de laisser tourner ce runtime etait superieur au risque d'un
+  restart controle utilisant la reconciliation.
+
+## Incident/decision 2026-05-27 - validation de la reconciliation en position et corrections de reprise
+
+- **Restart controle** : apres confirmation broker-side des protections
+  `XAUUSD` FTMO/GFT, stop puis attente `60s` avant start. Le reboot a
+  effectivement restaure les deux positions et les protections GFT liees
+  (`SL=4458.85`, `TP=4364.54`). Il valide que la reconciliation est un
+  mecanisme de recuperation utilisable lors d'une coupure/reprise, a
+  condition de confirmer l'etat broker avant la maintenance planifiee.
+- **TP efface lors du BE cTrader** : avant le premier stop, `BTCUSD SHORT`
+  FTMO a arme le BE a `18:21 CEST`. La lecture broker pendant l'arret a
+  montre `SL=75124.29` mais `TP=0.0`, alors que l'entry et l'etat monitor
+  conservaient `TP=72634.69`. Cause : l'amend de SL envoyait
+  `take_profit=None`, que cTrader interprete comme suppression du TP.
+  Correction `3b0fb49` : tout amend SL (BE/trailing) renvoie le TP courant.
+  BTC s'est ferme pendant l'arret avant restauration manuelle et a ete
+  reconcilie au reboot a `+0.193R` / `+$1.49`, `reconciled_other`.
+- **LiveMonitor absent apres reprise** : le premier reboot enregistrait
+  correctement les positions dans `PositionMonitor`, mais ne rehydratait pas
+  `_open_trades` de `LiveMonitor`. Symptome observe : positions XAU
+  protegees/restaurees mais rapport `HEALTH ... 0 ouverts`; une future sortie
+  n'aurait ete journalisee qu'au prochain reboot via reconcile d'exit.
+  Correction `57f7ca4` : pour chaque position broker ouverte ayant une
+  `entry` sans `exit` dans le journal, recharger un `LiveTrade` en memoire
+  sans ajouter de nouvel evenement `entry`.
+- **Validation finale** : restart `19:39:08 CEST`, PID `123084`, commit
+  `57f7ca4` charge ; `31/31` souscrit, `Moteur pret`, deux logs
+  `Entry ouverte restauree`, rapport `HEALTH [caution] - 105 fermes,
+  2 ouverts` a `19:42:22`. Aucun retour de `pending broker non trackes`,
+  `cTrader pending orders reconcile timeout`, `ALREADY_LOGGED_IN` ou
+  `Feed stale` au cycle de verification. Suite complete : `291 passed`.

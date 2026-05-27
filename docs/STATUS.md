@@ -5,7 +5,7 @@
 > ce fichier est la référence rapide pour savoir ce qui tourne, sur quel compte, avec quel paramétrage.
 > **Mettre à jour à chaque changement de compte ou de configuration live.**
 
-Derniere mise a jour : 2026-05-27 18:02 CEST (live actif, positions ouvertes et fix de controle en attente de chargement)
+Derniere mise a jour : 2026-05-27 19:43 CEST (correctifs reprise charges et verifies en live)
 
 ---
 
@@ -13,9 +13,9 @@ Derniere mise a jour : 2026-05-27 18:02 CEST (live actif, positions ouvertes et 
 
 | Paramètre | Valeur |
 |---|---|
-| **Statut** | 🟢 **ACTIF** — reprise controlee, `arabesque-live.service` active/enabled depuis le 2026-05-27 15:41:56 CEST, PID `75323` |
+| **Statut** | 🟢 **ACTIF** — restart controle final le 2026-05-27 19:39:08 CEST, PID `123084`, code `57f7ca4` charge |
 | **Phase** | Phase 4 bis active ; scope de verdict = Extension + Glissade uniquement depuis 2026-05-16 |
-| **Commande** | Ne pas restart pendant positions ouvertes ; surveiller exits/protection/feed. Charger le fix pending/reconcile au prochain retour a plat |
+| **Commande** | Surveiller exits/protections/feed et tout retour de `pending broker non trackes` / `reconcile timeout`. Restart en position uniquement en recuperation controlee apres confirmation broker-side des protections |
 | **Log** | `journalctl --user -u arabesque-live -f` |
 | **Comptes actifs** | `ftmo_challenge` (cTrader 45667282) + `gft_compte1` (TradeLocker) |
 | **Type FTMO** | Challenge Phase 1 (2-step, 100k USD) |
@@ -27,8 +27,8 @@ Derniere mise a jour : 2026-05-27 18:02 CEST (live actif, positions ouvertes et 
 | **Protection GFT** | `CAUTION` individuel (Glissade streak=5, DD=-5.26%) ; politique pire broker => sizing effectif systeme `CAUTION x0.50` |
 | **Notifications** | ntfy ✅, Telegram ✅, **bot Telegram interactif** (lecture seule) ✅ |
 | **Watchdog feed** | ✅ Timer actif ; auto-restart `feed_stale` volontaire depuis Hot Path Mode 2026-05-23 (anti-boucle/backoff), sans démarrage possible lorsque l'engine est inactif |
-| **Positions observees** | `XAUUSD SHORT` Extension FTMO+GFT ouverts a 16:00 CEST ; `BTCUSD SHORT` Glissade FTMO ouvert a 18:01 CEST. Protection GFT XAU verifiee serveur : `SL=4458.85`, `TP=4364.54` |
-| **Dernier incident** | 2026-05-27 — TradeLocker expose SL/TP GFT comme ordres lies ; ils etaient classes pending d'entree inconnus, invalidant l'etat GFT et bloquant l'execution `BTCUSD SHORT` de 18:00 sur GFT (FTMO execute). En parallele, collision de requetes `reconcile` cTrader causait des timeouts FTMO. Correctif teste (`289 passed`) a charger apres fermeture des positions, sans restart a chaud. |
+| **Positions observees** | `XAUUSD SHORT` Extension FTMO+GFT ouverts a 16:00 CEST et restaures au restart ; protections confirmees `SL=4458.85`, `TP=4364.54`. `BTCUSD SHORT` FTMO ferme pendant maintenance, reconcilie `+0.193R` / `+$1.49` |
+| **Dernier incident** | 2026-05-27 — 3 defauts corriges et charges : protections TradeLocker classees pending + collision reconcile cTrader (`774f7ca`), TP cTrader efface par amend SL/BE (`3b0fb49`), positions post-restart absentes de `LiveMonitor` (`57f7ca4`). Validation live : `31/31`, `HEALTH ... 2 ouverts`, aucun faux pending/timeouts au premier cycle. |
 
 ---
 
@@ -58,8 +58,9 @@ rodee `7.8$` / `18.2$`. L'audit mesure `1/7` distorsion materielle :
 GFT Glissade XAUUSD cible `4.82$`, executable `46.01$` au minimum (`9.54x`);
 les six autres entries sont dans `0.98x..1.16x`. La correction retenue rejette
 avant envoi tout volume broker depassant `1.25x` le budget cible. Code charge
-au restart du 27/05 : `31/31` souscrit, moteur pret et health report
-`CAUTION` confirmes.
+au restart final du 27/05 : `31/31` souscrit, moteur pret, XAU FTMO+GFT
+restaures dans les deux monitors et health report `CAUTION` avec `2 ouverts`
+confirme.
 
 ---
 
