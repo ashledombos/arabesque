@@ -20,6 +20,8 @@ Ces tests verrouillent les invariants :
   3. ``_cleanup_for_retry`` est idempotent (rappelable sans exception).
   4. Une erreur non-ALREADY_LOGGED_IN reste sur le chemin actuel
      (``_stop_client`` minimal, return False immédiat).
+  5. Un timeout utilise le cleanup complet : une auth serveur peut reussir
+     apres le timeout local et provoquer ALREADY_LOGGED_IN au retry externe.
 """
 from __future__ import annotations
 
@@ -233,12 +235,12 @@ def test_cleanup_for_retry_resets_state_when_client_alive():
 
 
 # ---------------------------------------------------------------------------
-# 5. asyncio.TimeoutError → chemin court (pas de retry)
+# 5. asyncio.TimeoutError → cleanup complet, puis retour sans retry interne
 # ---------------------------------------------------------------------------
 
 def test_timeout_error_no_retry():
-    """``asyncio.TimeoutError`` reste sur le chemin court : ``_stop_client``
-    minimal + return False. Pas de retry, pas de cleanup propre.
+    """``asyncio.TimeoutError`` retourne False sans retry interne, mais doit
+    nettoyer pleinement la tentative susceptible d'authentifier tardivement.
     """
     broker = _build_broker_stub()
 
@@ -260,5 +262,5 @@ def test_timeout_error_no_retry():
 
     result = asyncio.run(broker.connect())
     assert result is False
-    assert cleanup_calls == []
-    assert len(stop_calls) == 1
+    assert cleanup_calls == [True]
+    assert stop_calls == []

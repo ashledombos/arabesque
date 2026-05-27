@@ -5,7 +5,7 @@
 > ce fichier est la référence rapide pour savoir ce qui tourne, sur quel compte, avec quel paramétrage.
 > **Mettre à jour à chaque changement de compte ou de configuration live.**
 
-Derniere mise a jour : 2026-05-27 10:08 CEST (maintenance de securite apres reboot)
+Derniere mise a jour : 2026-05-27 10:16 CEST (maintenance de securite apres reboot)
 
 ---
 
@@ -15,7 +15,7 @@ Derniere mise a jour : 2026-05-27 10:08 CEST (maintenance de securite apres rebo
 |---|---|
 | **Statut** | 🛑 **ARRETE volontairement** — maintenance de securite, `arabesque-live.service` inactive et disabled depuis le 2026-05-27 10:07 CEST |
 | **Phase** | Phase 4 bis suspendue pendant maintenance ; scope de verdict = Extension + Glissade uniquement depuis 2026-05-16 |
-| **Commande** | Ne pas lancer tant que le niveau de protection de reprise et l'audit watchdog ne sont pas actés ; service actuellement `disabled` pour empêcher un reboot de le relancer |
+| **Commande** | Ne pas lancer tant que le correctif startup cTrader et le niveau de protection de reprise ne sont pas validés ; service actuellement `disabled` pour empêcher un reboot de le relancer |
 | **Log** | `journalctl --user -u arabesque-live -f` |
 | **Comptes actifs** | `ftmo_challenge` (cTrader 45667282) + `gft_compte1` (TradeLocker) |
 | **Type FTMO** | Challenge Phase 1 (2-step, 100k USD) |
@@ -26,8 +26,8 @@ Derniere mise a jour : 2026-05-27 10:08 CEST (maintenance de securite apres rebo
 | **Protection FTMO** | Aucun monitor actif. Après chargement du fix scope stratégies : niveau calculé attendu **CAUTION** (risk protection x0.50), sauf plancher temporaire explicite `DANGER x0.25` |
 | **Protection GFT** | Aucun monitor actif. Même arbitrage de reprise FTMO/GFT : `CAUTION x0.50` corrigé ou plancher conservateur `DANGER x0.25` |
 | **Notifications** | ntfy ✅, Telegram ✅, **bot Telegram interactif** (lecture seule) ✅ |
-| **Watchdog feed** | ✅ Timer actif ; son chemin `feed_stale` comporte un auto-restart (contraire à certaines décisions antérieures), à auditer avant reprise live |
-| **Dernier incident** | 2026-05-27 — reboot/réseau : auto-start live imprévu à 10:04 CEST, boucle cTrader `ALREADY_LOGGED_IN`, jamais arrivé à `Moteur prêt`, arrêté à 10:07 et service désactivé. Aucun ordre/position/pending observé. |
+| **Watchdog feed** | ✅ Timer actif ; auto-restart `feed_stale` volontaire depuis Hot Path Mode 2026-05-23 (anti-boucle/backoff), sans démarrage possible lorsque l'engine est inactif |
+| **Dernier incident** | 2026-05-27 — reboot/réseau : auto-start live imprévu à 10:04 CEST, boucle cTrader `ALREADY_LOGGED_IN`, jamais arrivé à `Moteur prêt`, arrêté à 10:07 et service désactivé. Aucun ordre/position/pending observé. Cause startup corrigée en code : timeout nettoyé complètement + retry cTrader espacé >=60s ; livraison/tests en cours. |
 
 ---
 

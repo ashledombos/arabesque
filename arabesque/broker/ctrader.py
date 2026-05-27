@@ -586,9 +586,10 @@ class CTraderBroker(BaseBroker):
     def _stop_client(self):
         """Arrête le client TCP Twisted (best effort).
 
-        Cleanup minimal pour les chemins non-retry (timeout, erreur autre que
-        ALREADY_LOGGED_IN). Pour le retry sur session fantôme, utiliser
-        ``_cleanup_for_retry`` qui fait aussi unsubscribe + reset état.
+        Cleanup minimal pour les erreurs fatales non-retry. Pour un timeout
+        ou le retry sur session fantôme, utiliser ``_cleanup_for_retry`` qui
+        fait aussi unsubscribe + reset état : une authentification cTrader
+        peut aboutir tardivement après le timeout local.
         """
         if self._client:
             from twisted.internet import reactor
@@ -670,8 +671,16 @@ class CTraderBroker(BaseBroker):
             try:
                 return await self._connect_once()
             except asyncio.TimeoutError:
-                print("[cTrader] ❌ Connection timeout")
-                self._stop_client()
+                print(
+                    "[cTrader] ❌ Connection timeout — cleanup complet avant "
+                    "retry externe"
+                )
+                # Incident reboot 2026-05-27 : après un timeout startup,
+                # l'authentification serveur a abouti en retard tandis que
+                # LiveEngine réessayait déjà, créant ALREADY_LOGGED_IN.
+                # Un cleanup complet borne cet état résiduel ; LiveEngine
+                # impose ensuite un délai de grâce avant le retry.
+                await self._cleanup_for_retry()
                 return False
             except Exception as e:
                 err_str = str(e)

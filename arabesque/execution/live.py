@@ -310,6 +310,7 @@ class LiveEngine:
 
         for broker_id, broker in brokers_raw.items():
             connected = False
+            is_ctrader = str(broker.config.get("type", "")).lower() == "ctrader"
             for attempt in range(max_retries):
                 try:
                     connected = await broker.connect()
@@ -334,6 +335,13 @@ class LiveEngine:
 
                 if attempt < max_retries - 1:
                     delay = retry_delays[min(attempt, len(retry_delays) - 1)]
+                    if is_ctrader:
+                        # Incident reboot 2026-05-27 : une tentative cTrader
+                        # ayant timeoute peut finir son auth serveur apres le
+                        # retour local. Un retry a 5s recree alors une session
+                        # concurrente ALREADY_LOGGED_IN. Le cleanup broker est
+                        # complete par cette grace de liberation serveur.
+                        delay = max(delay, 60)
                     logger.info(
                         f"[Engine] ⏳ Retry {broker_id} dans {delay}s..."
                     )

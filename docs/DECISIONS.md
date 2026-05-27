@@ -3076,13 +3076,26 @@ utilise des identifiants d'ordre et de position distincts.
   puis `disabled` afin qu'un prochain reboot ne relance pas le live pendant
   la maintenance. Verification post-arret : FTMO et GFT `0 position /
   0 pending`.
-- **Contradiction documentaire relevee** : `scripts/feed_watchdog.py`
-  implemente maintenant un auto-restart sur `feed_stale` persistant (avec
-  anti-boucle), alors que les decisions des 18/21/22 mai le notaient differe.
-  Le code est documente dans `docs/HOT_PATH_MODE_2026-05-23.md`, mais la
-  decision centrale n'avait pas ete consolidee. Avant reprise live, auditer
-  son comportement avec l'etat maintenance/startup et acter la politique.
+- **Audit watchdog consolide** : les mentions des 18/21/22 mai qui differaient
+  l'auto-restart sont historiques. La decision ulterieure documentee dans
+  `docs/HOT_PATH_MODE_2026-05-23.md` l'a volontairement active sur
+  `feed_stale` persistant, avec anti-boucle et backoff weekend lorsque des
+  positions sont suivies. Raison : si une position reste ouverte alors que le
+  feed/monitoring est mort, restaurer le canal est plus protecteur que laisser
+  l'amend BE/TSL aveugle. Aucun retour arriere du watchdog n'est justifie ici.
+  En maintenance, il ne peut pas lancer seul un moteur arrete : son premier
+  gate est `_engine_active()`.
+- **Cause complementaire identifiee au reboot** : un timeout dans
+  `CTraderBroker.connect()` utilisait le cleanup minimal puis
+  `LiveEngine._connect_brokers()` retentait au bout de `5s`. Une
+  authentification serveur tardive peut donc arriver apres le timeout local,
+  pendant la tentative suivante, et produire `ALREADY_LOGGED_IN`.
+- **Correction de reprise** : sur timeout cTrader, utiliser
+  `_cleanup_for_retry()` (unsubscribe/stop/reset) avant de retourner `False`;
+  pour les brokers cTrader uniquement, imposer un delai de grace de `60s`
+  minimum entre deux tentatives startup. Les brokers TradeLocker conservent
+  le backoff existant. Cette correction ne touche ni signaux, ni sizing, ni
+  ordres.
 - **Blocage de reprise** : ne pas re-enable/start le service avant
-  (1) choix explicite du plancher de protection de reprise et
-  (2) validation de la politique watchdog/restart pendant startup et
-  maintenance.
+  (1) livraison/test de la correction timeout startup cTrader et
+  (2) choix explicite du plancher de protection de reprise.

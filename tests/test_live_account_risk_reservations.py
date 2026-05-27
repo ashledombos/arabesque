@@ -7,6 +7,7 @@ zero risk while orders remain enabled.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import json
 from types import SimpleNamespace
 
@@ -84,13 +85,14 @@ class _Broker:
 
 
 def test_refresh_reserves_tracked_and_pending_risk_and_daily_slot(tmp_path, monkeypatch):
+    today = dt.datetime.now(dt.timezone.utc).date().isoformat()
     journal = tmp_path / "trade_journal.jsonl"
     journal.write_text(
         "\n".join(
             [
                 json.dumps(
                     {
-                        "ts": "2026-05-26T08:00:00+00:00",
+                        "ts": f"{today}T08:00:00+00:00",
                         "event": "pending_order",
                         "broker_id": "gft_compte1",
                         "trade_id": "pending-1",
@@ -98,7 +100,7 @@ def test_refresh_reserves_tracked_and_pending_risk_and_daily_slot(tmp_path, monk
                 ),
                 json.dumps(
                     {
-                        "ts": "2026-05-26T08:02:00+00:00",
+                        "ts": f"{today}T08:02:00+00:00",
                         "event": "entry",
                         "broker_id": "gft_compte1",
                         "trade_id": "pending-1",
