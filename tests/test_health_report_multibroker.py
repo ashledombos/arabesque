@@ -70,6 +70,42 @@ def test_health_report_uses_effective_level_and_groups_equity_by_broker(
     assert event["equity_by_broker"] == report["equity_by_broker"]
 
 
+def test_restored_open_trade_is_reported_and_can_be_closed_without_duplicate_entry(
+    tmp_path, monkeypatch
+):
+    monitor = _monitor(tmp_path, monkeypatch)
+    entry = {
+        "event": "entry",
+        "ts": "2026-05-27T14:00:27+00:00",
+        "trade_id": "signal-1",
+        "instrument": "XAUUSD",
+        "strategy": "extension",
+        "side": "SHORT",
+        "entry_price": 4426.55,
+        "sl": 4458.85,
+        "tp": 4364.54,
+        "volume": 0.02,
+        "risk_cash": 72.75,
+        "broker_id": "gft_compte1",
+        "position_id": "POSITION-42",
+    }
+
+    assert monitor.restore_open_trade(entry) is True
+    assert monitor.emit_health_report()["open_trades"] == 1
+    assert monitor.record_exit(
+        broker_id="gft_compte1",
+        position_id="POSITION-42",
+        exit_price=4458.85,
+        exit_reason="stop_loss",
+    ) is not None
+
+    records = [
+        json.loads(line)
+        for line in (tmp_path / "trade_journal.jsonl").read_text().splitlines()
+    ]
+    assert [r["event"] for r in records] == ["health_report", "exit"]
+
+
 def test_refresh_records_snapshot_after_new_protection_level():
     """A snapshot must contain the level computed from the same account read."""
     engine = LiveEngine.__new__(LiveEngine)

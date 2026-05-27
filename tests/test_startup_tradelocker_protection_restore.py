@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
@@ -69,3 +70,44 @@ def test_startup_notification_marks_positions_unknown_on_broker_failure():
 
     states = monitor.notify_startup.await_args.args[0]
     assert states["gft_compte1"]["positions_known"] is False
+
+
+def test_existing_position_rehydrates_live_monitor_from_open_entry(
+    tmp_path, monkeypatch
+):
+    journal = tmp_path / "trade_journal.jsonl"
+    journal.write_text(json.dumps({
+        "event": "entry",
+        "broker_id": "gft_compte1",
+        "position_id": "POSITION-42",
+        "instrument": "AUDJPY",
+        "strategy": "extension",
+        "side": "LONG",
+        "entry_price": 114.205,
+        "sl": 114.016,
+        "tp": 114.578,
+    }) + "\n")
+    monkeypatch.setattr("arabesque.execution.live.TRADE_JOURNAL_PATH", journal)
+
+    engine = LiveEngine.__new__(LiveEngine)
+    position = SimpleNamespace(
+        position_id="POSITION-42",
+        symbol="AUDJPY",
+        side=OrderSide.BUY,
+        entry_price=114.205,
+        stop_loss=114.016,
+        take_profit=114.578,
+        volume=0.13,
+    )
+    broker = MagicMock()
+    broker.get_positions = AsyncMock(return_value=[position])
+    broker.get_symbol_info = AsyncMock(return_value=None)
+    engine._brokers = {"gft_compte1": broker}
+    engine._position_monitor = MagicMock()
+    engine._live_monitor = MagicMock()
+
+    asyncio.run(engine._reconcile_existing_positions())
+
+    entry_record = engine._live_monitor.restore_open_trade.call_args.args[0]
+    assert entry_record["position_id"] == "POSITION-42"
+    assert entry_record["strategy"] == "extension"

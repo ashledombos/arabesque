@@ -822,13 +822,40 @@ class LiveEngine:
         """Au démarrage, enregistre les positions déjà ouvertes dans le monitor.
 
         Permet de reprendre le BE/trailing sur des positions ouvertes lors
-        d'un redémarrage de l'engine (crash, mise à jour, etc.).
+        d'un redémarrage de l'engine (crash, mise à jour, etc.). Recharge
+        également les entries encore ouvertes dans LiveMonitor : sans cette
+        étape, le health report annoncerait zéro position après reboot et
+        ``record_exit`` ignorerait leur fermeture jusqu'au reboot suivant.
         """
         if not self._position_monitor:
             return
 
         from arabesque.broker.base import OrderSide
         from arabesque.core.models import Side
+
+        journal_open_entries: dict[str, dict] = {}
+        live_monitor = getattr(self, "_live_monitor", None)
+        if live_monitor and TRADE_JOURNAL_PATH.exists():
+            journal_exits: set[str] = set()
+            with open(TRADE_JOURNAL_PATH) as journal:
+                for line in journal:
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    broker_id = record.get("broker_id", "")
+                    position_id = record.get("position_id", "")
+                    if not broker_id or not position_id:
+                        continue
+                    key = f"{broker_id}:{position_id}"
+                    if record.get("event") == "entry":
+                        journal_open_entries[key] = record
+                    elif record.get("event") == "exit":
+                        journal_exits.add(key)
+            journal_open_entries = {
+                key: record for key, record in journal_open_entries.items()
+                if key not in journal_exits
+            }
 
         total = 0
         unavailable_brokers: list[str] = []
@@ -901,6 +928,16 @@ class LiveEngine:
                         volume=pos.volume,
                         digits=digits,
                     )
+                    if live_monitor:
+                        journal_key = f"{broker_id}:{pos.position_id}"
+                        entry_record = journal_open_entries.get(journal_key)
+                        if entry_record:
+                            live_monitor.restore_open_trade(entry_record)
+                        else:
+                            logger.warning(
+                                f"[Engine] Position ouverte sans entry journal "
+                                f"à restaurer: {broker_id}:{pos.position_id}"
+                            )
                     total += 1
                     logger.info(
                         f"[Engine] 📋 Réconciliation: {pos.symbol} "

@@ -748,6 +748,45 @@ class LiveMonitor:
             f"({trade.strategy}) [{broker_id}:{position_id}]"
         )
 
+    def restore_open_trade(self, entry_record: dict) -> bool:
+        """Recharge une entry journalisée dont la position est encore ouverte.
+
+        Cette voie est utilisée uniquement après confirmation broker au
+        démarrage. Elle réhydrate l'état en mémoire nécessaire au health
+        report et à ``record_exit`` sans ajouter une seconde ligne ``entry``
+        au journal.
+        """
+        broker_id = str(entry_record.get("broker_id", ""))
+        position_id = str(entry_record.get("position_id", ""))
+        if not broker_id or not position_id:
+            return False
+
+        key = f"{broker_id}:{position_id}"
+        if key in self._open_trades:
+            return True
+
+        self._open_trades[key] = LiveTrade(
+            trade_id=entry_record.get("trade_id", ""),
+            signal_id="",
+            instrument=entry_record.get("instrument", ""),
+            strategy=entry_record.get("strategy", "unknown"),
+            side=entry_record.get("side", ""),
+            entry_price=entry_record.get("entry_price", 0.0),
+            sl=entry_record.get("sl", 0.0),
+            tp=entry_record.get("tp", 0.0),
+            volume=entry_record.get("volume", 0.0),
+            risk_cash=entry_record.get("risk_cash", 0.0),
+            broker_id=broker_id,
+            position_id=position_id,
+            ts_entry=entry_record.get("ts", ""),
+        )
+        logger.info(
+            f"[LiveMonitor] 🔄 Entry ouverte restaurée: "
+            f"{entry_record.get('instrument', '')} "
+            f"{entry_record.get('side', '')} [{key}]"
+        )
+        return True
+
     # ------------------------------------------------------------------
     # Trade exit
     # ------------------------------------------------------------------
