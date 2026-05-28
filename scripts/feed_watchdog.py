@@ -51,6 +51,7 @@ UPTIME_EVENTS = ROOT / "logs" / "uptime_events.jsonl"
 
 STALE_THRESHOLD_MIN = 15
 COOLDOWN_MIN = 30
+PRICEFEED_SUMMARY_MAX_AGE_S = 600
 
 # Étages 3+4 — auto-restart + anti-boucle
 RESTART_PERSISTENCE_MIN = 30          # feed_stale doit persister > 30 min
@@ -257,6 +258,13 @@ def _last_pricefeed_summary(now: dt.datetime) -> dict | None:
     BarAggregator liveness can stay green while one symbol is dead. This is a
     cheap secondary integrity check: it never places orders and never restarts
     by itself, but it makes partial-feed degradation visible outside the engine.
+
+    PriceFeed logs healthy summaries at DEBUG level, while degraded summaries
+    are INFO. systemd usually only exposes the INFO degraded line; once the
+    feed recovers, that last degraded line can remain the newest parseable
+    summary for several watchdog cycles. Ignore stale summaries so an old
+    pre-restart partial-feed line does not keep alerting after the engine is
+    healthy again.
     """
     try:
         r = subprocess.run(
@@ -288,6 +296,8 @@ def _last_pricefeed_summary(now: dt.datetime) -> dict | None:
         }
         if latest is None or ts_utc > dt.datetime.fromisoformat(latest["ts"]):
             latest = entry
+    if latest and latest["age_seconds"] > PRICEFEED_SUMMARY_MAX_AGE_S:
+        return None
     return latest
 
 
@@ -610,6 +620,8 @@ def main() -> int:
     pf_summary = _last_pricefeed_summary(now)
     if pf_summary:
         state["last_pricefeed_summary"] = pf_summary
+    else:
+        state.pop("last_pricefeed_summary", None)
 
     is_feed_stale = age_s is not None and age_s > STALE_THRESHOLD_MIN * 60
     no_bar_data = age_s is None

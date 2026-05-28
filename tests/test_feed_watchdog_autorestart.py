@@ -427,7 +427,7 @@ def test_pricefeed_partial_warns_without_restart(watchdog):
 
 def test_pricefeed_summary_parser_extracts_latest(watchdog):
     wd = watchdog
-    now = dt.datetime(2026, 5, 19, 12, 10, 0, tzinfo=dt.timezone.utc)
+    now = dt.datetime(2026, 5, 19, 10, 10, 0, tzinfo=dt.timezone.utc)
 
     class Result:
         returncode = 0
@@ -443,6 +443,23 @@ def test_pricefeed_summary_parser_extracts_latest(watchdog):
     assert summary["active"] == 30
     assert summary["total"] == 31
     assert summary["stale_major"] == 1
+
+
+def test_pricefeed_summary_parser_ignores_stale_summary(watchdog):
+    wd = watchdog
+    now = dt.datetime(2026, 5, 19, 10, 20, 1, tzinfo=dt.timezone.utc)
+
+    class Result:
+        returncode = 0
+        stdout = (
+            "mai 19 12:05:00 host app[1]: [PriceFeed] 📊 30/31 actifs, "
+            "0 dormants, 1 stale majeurs, 0 jamais reçus — 20 ticks total"
+        )
+
+    with patch.object(wd.subprocess, "run", lambda *a, **kw: Result()):
+        summary = wd._last_pricefeed_summary(now)
+
+    assert summary is None
 
 
 # ---------------------------------------------------------------------------
