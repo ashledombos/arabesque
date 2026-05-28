@@ -550,7 +550,13 @@ class LivePositionMonitor:
         checked = 0
         armed = 0
         skipped = 0
+        skip_reasons: dict[str, int] = {}
         now = datetime.now(timezone.utc)
+
+        def count_skip(reason: str) -> None:
+            nonlocal skipped
+            skipped += 1
+            skip_reasons[reason] = skip_reasons.get(reason, 0) + 1
 
         # Snapshot pour ne pas itérer sur un dict modifié pendant le polling
         positions_snapshot = list(self._positions.values())
@@ -560,7 +566,7 @@ class LivePositionMonitor:
                 continue  # déjà BE, rien à faire ici
             broker = self._brokers.get(pos.broker_id)
             if broker is None:
-                skipped += 1
+                count_skip("broker_missing")
                 continue
 
             quote_type = "bid" if pos.side == Side.LONG else "ask"
@@ -575,13 +581,13 @@ class LivePositionMonitor:
                     f"[Monitor] be_polling get_fresh_quote("
                     f"{pos.broker_id}, {pos.symbol}, {quote_type}) failed: {e}"
                 )
-                skipped += 1
+                count_skip("quote_error")
                 continue
 
             if fq is None:
                 # Pas de tick frais ou broker non supporté — on attend le
                 # prochain cycle. Pas d'alerte, pas de reconcile.
-                skipped += 1
+                count_skip("quote_none")
                 continue
 
             # 2. Freshness check (différencié par type de timestamp)
@@ -597,7 +603,7 @@ class LivePositionMonitor:
                         f"[Monitor] be_polling skip {pos.symbol} ({pos.broker_id}): "
                         f"cTrader sans market_ts (freshness indéterminée)"
                     )
-                    skipped += 1
+                    count_skip("ctrader_missing_market_ts")
                     continue
                 ts_ref = fq.market_ts
                 freshness_kind = "market_ts"
@@ -615,7 +621,7 @@ class LivePositionMonitor:
                     f"[Monitor] be_polling skip {pos.symbol} ({pos.broker_id}): "
                     f"stale ou suspect (age={age_s:.0f}s, kind={freshness_kind})"
                 )
-                skipped += 1
+                count_skip("quote_stale_or_clock_skew")
                 continue
 
             # 3. Traitement BE-only — _amend_in_progress côté
@@ -639,7 +645,7 @@ class LivePositionMonitor:
                     f"[Monitor] be_polling _process_pos_from_price "
                     f"{pos.symbol} ({pos.broker_id}): {e}"
                 )
-                skipped += 1
+                count_skip("process_error")
                 continue
 
             checked += 1
@@ -655,7 +661,44 @@ class LivePositionMonitor:
                     old_sl=old_sl,
                 )
 
+        self._emit_be_polling_pass_audit(
+            checked=checked,
+            armed=armed,
+            skipped=skipped,
+            open_positions=len(positions_snapshot),
+            skip_reasons=skip_reasons,
+        )
         return checked, armed, skipped
+
+    def _emit_be_polling_pass_audit(
+        self,
+        *,
+        checked: int,
+        armed: int,
+        skipped: int,
+        open_positions: int,
+        skip_reasons: dict[str, int],
+    ) -> None:
+        """Audit every BE polling pass while positions are open.
+
+        ``be_polling_armed`` proves the happy path. This pass-level metric also
+        proves the backup was alive when it had nothing to amend, or why it
+        could not evaluate an open position.
+        """
+        if not self._on_audit_event or open_positions <= 0:
+            return
+        try:
+            self._on_audit_event({
+                "event": "be_polling_pass",
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "open_positions": open_positions,
+                "checked": checked,
+                "armed": armed,
+                "skipped": skipped,
+                "skip_reasons": skip_reasons,
+            })
+        except Exception as e:
+            logger.debug(f"[Monitor] be_polling pass audit emit error: {e}")
 
     def _emit_be_polling_audit(
         self,

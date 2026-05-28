@@ -47,6 +47,7 @@ def watchdog(tmp_path, monkeypatch):
     monkeypatch.setattr(wd, "STATE", tmp_path / "feed_watchdog_state.json")
     monkeypatch.setattr(wd, "RESTART_HISTORY", tmp_path / "restart_history.jsonl")
     monkeypatch.setattr(wd, "SECRETS", tmp_path / "secrets.yaml")
+    monkeypatch.setattr(wd, "UPTIME_EVENTS", tmp_path / "uptime_events.jsonl")
     # Isole du state file de production (Hot Path #2) — sinon les positions
     # ouvertes en dev/live font fuiter la branche `weekend_with_positions`.
     monkeypatch.setattr(wd, "POSITIONS_STATE", tmp_path / "position_monitor_state.json")
@@ -418,6 +419,10 @@ def test_pricefeed_partial_warns_without_restart(watchdog):
     assert "30/31 actifs" in body
     state = json.loads(wd.STATE.read_text())
     assert state["last_status"].startswith("pricefeed_partial:30/31")
+    uptime = json.loads(wd.UPTIME_EVENTS.read_text().splitlines()[0])
+    assert uptime["event"] == "uptime_sample"
+    assert uptime["cause"] == "partial_feed"
+    assert uptime["pricefeed"]["active"] == 30
 
 
 def test_pricefeed_summary_parser_extracts_latest(watchdog):

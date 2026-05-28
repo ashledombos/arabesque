@@ -160,8 +160,9 @@ def test_pass_arms_be_with_fresh_ctrader_quote():
     assert broker.amends[0][1] == pytest.approx(100.20, abs=1e-9)
     assert broker.amends[0][2] == pytest.approx(102.0)
     # Audit event émis
-    assert len(audits) == 1
-    ev = audits[0]
+    armed_events = [a for a in audits if a["event"] == "be_polling_armed"]
+    assert len(armed_events) == 1
+    ev = armed_events[0]
     assert ev["event"] == "be_polling_armed"
     assert ev["quote_source"] == "polling_backup"
     assert ev["quote_freshness_kind"] == "market_ts"
@@ -181,6 +182,10 @@ def test_pass_arms_be_with_fresh_ctrader_quote():
     assert ev["new_sl"] == pytest.approx(100.20, abs=1e-9)
     assert ev["old_sl"] != ev["new_sl"]
     assert ev["quote_age_s"] >= 0.0
+    pass_events = [a for a in audits if a["event"] == "be_polling_pass"]
+    assert len(pass_events) == 1
+    assert pass_events[0]["checked"] == 1
+    assert pass_events[0]["armed"] == 1
 
 
 def test_pass_skips_when_ctrader_market_ts_absent():
@@ -219,6 +224,27 @@ def test_pass_skips_when_quote_stale():
     assert armed == 0
     assert not pos.breakeven_set
     assert len(broker.amends) == 0
+
+
+def test_pass_audit_records_skip_reasons():
+    stale_ts = _now() - timedelta(seconds=600)
+    fq = FreshQuote(
+        symbol="TEST", price=100.40, quote_type="bid",
+        market_ts=stale_ts, observed_at=_now(),
+    )
+    broker = CTraderBroker(fresh_quote=fq)
+    audits: list[dict] = []
+    mon = _make_monitor(
+        brokers={"ftmo": broker},
+        on_audit_event=lambda p: audits.append(p),
+    )
+    _register_long(mon)
+
+    checked, armed, skipped = asyncio.run(mon._be_polling_pass(freshness_threshold_s=300))
+
+    assert (checked, armed, skipped) == (0, 0, 1)
+    assert audits[-1]["event"] == "be_polling_pass"
+    assert audits[-1]["skip_reasons"] == {"quote_stale_or_clock_skew": 1}
 
 
 def test_pass_skips_when_fresh_quote_is_none():
@@ -281,7 +307,11 @@ def test_pass_no_audit_when_be_already_armed():
 
     assert armed == 0
     assert checked == 0  # position skipped en début de boucle
-    assert len(audits) == 0
+    assert len(audits) == 1
+    assert audits[0]["event"] == "be_polling_pass"
+    assert audits[0]["checked"] == 0
+    assert audits[0]["armed"] == 0
+    assert audits[0]["skipped"] == 0
     assert len(broker.amends) == 0
 
 

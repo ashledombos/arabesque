@@ -47,6 +47,7 @@ SECRETS = ROOT / "config" / "secrets.yaml"
 STATE = ROOT / "logs" / "feed_watchdog_state.json"
 RESTART_HISTORY = ROOT / "logs" / "watchdog_restart_history.jsonl"
 POSITIONS_STATE = ROOT / "logs" / "position_monitor_state.json"
+UPTIME_EVENTS = ROOT / "logs" / "uptime_events.jsonl"
 
 STALE_THRESHOLD_MIN = 15
 COOLDOWN_MIN = 30
@@ -312,6 +313,66 @@ def _write_state(state: dict) -> None:
     tmp = STATE.with_suffix(STATE.suffix + ".tmp")
     tmp.write_text(json.dumps(state, indent=2))
     os.replace(tmp, STATE)
+    try:
+        if state.get("last_check_ts") and state.get("last_status"):
+            now = dt.datetime.fromisoformat(state["last_check_ts"])
+            _append_uptime_event(
+                now,
+                state["last_status"],
+                state,
+                cause=_infer_uptime_cause(state["last_status"]),
+            )
+    except Exception:
+        pass
+
+
+def _infer_uptime_cause(status: str) -> str:
+    if status == "engine_inactive":
+        return "engine_inactive"
+    if status == "weekend_guard" or status.startswith("weekend_guard"):
+        return "weekend"
+    if status.startswith("feed_stale"):
+        return "feed_stale"
+    if status.startswith("pricefeed_partial"):
+        return "partial_feed"
+    if status == "no_bar_data_in_window":
+        return "bar_aggregator_silent"
+    if "loop_guard" in status:
+        return "watchdog_restart_loop_guard"
+    if "autorestart_failed" in status:
+        return "watchdog_restart_failed"
+    if status.startswith("ok:"):
+        return "ok"
+    return "unknown"
+
+
+def _append_uptime_event(now: dt.datetime, status: str, state: dict,
+                         *, cause: str = "unknown") -> None:
+    """Append one watchdog availability sample.
+
+    This file is intentionally append-only. Alerts tell us something happened;
+    uptime events let us measure how often, for how long, and with which likely
+    cause before running replay attribution on degraded windows.
+    """
+    try:
+        event = {
+            "event": "uptime_sample",
+            "ts": now.isoformat(),
+            "status": status,
+            "cause": cause,
+            "engine_active": status != "engine_inactive",
+            "last_bar_age_seconds": state.get("last_bar_age_seconds"),
+            "open_positions_count": state.get("open_positions_count", 0),
+            "pricefeed": state.get("last_pricefeed_summary"),
+        }
+        if "feed_stale_since_ts" in state:
+            event["feed_stale_since_ts"] = state["feed_stale_since_ts"]
+        UPTIME_EVENTS.parent.mkdir(exist_ok=True)
+        with UPTIME_EVENTS.open("a") as f:
+            f.write(json.dumps(event) + "\n")
+    except Exception as e:
+        print(f"[feed_watchdog] WARNING: uptime event write failed: {e}",
+              file=sys.stderr)
 
 
 def _can_alert(state: dict, now: dt.datetime) -> bool:

@@ -242,9 +242,14 @@ def test_live_gft_preflight_blocks_when_rest_quote_unavailable():
 
 def test_live_gft_preflight_blocks_adverse_price_in_r(tmp_path, monkeypatch):
     reject_log = tmp_path / "broker_guard_rejects.jsonl"
+    coherence_log = tmp_path / "gft_quote_coherence.jsonl"
     monkeypatch.setattr(
         "arabesque.execution.order_dispatcher.BROKER_REJECT_LOG_PATH",
         reject_log,
+    )
+    monkeypatch.setattr(
+        "arabesque.execution.order_dispatcher.GFT_QUOTE_COHERENCE_LOG_PATH",
+        coherence_log,
     )
     dispatcher = _dispatcher(PropConfig())
     dispatcher.dry_run = False
@@ -266,6 +271,38 @@ def test_live_gft_preflight_blocks_adverse_price_in_r(tmp_path, monkeypatch):
     row = json.loads(reject_log.read_text().splitlines()[0])
     assert row["reason"] == "gft_adverse_entry_slippage"
     assert row["adverse_r"] == pytest.approx(0.30)
+    coherence = json.loads(coherence_log.read_text().splitlines()[0])
+    assert coherence["event"] == "gft_quote_coherence_check"
+    assert coherence["decision"] == "block"
+    assert coherence["reason"] == "gft_adverse_entry_slippage"
+    assert coherence["reference_trade_price"] == pytest.approx(4500.1)
+    assert coherence["gft_trade_price"] == pytest.approx(4503.0)
+
+
+def test_live_gft_preflight_logs_quote_coherence_when_allowed(tmp_path, monkeypatch):
+    coherence_log = tmp_path / "gft_quote_coherence.jsonl"
+    monkeypatch.setattr(
+        "arabesque.execution.order_dispatcher.GFT_QUOTE_COHERENCE_LOG_PATH",
+        coherence_log,
+    )
+    dispatcher = _dispatcher(PropConfig())
+    dispatcher.dry_run = False
+    broker = _LiveGftBroker(PriceTick("XAUUSD", 4499.9, 4500.05))
+    dispatcher.brokers["gft_compte1"] = broker
+    dispatcher.update_account_state(AccountState(), broker_id="gft_compte1")
+
+    result = asyncio.run(
+        dispatcher._place_on_broker(
+            "gft_compte1", broker, _pending(_signal()),
+            PriceTick("XAUUSD", 4500.0, 4500.1),
+        )
+    )
+
+    assert result.success is True
+    row = json.loads(coherence_log.read_text().splitlines()[0])
+    assert row["decision"] == "allow"
+    assert row["adverse_r_vs_reference"] == 0.0
+    assert row["offset_price"] == pytest.approx(-0.05)
 
 
 def test_execution_quarantine_blocks_new_order_without_touching_broker():

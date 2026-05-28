@@ -55,6 +55,9 @@ Actions interdites sans nouvelle decision documentee :
 - `scripts/shadow_reference_check.py` : wrapper read-only qui lance ensemble
   signaux theoriques vs live et live vs theorie, puis persiste un verdict dans
   `logs/shadow_reference_checks.jsonl`.
+- `scripts/audit_uptime_events.py` : facteur uptime depuis
+  `logs/uptime_events.jsonl`, pour mesurer la frequence et la cause des
+  periodes ou Arabesque ne pouvait pas trader normalement.
 - `scripts/audit_edge_live_vs_backtest.py` : edge live contre baseline.
 - `scripts/check_execution_invariants.py --per-broker` : bugs de tracking.
 - `scripts/audit_sizing_distortion.py` : representativite des volumes live.
@@ -84,6 +87,9 @@ prime pas sur une correction de securite touchant une position reelle.
 Avant toute nouvelle entree GFT, le code doit :
 
 - relire une quote REST TradeLocker ; absence de quote = refus ;
+- journaliser `gft_quote_coherence_check` dans
+  `logs/gft_quote_coherence.jsonl`, avec prix de reference cTrader, bid/ask
+  GFT, offset en prix/R/ATR et decision `allow|block` ;
 - refuser une derive defavorable superieure a `0.25R` ou au seuil ATR live ;
 - apres fill, confirmer SL/TP serveur via les ordres lies ; tenter un amend
   unique si necessaire ;
@@ -119,6 +125,22 @@ flux annonce un etat partiel (`30/31 actifs`, stale majeur ou symbole jamais
 recu), il journalise `pricefeed_partial` et notifie Telegram sans restart
 automatique. Ce signal sert a detecter un feed degrade par symbole ; il ne doit
 pas servir a declencher des ordres depuis un flux secondaire.
+
+Chaque passage watchdog ecrit aussi un `uptime_sample` dans
+`logs/uptime_events.jsonl`. L'objectif n'est pas seulement l'alerte immediate :
+il faut pouvoir quantifier l'uptime effectif et attribuer les absences de
+signal a `ok`, `partial_feed`, `feed_stale`, `engine_inactive`, `weekend` ou
+autre cause.
+
+## Integrite BE polling
+
+Le filet de secours BE ne doit pas seulement armer quand tout va bien. Chaque
+passage avec positions ouvertes ecrit un `be_polling_pass` via le journal
+d'audit, avec `checked`, `armed`, `skipped` et `skip_reasons`. Un
+`be_polling_armed` reste l'event de preuve d'un BE effectivement pose par le
+polling backup. Des skips repetes (`quote_none`, `quote_stale_or_clock_skew`,
+`ctrader_missing_market_ts`, etc.) sont a lire comme un probleme de
+disponibilite du filet, pas comme un resultat strategique.
 
 ## Routage des notifications
 

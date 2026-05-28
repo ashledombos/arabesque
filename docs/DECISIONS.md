@@ -3333,3 +3333,24 @@ utilise des identifiants d'ordre et de position distincts.
 - **Deploiement** : code non encore charge tant qu'un commit/restart controle
   n'a pas ete fait. Pas de changement volontaire de strategie ou de niveau de
   risque.
+
+## Decision 2026-05-29 - mesure offset GFT, uptime factor et filet BE
+
+- **GFT non aveugle avant ordre** : le pre-vol GFT conserve sa logique de
+  refus existante, mais journalise desormais chaque quote REST dans
+  `logs/gft_quote_coherence.jsonl` avec le prix de reference cTrader du
+  trigger, le prix tradable GFT, l'offset en prix/R/ATR, le spread et la
+  decision `allow|block`. Aucun ajustement automatique de prix n'est introduit :
+  un offset ne sera corrige que s'il est prouve stable par audit.
+- **Uptime factor** : `scripts/feed_watchdog.py` ecrit un append-only
+  `logs/uptime_events.jsonl` a chaque run. `scripts/audit_uptime_events.py`
+  calcule les durees par cause (`ok`, `partial_feed`, `feed_stale`,
+  `engine_inactive`, `weekend`, etc.) et liste les fenetres degradees. Les
+  alertes disent quand intervenir ; ce journal mesure combien de temps le
+  systeme etait reellement capable de trader.
+- **BE polling observable** : chaque passage de polling BE avec position
+  ouverte emet `be_polling_pass` (`checked`, `armed`, `skipped`,
+  `skip_reasons`). `be_polling_armed` reste la preuve d'un amend SL pose par le
+  backup. Des skips repetes mesurent l'indisponibilite du filet de secours BE.
+- **Scope** : toujours pas de Pas de Deux, pas de feed secondaire comme source
+  d'ordres, pas de correction d'offset GFT automatique.

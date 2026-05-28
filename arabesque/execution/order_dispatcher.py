@@ -53,6 +53,7 @@ WEEKEND_GUARD_LOG_PATH = Path("logs/weekend_crypto_guard.jsonl")
 # Necessaire pour distinguer une execution volontairement bloquee d'un signal
 # silencieusement perdu lors des replays live/theorie.
 BROKER_REJECT_LOG_PATH = Path("logs/broker_guard_rejects.jsonl")
+GFT_QUOTE_COHERENCE_LOG_PATH = Path("logs/gft_quote_coherence.jsonl")
 
 
 # =============================================================================
@@ -307,6 +308,70 @@ class OrderDispatcher:
                 f.write(json.dumps(row) + "\n")
         except Exception as e:
             logger.warning(f"[Dispatcher] broker reject log failed: {e}")
+
+    def _log_gft_quote_coherence(
+        self,
+        broker_id: str,
+        signal: Signal,
+        broker_tick: PriceTick,
+        reference_tick: PriceTick,
+        *,
+        decision: str,
+        reason: str = "",
+    ) -> None:
+        """Persist GFT REST quote vs cTrader trigger quote before entry.
+
+        This is measurement first, not auto-correction. It lets us prove an
+        offset is stable before any broker-specific model is considered.
+        """
+        try:
+            direction = 1.0 if signal.side == Side.LONG else -1.0
+            gft_price = (
+                float(broker_tick.ask) if signal.side == Side.LONG
+                else float(broker_tick.bid)
+            )
+            ref_price = (
+                float(reference_tick.ask) if signal.side == Side.LONG
+                else float(reference_tick.bid)
+            )
+            risk_distance = abs(float(signal.close) - float(signal.sl))
+            offset_price = gft_price - ref_price
+            adverse_price = max(0.0, offset_price * direction)
+            offset_r = offset_price / risk_distance if risk_distance > 0 else 0.0
+            adverse_r = adverse_price / risk_distance if risk_distance > 0 else 0.0
+            offset_atr = offset_price / signal.atr if signal.atr > 0 else 0.0
+            spread_r = (
+                broker_tick.spread / risk_distance if risk_distance > 0 else 0.0
+            )
+            row = {
+                "event": "gft_quote_coherence_check",
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "broker_id": broker_id,
+                "instrument": signal.instrument,
+                "strategy": getattr(signal, "strategy_type", ""),
+                "side": signal.side.value,
+                "signal_id": signal.signal_id,
+                "signal_price": signal.close,
+                "reference_bid": reference_tick.bid,
+                "reference_ask": reference_tick.ask,
+                "reference_trade_price": ref_price,
+                "gft_bid": broker_tick.bid,
+                "gft_ask": broker_tick.ask,
+                "gft_trade_price": gft_price,
+                "gft_spread": broker_tick.spread,
+                "offset_price": round(offset_price, 8),
+                "offset_r": round(offset_r, 6),
+                "offset_atr": round(offset_atr, 6),
+                "adverse_r_vs_reference": round(adverse_r, 6),
+                "spread_r": round(spread_r, 6),
+                "decision": decision,
+                "reason": reason,
+            }
+            GFT_QUOTE_COHERENCE_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
+            with GFT_QUOTE_COHERENCE_LOG_PATH.open("a") as f:
+                f.write(json.dumps(row) + "\n")
+        except Exception as e:
+            logger.warning(f"[Dispatcher] GFT quote coherence log failed: {e}")
 
     # ------------------------------------------------------------------
     # API publique
@@ -909,6 +974,14 @@ class OrderDispatcher:
                     broker_tick.spread / signal.atr if signal.atr > 0 else 0.0
                 )
                 if signal.atr > 0 and spread_atr > signal.max_spread_atr:
+                    self._log_gft_quote_coherence(
+                        broker_id,
+                        signal,
+                        broker_tick,
+                        tick,
+                        decision="block",
+                        reason="gft_spread_too_wide",
+                    )
                     self._log_broker_reject(
                         broker_id, signal, "gft_spread_too_wide",
                         {"spread_atr": round(spread_atr, 4)},
@@ -927,6 +1000,14 @@ class OrderDispatcher:
                         and adverse_r > self._gft_max_adverse_slippage_r
                     )
                 ):
+                    self._log_gft_quote_coherence(
+                        broker_id,
+                        signal,
+                        broker_tick,
+                        tick,
+                        decision="block",
+                        reason="gft_adverse_entry_slippage",
+                    )
                     logger.warning(
                         f"[Dispatcher] ⛔ {broker_id}: pré-vol {sym} rejeté — "
                         f"dérive défavorable={adverse_r:.2f}R/"
@@ -951,6 +1032,13 @@ class OrderDispatcher:
                     f"[Dispatcher] GFT pré-vol {sym}: quote={broker_price:.5f} "
                     f"spread={spread_atr:.2f}ATR adverse={adverse_r:.2f}R/"
                     f"{adverse_atr:.2f}ATR"
+                )
+                self._log_gft_quote_coherence(
+                    broker_id,
+                    signal,
+                    broker_tick,
+                    tick,
+                    decision="allow",
                 )
 
         safe, reason = broker_guards.check_account_limits(signal, broker_state)

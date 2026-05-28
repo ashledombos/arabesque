@@ -238,8 +238,9 @@ def test_replay_2026_05_14_with_polling_arms_be_broker_side():
     )
 
     # Audit JSONL — contrat de gate Phase 2.5
-    assert len(audits) == 1
-    ev = audits[0]
+    armed_events = [a for a in audits if a["event"] == "be_polling_armed"]
+    assert len(armed_events) == 1
+    ev = armed_events[0]
     assert ev["event"] == "be_polling_armed"
     assert ev["broker_id"] == INCIDENT_BROKER_ID
     assert ev["broker_kind"] == "CTraderBroker"
@@ -260,6 +261,10 @@ def test_replay_2026_05_14_with_polling_arms_be_broker_side():
     assert ev["new_sl"] != ev["old_sl"]
     # MFE rapporté ≥ 0.3R (le polling a vu un prix correspondant à 0.91R)
     assert ev["mfe_r_at_arm"] >= 0.3
+    pass_events = [a for a in audits if a["event"] == "be_polling_pass"]
+    assert len(pass_events) == 1
+    assert pass_events[0]["checked"] == 1
+    assert pass_events[0]["armed"] == 1
 
 
 # ---------------------------------------------------------------------------
