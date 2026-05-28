@@ -1874,6 +1874,17 @@ class LiveEngine:
                 tolerance = max(tolerance, float(info.tick_size or 0.0) * 1.1)
         except Exception:
             pass
+        for observed in (observed_sl, observed_tp):
+            # TradeLocker often reports linked SL/TP rounded to display
+            # precision (e.g. BCHUSD 313.14 vs expected 313.140714). Infer the
+            # displayed increment so harmless formatting does not quarantine
+            # a broker while still rejecting materially different levels.
+            if observed is None:
+                continue
+            text = f"{float(observed):.10f}".rstrip("0").rstrip(".")
+            if "." in text:
+                increment = 10 ** -len(text.split(".", 1)[1])
+                tolerance = max(tolerance, increment * 0.55)
 
         def matches(actual: float | None, expected: float) -> bool:
             if expected <= 0:
@@ -1926,6 +1937,155 @@ class LiveEngine:
                 "Nouvelles entrées GFT bloquées ; position conservée sous surveillance."
             )
         return observed_sl or expected_sl, observed_tp or expected_tp
+
+    async def _estimate_position_risk_cash(
+        self,
+        broker,
+        instrument: str,
+        entry: float,
+        sl: float,
+        volume: float,
+    ) -> tuple[float | None, float | None, float | None, str]:
+        """Estimate broker-side cash risk from the confirmed position.
+
+        Prefer broker symbol metadata over YAML so post-fill checks can catch
+        calibration errors such as crypto contracts whose live lot size differs
+        from the static config.
+        """
+        if entry <= 0 or sl <= 0 or volume <= 0:
+            return None, None, None, "missing_position_fields"
+        try:
+            info = await broker.get_symbol_info(instrument)
+        except Exception as e:
+            logger.warning(f"[Engine] risk integrity symbol info failed: {e}")
+            return None, None, None, "symbol_info_error"
+        if not info or info.pip_size <= 0:
+            return None, None, None, "symbol_info_missing"
+
+        pip_size = float(info.pip_size)
+        lot_size = float(info.lot_size or 0.0)
+        pip_value = float(getattr(info, "pip_value", 0.0) or 0.0)
+        source = "broker_pip_value"
+        symbol = instrument.upper()
+        quote_ccy = symbol[-3:] if len(symbol) >= 6 else ""
+        base_ccy = symbol[:3] if len(symbol) >= 6 else ""
+
+        if lot_size > 0:
+            raw_pip_value = lot_size * pip_size
+            if quote_ccy == "USD":
+                pip_value = raw_pip_value
+                source = "broker_lot_size_usd"
+            elif base_ccy == "USD" and entry > 0:
+                pip_value = raw_pip_value / entry
+                source = "broker_lot_size_usd_base"
+            elif pip_value <= 0:
+                inst = self.instruments.get(instrument, {}) if hasattr(self, "instruments") else {}
+                pip_value = float(inst.get("pip_value_per_lot", 0.0) or 0.0)
+                source = "yaml_cross_fallback"
+
+        if pip_value <= 0:
+            return None, pip_size, None, "pip_value_missing"
+        pips = abs(float(entry) - float(sl)) / pip_size
+        return pips * pip_value * float(volume), pip_size, pip_value, source
+
+    async def _check_post_fill_risk_integrity(
+        self,
+        broker_id: str,
+        broker,
+        signal,
+        position_id: str,
+        entry: float,
+        sl: float,
+        volume: float,
+        expected_risk_cash: float,
+    ) -> bool:
+        """Validate actual post-fill risk and close only on material over-risk.
+
+        Returns True when the position should continue into normal monitoring.
+        Under-risk is an audit/calibration problem; over-risk is capital safety.
+        """
+        actual, pip_size, pip_value, source = await self._estimate_position_risk_cash(
+            broker, signal.instrument, entry, sl, volume
+        )
+        ratio = (
+            actual / expected_risk_cash
+            if actual is not None and expected_risk_cash > 0
+            else None
+        )
+        status = "unknown"
+        action = "none"
+        if ratio is not None:
+            if ratio < 0.50:
+                status = "under_risk"
+                action = "journal_only"
+            elif ratio <= 1.25:
+                status = "ok"
+            elif ratio <= 1.50:
+                status = "over_risk_warning"
+                action = "block_broker_entries"
+            else:
+                status = "over_risk_critical"
+                action = "close_position"
+
+        if self._live_monitor:
+            self._live_monitor.record_risk_integrity_check(
+                broker_id=broker_id,
+                position_id=str(position_id),
+                instrument=signal.instrument,
+                expected_risk_cash=expected_risk_cash,
+                actual_risk_cash=actual,
+                risk_ratio=ratio,
+                status=status,
+                action=action,
+                entry_price=entry,
+                sl=sl,
+                volume=volume,
+                pip_size=pip_size,
+                pip_value=pip_value,
+                source=source,
+            )
+
+        if status == "under_risk":
+            if self._live_monitor:
+                try:
+                    await self._live_monitor._notify_telegram(
+                        f"⚠️ Sous-risque détecté — {broker_id} {signal.instrument}\n"
+                        f"position_id={position_id} cible={expected_risk_cash:.2f}$ "
+                        f"réel≈{actual:.2f}$ ({ratio:.2f}x)\n"
+                        "Trade conservé ; calibrage à corriger pour les prochains ordres."
+                    )
+                except Exception as e:
+                    logger.warning(f"[Engine] risk integrity notification: {e}")
+        elif status == "over_risk_warning":
+            reason = (
+                f"risk integrity warning {signal.instrument} position={position_id} "
+                f"{ratio:.2f}x"
+            )
+            if getattr(self, "_dispatcher", None):
+                self._dispatcher.block_broker_entries(broker_id, reason)
+            await self._alert_execution_integrity(
+                f"🚨 Sur-risque post-fill — {broker_id} {signal.instrument}\n"
+                f"position_id={position_id} cible={expected_risk_cash:.2f}$ "
+                f"réel≈{actual:.2f}$ ({ratio:.2f}x)\n"
+                "Nouvelles entrées broker bloquées ; position surveillée."
+            )
+        elif status == "over_risk_critical":
+            reason = (
+                f"risk integrity critical {signal.instrument} position={position_id} "
+                f"{ratio:.2f}x"
+            )
+            if getattr(self, "_dispatcher", None):
+                self._dispatcher.block_broker_entries(broker_id, reason)
+            close_result = await broker.close_position(str(position_id))
+            await self._alert_execution_integrity(
+                f"🚨 Sur-risque critique — {broker_id} {signal.instrument}\n"
+                f"position_id={position_id} cible={expected_risk_cash:.2f}$ "
+                f"réel≈{actual:.2f}$ ({ratio:.2f}x)\n"
+                f"clôture immédiate demandée: success={close_result.success} "
+                f"message={close_result.message}"
+            )
+            return not close_result.success
+        return True
 
     async def _flag_extreme_fill_if_needed(
         self, broker_id: str, signal, position_id: str, entry: float
@@ -2156,6 +2316,19 @@ class LiveEngine:
                     broker_bid=bid_e,
                     broker_ask=ask_e,
                 )
+
+            should_monitor = await self._check_post_fill_risk_integrity(
+                broker_id=broker_id,
+                broker=broker,
+                signal=signal,
+                position_id=str(result.order_id),
+                entry=entry,
+                sl=effective_sl,
+                volume=volume,
+                expected_risk_cash=float(getattr(result, "risk_cash", 0.0) or 0.0),
+            )
+            if not should_monitor:
+                return
 
             # Position monitor (BE/trailing)
             if not self._position_monitor:

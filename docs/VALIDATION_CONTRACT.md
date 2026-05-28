@@ -26,7 +26,8 @@ sont satisfaites :
 3. `mean_delta_r >= -0.10R` sur le scope actif, avec lecture par broker et
    agregat.
 4. Aucun incident ouvert d'integrite de position : protection broker non
-   confirmee, exit fantome, position non suivie, fill anormal non traite.
+   confirmee, risque reel post-fill trop eleve, exit fantome, position non
+   suivie, fill anormal non traite.
 5. Les trades micro-dimensionnes sont mesures ; un echantillon domine par des
    tailles non representatives ne valide pas l'edge.
 
@@ -51,6 +52,9 @@ Actions interdites sans nouvelle decision documentee :
 - `scripts/replay_signals_vs_live.py` : couverture des signaux theoriques ;
   lire Extension sur sessions dedupees, jamais sur bougies brutes.
 - `scripts/replay_live_vs_theory.py` : `delta_r` des trades executes.
+- `scripts/shadow_reference_check.py` : wrapper read-only qui lance ensemble
+  signaux theoriques vs live et live vs theorie, puis persiste un verdict dans
+  `logs/shadow_reference_checks.jsonl`.
 - `scripts/audit_edge_live_vs_backtest.py` : edge live contre baseline.
 - `scripts/check_execution_invariants.py --per-broker` : bugs de tracking.
 - `scripts/audit_sizing_distortion.py` : representativite des volumes live.
@@ -60,7 +64,9 @@ Actions interdites sans nouvelle decision documentee :
 
 ## Travail a construire sans modifier l'edge
 
-Un `shadow_reference` permanent manque encore. Il devra :
+Un `shadow_reference` permanent manque encore. Le premier palier est
+`scripts/shadow_reference_check.py`, volontairement read-only et utilisable par
+un humain, un timer ou un agent. Le palier permanent devra :
 
 - utiliser les generateurs et parametres de reference sans envoyer d'ordre ;
 - journaliser `signal_generated`, decision shadow, decision par broker, fill,
@@ -83,6 +89,36 @@ Avant toute nouvelle entree GFT, le code doit :
   unique si necessaire ;
 - mettre en quarantaine les nouvelles entrees GFT si la protection ne peut
   etre confirmee, tout en continuant a monitorer la position existante.
+
+## Integrite risque post-fill
+
+Chaque position confirmee broker-side doit produire un
+`risk_integrity_check` dans `logs/trade_journal.jsonl`.
+
+- Le risque reel est estime depuis `entry`, `SL`, `volume` et les metadonnees
+  broker (`pip_size`, `lot_size`) plutot que seulement depuis le sizing
+  theorique.
+- `risk_ratio < 0.50` : sous-risque, trade conserve, Telegram non urgent,
+  calibrage a corriger pour les prochains ordres.
+- `0.50 <= risk_ratio <= 1.25` : coherent.
+- `1.25 < risk_ratio <= 1.50` : sur-risque, Telegram+ntfy, nouvelles entrees
+  broker bloquees, position surveillee.
+- `risk_ratio > 1.50` : sur-risque critique, Telegram+ntfy, blocage broker et
+  demande de cloture immediate ; si la cloture echoue, la position reste
+  suivie.
+
+Une sous-exposition ne valide pas l'edge statistique si elle domine
+l'echantillon ; une surexposition est un incident de securite avant d'etre une
+donnee de performance.
+
+## Integrite feed externe
+
+Le watchdog externe ne se limite plus a "derniere barre fermee". Il lit aussi
+les resumes `PriceFeed` du journal live. Si les barres continuent mais que le
+flux annonce un etat partiel (`30/31 actifs`, stale majeur ou symbole jamais
+recu), il journalise `pricefeed_partial` et notifie Telegram sans restart
+automatique. Ce signal sert a detecter un feed degrade par symbole ; il ne doit
+pas servir a declencher des ordres depuis un flux secondaire.
 
 ## Routage des notifications
 

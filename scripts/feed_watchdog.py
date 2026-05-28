@@ -85,6 +85,11 @@ POSITIONS_STATE_STALE_S = 600
 BAR_PATTERN = re.compile(
     r"^(\w{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2}).*BarAggregator.*Résumé"
 )
+PRICEFEED_SUMMARY_PATTERN = re.compile(
+    r"^(\w{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2}).*"
+    r"PriceFeed.*?(\d+)/(\d+) actifs, "
+    r"(\d+) dormants, (\d+) stale majeurs, (\d+) jamais reçus"
+)
 MONTH_MAP = {
     "jan": 1, "feb": 2, "fév": 2, "mar": 3, "apr": 4, "avr": 4,
     "may": 5, "mai": 5, "jun": 6, "jui": 6, "jul": 7, "aug": 8,
@@ -225,6 +230,64 @@ def _last_bar_age_seconds(now: dt.datetime) -> int | None:
     if last_ts is None:
         return None
     return int((now - last_ts).total_seconds())
+
+
+def _parse_journal_ts(now: dt.datetime, match: re.Match) -> dt.datetime | None:
+    month_str, day_str, hh, mm, ss = match.groups()[:5]
+    month = MONTH_MAP.get(month_str.lower()[:3])
+    if not month:
+        return None
+    try:
+        offset = now.astimezone().utcoffset()
+        hours = offset.total_seconds() / 3600 if offset else 0
+        ts_local = dt.datetime(
+            now.year, month, int(day_str),
+            int(hh), int(mm), int(ss),
+            tzinfo=dt.timezone(dt.timedelta(hours=hours))
+        )
+    except Exception:
+        return None
+    return ts_local.astimezone(dt.timezone.utc)
+
+
+def _last_pricefeed_summary(now: dt.datetime) -> dict | None:
+    """Read the latest internal PriceFeed symbol-health summary.
+
+    BarAggregator liveness can stay green while one symbol is dead. This is a
+    cheap secondary integrity check: it never places orders and never restarts
+    by itself, but it makes partial-feed degradation visible outside the engine.
+    """
+    try:
+        r = subprocess.run(
+            ["journalctl", "--user", "-u", "arabesque-live.service",
+             "--since", "30 minutes ago", "--no-pager"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    if r.returncode != 0:
+        return None
+    latest: dict | None = None
+    for line in r.stdout.splitlines():
+        m = PRICEFEED_SUMMARY_PATTERN.match(line)
+        if not m:
+            continue
+        ts_utc = _parse_journal_ts(now, m)
+        if ts_utc is None:
+            continue
+        active, total, dormant, stale_major, no_tick = map(int, m.groups()[5:])
+        entry = {
+            "ts": ts_utc.isoformat(),
+            "age_seconds": int((now - ts_utc).total_seconds()),
+            "active": active,
+            "total": total,
+            "dormant": dormant,
+            "stale_major": stale_major,
+            "no_tick": no_tick,
+        }
+        if latest is None or ts_utc > dt.datetime.fromisoformat(latest["ts"]):
+            latest = entry
+    return latest
 
 
 def _read_state() -> dict:
@@ -483,6 +546,9 @@ def main() -> int:
 
     age_s = _last_bar_age_seconds(now)
     state["last_bar_age_seconds"] = age_s
+    pf_summary = _last_pricefeed_summary(now)
+    if pf_summary:
+        state["last_pricefeed_summary"] = pf_summary
 
     is_feed_stale = age_s is not None and age_s > STALE_THRESHOLD_MIN * 60
     no_bar_data = age_s is None
@@ -671,6 +737,35 @@ def main() -> int:
         title = "Feed Arabesque — pas de barres"
 
     else:
+        if pf_summary:
+            total = int(pf_summary.get("total") or 0)
+            active = int(pf_summary.get("active") or 0)
+            stale_major = int(pf_summary.get("stale_major") or 0)
+            no_tick = int(pf_summary.get("no_tick") or 0)
+            if total > 0 and (active < total or stale_major > 0 or no_tick > 0):
+                state["last_status"] = (
+                    f"pricefeed_partial:{active}/{total} "
+                    f"stale_major={stale_major} no_tick={no_tick}"
+                )
+                body = (
+                    f"BarAggregator vivant (derniere barre age={age_s}s), "
+                    f"mais PriceFeed partiel: {active}/{total} actifs, "
+                    f"{stale_major} stale majeurs, {no_tick} jamais recus.\n"
+                    f"Aucune action automatique. Surveiller si cela persiste "
+                    f"ou touche un instrument tradable actif."
+                )
+                title = "Feed Arabesque — flux partiel"
+                if not _can_alert(state, now):
+                    state["last_status"] += "+cooldown"
+                    _write_state(state)
+                    return 0
+                ok = _send_alert(body, title, urgent=False)
+                state["last_alert_ts"] = now.isoformat()
+                state["last_alert_ok"] = bool(ok)
+                _write_state(state)
+                print(f"watchdog: {state['last_status']} → notif ok={ok}")
+                return 0
+
         # OK
         if weekend_with_positions:
             state["last_status"] = (

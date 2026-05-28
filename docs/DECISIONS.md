@@ -3306,3 +3306,30 @@ utilise des identifiants d'ordre et de position distincts.
 - **Scope runtime** : les scripts systemd prennent la correction a leur
   prochaine invocation ; le chemin interne `PriceFeed`/ordre exige le
   prochain chargement du processus live.
+
+## Decision 2026-05-28 - integrite execution/feed/shadow reference
+
+- **Execution Integrity post-fill** : chaque fill confirme produit un
+  `risk_integrity_check` dans `logs/trade_journal.jsonl`. Le risque reel est
+  estime via metadonnees broker (`pip_size`, `lot_size`) et compare au
+  `risk_cash` attendu. Sous-risque `<0.50x` = Telegram non urgent + calibrage
+  a corriger au prochain ordre ; sur-risque `>1.25x` = Telegram+ntfy +
+  quarantaine broker ; sur-risque critique `>1.50x` = tentative de cloture
+  immediate, et monitoring conserve si la cloture echoue.
+- **Protection TradeLocker arrondie** : la verification SL/TP post-fill tient
+  compte de la precision affichee par le broker. Un `SL=313.14` observe peut
+  confirmer un attendu `313.140714` si l'ecart est un simple arrondi de prix,
+  sans abaisser l'exigence sur les ecarts materiels.
+- **Feed Integrity externe** : `scripts/feed_watchdog.py` continue de surveiller
+  les barres, mais lit aussi les resumes `PriceFeed`. Un etat partiel
+  (`30/31 actifs`, stale majeur, symbole jamais recu) notifie Telegram en
+  lecture seule sans auto-restart ; les restarts restent reserves aux pannes
+  persistantes deja encadrees par anti-boucle.
+- **Shadow reference read-only** : `scripts/shadow_reference_check.py` regroupe
+  `replay_signals_vs_live.py` et `replay_live_vs_theory.py --no-persist`, puis
+  ecrit un verdict dans `logs/shadow_reference_checks.jsonl`. Ce wrapper est
+  le premier palier portable avant un service shadow permanent ; il ne change
+  ni signal, ni sizing, ni ordre broker.
+- **Deploiement** : code non encore charge tant qu'un commit/restart controle
+  n'a pas ete fait. Pas de changement volontaire de strategie ou de niveau de
+  risque.

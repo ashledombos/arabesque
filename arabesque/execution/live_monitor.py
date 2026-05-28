@@ -711,6 +711,49 @@ class LiveMonitor:
             "action": action,
         })
 
+    def record_risk_integrity_check(
+        self,
+        *,
+        broker_id: str,
+        position_id: str,
+        instrument: str,
+        expected_risk_cash: float,
+        actual_risk_cash: float | None,
+        risk_ratio: float | None,
+        status: str,
+        action: str,
+        entry_price: float,
+        sl: float,
+        volume: float,
+        pip_size: float | None = None,
+        pip_value: float | None = None,
+        source: str = "",
+    ) -> None:
+        """Persist post-fill sizing integrity.
+
+        This check is intentionally separate from ``entry``: the entry keeps
+        the intended risk, while this event records what the broker position
+        actually implies after fill/rounding/min-lot effects.
+        """
+        self._append_journal({
+            "event": "risk_integrity_check",
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "broker_id": broker_id,
+            "position_id": str(position_id),
+            "instrument": instrument,
+            "expected_risk_cash": expected_risk_cash,
+            "actual_risk_cash": actual_risk_cash,
+            "risk_ratio": risk_ratio,
+            "status": status,
+            "action": action,
+            "entry_price": entry_price,
+            "sl": sl,
+            "volume": volume,
+            "pip_size": pip_size,
+            "pip_value": pip_value,
+            "source": source,
+        })
+
     def record_entry(
         self,
         signal,

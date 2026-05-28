@@ -382,6 +382,65 @@ def test_restart_failure_logs_and_notifies(watchdog):
 
 
 # ---------------------------------------------------------------------------
+# 11. Flux partiel : BarAggregator OK mais PriceFeed incomplet → notif simple
+# ---------------------------------------------------------------------------
+
+def test_pricefeed_partial_warns_without_restart(watchdog):
+    wd = watchdog
+    now = _no_weekend_now()
+    sent = []
+    restart_calls = []
+    partial = {
+        "ts": now.isoformat(),
+        "age_seconds": 60,
+        "active": 30,
+        "total": 31,
+        "dormant": 0,
+        "stale_major": 1,
+        "no_tick": 0,
+    }
+
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: 60), \
+         patch.object(wd, "_last_pricefeed_summary", lambda _now: partial), \
+         patch.object(wd, "_attempt_auto_restart",
+                      lambda now_, reason: restart_calls.append(reason) or (True, "ok")), \
+         patch.object(wd, "_send_alert",
+                      lambda body, title, urgent=False: sent.append((title, urgent, body)) or True), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(now)):
+        wd.main()
+
+    assert restart_calls == []
+    assert len(sent) == 1
+    title, urgent, body = sent[0]
+    assert urgent is False
+    assert "flux partiel" in title.lower()
+    assert "30/31 actifs" in body
+    state = json.loads(wd.STATE.read_text())
+    assert state["last_status"].startswith("pricefeed_partial:30/31")
+
+
+def test_pricefeed_summary_parser_extracts_latest(watchdog):
+    wd = watchdog
+    now = dt.datetime(2026, 5, 19, 12, 10, 0, tzinfo=dt.timezone.utc)
+
+    class Result:
+        returncode = 0
+        stdout = "\n".join([
+            "mai 19 12:01:00 host app[1]: [PriceFeed] 📊 31/31 actifs, 0 dormants, 0 stale majeurs, 0 jamais reçus — 10 ticks total",
+            "mai 19 12:05:00 host app[1]: [PriceFeed] 📊 30/31 actifs, 0 dormants, 1 stale majeurs, 0 jamais reçus — 20 ticks total",
+        ])
+
+    with patch.object(wd.subprocess, "run", lambda *a, **kw: Result()):
+        summary = wd._last_pricefeed_summary(now)
+
+    assert summary is not None
+    assert summary["active"] == 30
+    assert summary["total"] == 31
+    assert summary["stale_major"] == 1
+
+
+# ---------------------------------------------------------------------------
 # Helper : FixedDatetime monkeypatch pour wd.dt.datetime
 # ---------------------------------------------------------------------------
 
