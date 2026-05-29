@@ -1948,9 +1948,14 @@ class LiveEngine:
     ) -> tuple[float | None, float | None, float | None, str]:
         """Estimate broker-side cash risk from the confirmed position.
 
-        Prefer broker symbol metadata over YAML so post-fill checks can catch
-        calibration errors such as crypto contracts whose live lot size differs
-        from the static config.
+        Use the same currency-conversion semantics as the order sizer. Broker
+        metadata is useful for lot bounds and broker-specific pip sizes, but
+        some APIs expose a raw ``pip_value`` that is not denominated like our
+        risk model. TradeLocker AUDJPY 2026-05-29 reported pip_size=0.0001 and
+        pip_value=10, which made a correctly-sized fill look 166x over-risk
+        and triggered a false emergency close. For cross pairs and USD-quoted
+        symbols with calibrated YAML values, prefer YAML pip value rescaled to
+        the broker pip size.
         """
         if entry <= 0 or sl <= 0 or volume <= 0:
             return None, None, None, "missing_position_fields"
@@ -1964,13 +1969,24 @@ class LiveEngine:
 
         pip_size = float(info.pip_size)
         lot_size = float(info.lot_size or 0.0)
-        pip_value = float(getattr(info, "pip_value", 0.0) or 0.0)
-        source = "broker_pip_value"
         symbol = instrument.upper()
         quote_ccy = symbol[-3:] if len(symbol) >= 6 else ""
         base_ccy = symbol[:3] if len(symbol) >= 6 else ""
+        inst = self.instruments.get(instrument, {}) if hasattr(self, "instruments") else {}
+        yaml_pip_size = float(inst.get("pip_size", 0.0) or 0.0)
+        yaml_pip_value = float(inst.get("pip_value_per_lot", 0.0) or 0.0)
+        pip_ratio = pip_size / yaml_pip_size if yaml_pip_size > 0 else 1.0
+        broker_pip_value = float(getattr(info, "pip_value", 0.0) or 0.0)
+        pip_value = 0.0
+        source = "pip_value_missing"
 
-        if lot_size > 0:
+        if yaml_pip_value > 0 and quote_ccy == "USD":
+            pip_value = yaml_pip_value * pip_ratio
+            source = "yaml_usd_rescaled" if pip_ratio != 1 else "yaml_usd"
+        elif yaml_pip_value > 0 and base_ccy != "USD":
+            pip_value = yaml_pip_value * pip_ratio
+            source = "yaml_cross_rescaled" if pip_ratio != 1 else "yaml_cross"
+        elif lot_size > 0:
             raw_pip_value = lot_size * pip_size
             if quote_ccy == "USD":
                 pip_value = raw_pip_value
@@ -1978,10 +1994,12 @@ class LiveEngine:
             elif base_ccy == "USD" and entry > 0:
                 pip_value = raw_pip_value / entry
                 source = "broker_lot_size_usd_base"
-            elif pip_value <= 0:
-                inst = self.instruments.get(instrument, {}) if hasattr(self, "instruments") else {}
-                pip_value = float(inst.get("pip_value_per_lot", 0.0) or 0.0)
-                source = "yaml_cross_fallback"
+            else:
+                pip_value = broker_pip_value
+                source = "broker_pip_value_cross_fallback"
+        else:
+            pip_value = broker_pip_value
+            source = "broker_pip_value"
 
         if pip_value <= 0:
             return None, pip_size, None, "pip_value_missing"

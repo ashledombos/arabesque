@@ -233,3 +233,41 @@ def test_over_risk_critical_closes_and_skips_monitoring():
     broker.close_position.assert_awaited_once_with("P-RISK")
     engine._dispatcher.block_broker_entries.assert_called_once()
     assert engine._live_monitor._notify_ntfy.await_count == 1
+
+
+def test_cross_pair_risk_integrity_uses_yaml_value_not_raw_broker_pip_value():
+    engine = _engine()
+    engine.instruments = {
+        "AUDJPY": {"pip_size": 0.01, "pip_value_per_lot": 6.33}
+    }
+    broker = MagicMock()
+    broker.get_symbol_info = AsyncMock(return_value=SymbolInfo(
+        symbol="AUDJPY",
+        broker_symbol="AUDJPY.X",
+        pip_size=0.0001,
+        tick_size=0.0001,
+        lot_size=100000,
+        digits=3,
+        pip_value=10.0,  # Raw TradeLocker value; not compatible with our lots.
+    ))
+    broker.close_position = AsyncMock()
+
+    should_monitor = asyncio.run(
+        engine._check_post_fill_risk_integrity(
+            broker_id="gft_compte1",
+            broker=broker,
+            signal=SimpleNamespace(instrument="AUDJPY"),
+            position_id="P-AUDJPY",
+            entry=114.537,
+            sl=114.3205,
+            volume=0.55,
+            expected_risk_cash=71.50,
+        )
+    )
+
+    assert should_monitor is True
+    kwargs = engine._live_monitor.record_risk_integrity_check.call_args.kwargs
+    assert kwargs["status"] == "ok"
+    assert kwargs["source"] == "yaml_cross_rescaled"
+    assert kwargs["actual_risk_cash"] == pytest.approx(75.34, rel=0.01)
+    broker.close_position.assert_not_awaited()
