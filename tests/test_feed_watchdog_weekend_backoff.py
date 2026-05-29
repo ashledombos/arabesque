@@ -67,6 +67,9 @@ def watchdog(tmp_path, monkeypatch):
     monkeypatch.setattr(wd, "SECRETS", tmp_path / "secrets.yaml")
     monkeypatch.setattr(wd, "POSITIONS_STATE", tmp_path / "position_monitor_state.json")
     monkeypatch.setattr(wd, "RESTART_STOP_SLEEP_S", 0)
+    # These tests validate the historical weekend backoff branch in isolation.
+    # The live default is stricter: auto-restart is flat-only.
+    monkeypatch.setattr(wd, "AUTO_RESTART_REQUIRES_FLAT", False)
     return wd, tmp_path
 
 

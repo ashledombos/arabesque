@@ -3374,3 +3374,9 @@ utilise des identifiants d'ordre et de position distincts.
 - **Propagation config** : les brokers cTrader recoivent `instruments_config`
   depuis la factory, le PriceFeed et la construction live, afin que l'equity
   utilise la meme convention que le sizing et le controle post-fill.
+- **Watchdog flat-only** : le watchdog lit maintenant le nombre de positions
+  a chaque cycle, pas seulement en weekend. Si le feed est stale avec une
+  position ouverte ou un state positions corrompu, il envoie une alerte
+  urgente mais bloque l'auto-restart (`manual_required_open_positions`). Le
+  restart automatique reste reserve au cas flat, pour eviter de couper un
+  trade qui a besoin du BE/trailing/reconcile sous surveillance humaine.

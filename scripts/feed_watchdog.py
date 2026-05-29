@@ -57,6 +57,7 @@ PRICEFEED_SUMMARY_MAX_AGE_S = 600
 RESTART_PERSISTENCE_MIN = 30          # feed_stale doit persister > 30 min
 RESTART_MAX_PER_HOUR = 2              # 3e tentative dans l'heure → escalade
 RESTART_STOP_SLEEP_S = 60             # stop+sleep pour libérer session cTrader
+AUTO_RESTART_REQUIRES_FLAT = True     # jamais de restart auto avec position ouverte
 
 # Hot Path #2 bis — backoff progressif des restart auto en weekend avec
 # position ouverte. cTrader accepte les sessions weekend mais leur comportement
@@ -554,10 +555,16 @@ def main() -> int:
         _write_state(state)
         return 0
 
+    open_count, positions_state_corrupted = _open_positions_count()
+    if positions_state_corrupted:
+        open_count = max(open_count, 1)
+        state["positions_state_corrupted"] = True
+    else:
+        state.pop("positions_state_corrupted", None)
+    state["open_positions_count"] = open_count
+
     weekend_with_positions = False
-    open_count = 0
     if _is_weekend_utc(now):
-        open_count, positions_state_corrupted = _open_positions_count()
         if positions_state_corrupted:
             # Task #40 patch #1 — fail-loud. State file corrompu/illisible :
             # on ne peut pas dire si une position est ouverte. Présumer hot
@@ -565,9 +572,6 @@ def main() -> int:
             # régression DASHUSD 2026-05-20). Notif URGENT à l'humain (sous
             # cooldown _can_alert pour éviter le spam).
             weekend_with_positions = True
-            open_count = max(open_count, 1)
-            state["positions_state_corrupted"] = True
-            state["open_positions_count"] = open_count
             if _can_alert(state, now):
                 _send_alert(
                     f"POSITIONS_STATE ({POSITIONS_STATE.name}) corrompu ou "
@@ -584,7 +588,7 @@ def main() -> int:
             # Comportement historique : marché fermé, rien ouvert → skip total
             state["last_status"] = "weekend_guard"
             state.pop("feed_stale_since_ts", None)
-            state.pop("open_positions_count", None)
+            state["open_positions_count"] = 0
             state.pop("positions_state_corrupted", None)
             _write_state(state)
             return 0
@@ -610,8 +614,6 @@ def main() -> int:
             state.pop("positions_state_stale", None)
             state.pop("positions_state_age_s", None)
     else:
-        state.pop("open_positions_count", None)
-        state.pop("positions_state_corrupted", None)
         state.pop("positions_state_stale", None)
         state.pop("positions_state_age_s", None)
 
@@ -636,6 +638,32 @@ def main() -> int:
             stale_since = now
         persistence_s = (now - stale_since).total_seconds()
         state["last_status"] = f"feed_stale:{age_s}s persist={int(persistence_s)}s"
+
+        if AUTO_RESTART_REQUIRES_FLAT and open_count > 0:
+            state["last_status"] += (
+                f"+manual_required_open_positions(open={open_count})"
+            )
+            body = (
+                f"FEED STALE avec {open_count} position(s) ouverte(s).\n"
+                f"Derniere barre fermee il y a {age_s // 60}min"
+                f"{age_s % 60:02d}s ; persistance "
+                f"{int(persistence_s // 60)}min.\n"
+                f"Auto-restart bloque par garde flat-only. "
+                f"Intervention humaine requise : verifier la protection "
+                f"broker-side et redemarrer manuellement si necessaire."
+            )
+            if _can_alert(state, now):
+                ok = _send_alert(
+                    body,
+                    "Feed Arabesque mort — position ouverte",
+                    urgent=True,
+                )
+                state["last_alert_ts"] = now.isoformat()
+                state["last_alert_ok"] = bool(ok)
+            else:
+                state["last_status"] += "+cooldown"
+            _write_state(state)
+            return 0
 
         # === Branche weekend avec position : backoff progressif (Hot Path #2 bis) ===
         if weekend_with_positions:

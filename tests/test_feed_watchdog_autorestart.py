@@ -157,6 +157,37 @@ def test_autorestart_triggers_after_30min_persistence(watchdog):
     assert "feed_stale_since_ts" not in state, "Tracker reset après restart réussi"
 
 
+def test_autorestart_blocked_when_position_open(watchdog):
+    wd = watchdog
+    now = _no_weekend_now()
+    stale_since = now - dt.timedelta(minutes=35)
+    _make_state_fixture(wd, {"feed_stale_since_ts": stale_since.isoformat()})
+    wd.POSITIONS_STATE.write_text(json.dumps({
+        "ftmo:P1": {"broker_id": "ftmo", "position_id": "P1", "symbol": "AUDJPY"}
+    }))
+
+    restart_calls = []
+    sent_alerts = []
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: 35 * 60), \
+         patch.object(wd, "_attempt_auto_restart",
+                      lambda now_, reason: restart_calls.append(reason) or (True, "ok")), \
+         patch.object(wd, "_send_alert",
+                      lambda body, title, urgent=False: sent_alerts.append((title, urgent, body)) or True), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(now)):
+        wd.main()
+
+    assert restart_calls == []
+    assert len(sent_alerts) == 1
+    title, urgent, body = sent_alerts[0]
+    assert urgent is True
+    assert "position ouverte" in title.lower()
+    assert "Auto-restart bloque" in body
+    state = json.loads(wd.STATE.read_text())
+    assert state["open_positions_count"] == 1
+    assert "manual_required_open_positions" in state["last_status"]
+
+
 # ---------------------------------------------------------------------------
 # 4. Anti-boucle (étage 4) : 3e restart bloqué + notif distincte
 # ---------------------------------------------------------------------------

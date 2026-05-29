@@ -212,11 +212,8 @@ def test_weekend_with_position_logs_open_count_in_state(watchdog):
 # ---------------------------------------------------------------------------
 
 
-def test_weekend_with_position_and_stale_fires_first_restart_at_standard_threshold(watchdog):
-    """Au 1er stale en weekend+position (aucun restart weekend récent),
-    l'auto-restart fire au seuil standard 30 min, taggé ``weekend=True``.
-    Le backoff progressif est testé séparément dans
-    ``test_feed_watchdog_weekend_backoff.py``."""
+def test_weekend_with_position_and_stale_blocks_autorestart_by_default(watchdog):
+    """Par défaut, une position ouverte bloque l'auto-restart."""
     wd, tmp_path = watchdog
     _write_positions_state(wd.POSITIONS_STATE, [
         {"broker_id": "ftmo", "position_id": "P1", "symbol": "DASHUSD"},
@@ -242,18 +239,15 @@ def test_weekend_with_position_and_stale_fires_first_restart_at_standard_thresho
          patch.object(wd.dt, "datetime", _FixedDatetime(sat)):
         wd.main()
 
-    assert len(restart_calls) == 1, (
-        "1er restart weekend autorisé au seuil standard 30 min (backoff "
-        "ne s'active qu'à partir du 2e — cf test dédié weekend_backoff)"
-    )
-    assert restart_calls[0]["weekend"] is True, (
-        "Le restart weekend doit être taggé pour entrer dans le compteur backoff"
-    )
-    assert len(alerts) == 1, "Alerte URGENT auto-restart envoyée"
+    assert restart_calls == []
+    assert len(alerts) == 1, "Alerte URGENT manuelle envoyée"
     _, urgent, body = alerts[0]
-    assert urgent is True, "Auto-restart = notif URGENT"
-    # L'alerte doit indiquer le contexte weekend (pour distinguer du flux weekday)
-    assert "weekend" in body.lower() or "weekend" in alerts[0][0].lower()
+    assert urgent is True
+    body = body.lower()
+    assert "position" in body
+    assert "auto-restart bloque" in body
+    state = json.loads(wd.STATE.read_text())
+    assert "manual_required_open_positions" in state["last_status"]
 
 
 # ---------------------------------------------------------------------------
