@@ -75,6 +75,8 @@ def create_all_brokers(
                 instruments_mapping[symbol] = inst_data[broker_id]
         if instruments_mapping:
             merged["instruments_mapping"] = instruments_mapping
+        if instruments_cfg:
+            merged["instruments_config"] = instruments_cfg
 
         try:
             broker = create_broker(broker_id, merged)

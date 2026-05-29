@@ -631,6 +631,7 @@ class LivePositionMonitor:
             # effectif au moment où le polling déclenche le BE (peut
             # différer de sl_initial si un trailing précédent l'a déjà bougé).
             old_sl = pos.sl
+            was_be_set = pos.breakeven_set
             try:
                 be_just_armed = await self._process_pos_from_price(
                     pos,
@@ -660,6 +661,16 @@ class LivePositionMonitor:
                     broker_kind=broker_kind,
                     old_sl=old_sl,
                 )
+            self._emit_be_polling_decision(
+                pos=pos,
+                fq=fq,
+                age_s=age_s,
+                freshness_kind=freshness_kind,
+                broker_kind=broker_kind,
+                old_sl=old_sl,
+                was_be_set=was_be_set,
+                be_just_armed=be_just_armed,
+            )
 
         self._emit_be_polling_pass_audit(
             checked=checked,
@@ -745,6 +756,98 @@ class LivePositionMonitor:
             self._on_audit_event(payload)
         except Exception as e:
             logger.debug(f"[Monitor] be_polling audit emit error: {e}")
+
+    def _emit_be_polling_decision(
+        self,
+        *,
+        pos: TrackedPosition,
+        fq,  # FreshQuote (broker.base) — pas importé pour éviter import cyclique
+        age_s: float,
+        freshness_kind: str,
+        broker_kind: str,
+        old_sl: float,
+        was_be_set: bool,
+        be_just_armed: bool,
+    ) -> None:
+        """Audit une position évaluée par le polling BE.
+
+        ``be_polling_armed`` prouve uniquement le happy path. Cet event
+        couvre aussi les cas utiles au diagnostic post-mortem : prix pas encore
+        éligible, position déjà couverte, ou position éligible mais non armée
+        (min interval, amend concurrent, broker manquant, etc.).
+        """
+        if not self._on_audit_event:
+            return
+        try:
+            if be_just_armed:
+                decision = "armed"
+                reason = None
+            elif pos.breakeven_set:
+                decision = "already_armed"
+                reason = None
+            elif pos.mfe_r < self._cfg.be_trigger_r:
+                decision = "not_eligible"
+                reason = "mfe_below_trigger"
+            else:
+                decision = "eligible_not_armed"
+                reason = self._be_not_armed_reason(pos, fq.price)
+
+            payload = {
+                "event": "be_polling_decision",
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "broker_id": pos.broker_id,
+                "broker_kind": broker_kind,
+                "position_id": pos.position_id,
+                "symbol": pos.symbol,
+                "side": pos.side.value,
+                "entry": pos.entry,
+                "old_sl": old_sl,
+                "current_sl": pos.sl,
+                "sl_initial": pos.sl_initial,
+                "tp": pos.tp,
+                "mfe_r": round(pos.mfe_r, 4),
+                "be_trigger_r": self._cfg.be_trigger_r,
+                "be_offset_r": self._cfg.be_offset_r,
+                "breakeven_set_before": was_be_set,
+                "breakeven_set_after": pos.breakeven_set,
+                "decision": decision,
+                "reason": reason,
+                "quote_price": fq.price,
+                "quote_type": fq.quote_type,
+                "quote_source": "polling_backup",
+                "quote_market_ts": fq.market_ts.isoformat() if fq.market_ts else None,
+                "quote_observed_at": fq.observed_at.isoformat(),
+                "quote_freshness_kind": freshness_kind,
+                "quote_age_s": round(age_s, 3),
+            }
+            self._on_audit_event(payload)
+        except Exception as e:
+            logger.debug(f"[Monitor] be_polling decision emit error: {e}")
+
+    def _be_not_armed_reason(self, pos: TrackedPosition, current_price: float) -> str:
+        """Best-effort reason for an eligible BE that did not arm."""
+        broker = self._brokers.get(pos.broker_id)
+        if broker is None:
+            return "broker_missing"
+        if pos._amend_in_progress:
+            return "amend_in_progress"
+        if time.time() - pos.last_amend_time < self._cfg.min_amend_interval_s:
+            return "min_amend_interval"
+        if pos.side == Side.LONG:
+            be_level = pos.entry + self._cfg.be_offset_r * pos.R
+            if round(be_level, pos.digits) <= pos.sl:
+                return "sl_already_covers_be"
+            if current_price > 0 and round(be_level, pos.digits) > current_price:
+                return "price_fell_back_before_amend"
+        else:
+            be_level = pos.entry - self._cfg.be_offset_r * pos.R
+            if round(be_level, pos.digits) >= pos.sl:
+                return "sl_already_covers_be"
+            if current_price > 0 and round(be_level, pos.digits) < current_price:
+                return "price_fell_back_before_amend"
+        if pos.amend_failures > 0:
+            return "amend_failed"
+        return "unknown"
 
     # ------------------------------------------------------------------
     # Hot Path #1 — heartbeat ReconcileReq 60s (incident DASHUSD 2026-05-21)

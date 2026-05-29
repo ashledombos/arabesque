@@ -1440,6 +1440,7 @@ class LiveEngine:
             for sym, data in self.instruments.items()
             if isinstance(data, dict) and source_broker_id in data
         }
+        broker_cfg["instruments_config"] = self.instruments
 
         self._price_feed = PriceFeedManager(
             broker_id=source_broker_id,

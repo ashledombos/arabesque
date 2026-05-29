@@ -3354,3 +3354,23 @@ utilise des identifiants d'ordre et de position distincts.
   backup. Des skips repetes mesurent l'indisponibilite du filet de secours BE.
 - **Scope** : toujours pas de Pas de Deux, pas de feed secondaire comme source
   d'ordres, pas de correction d'offset GFT automatique.
+
+## Decision 2026-05-29 - audit BE par position et equity cTrader cross-currency
+
+- **BE polling decision-level** : `be_polling_pass` donne la vie de la boucle
+  et `be_polling_armed` prouve un amend reussi, mais ils ne suffisent pas a
+  expliquer un futur `MFE>=0.3R` non arme. Chaque position evaluee par le
+  polling emet maintenant `be_polling_decision` avec `decision` parmi
+  `armed`, `already_armed`, `not_eligible`, `eligible_not_armed`, plus une
+  raison best-effort (`mfe_below_trigger`, `min_amend_interval`,
+  `amend_in_progress`, `broker_missing`, etc.). Aucun seuil BE/trailing n'est
+  change.
+- **Equity cTrader** : l'equity etait calculee par `price_delta * volume *
+  lot_size`, ce qui est en devise de cotation. Sur `AUDJPY` FTMO 2026-05-29,
+  une perte flottante en JPY etait lue comme USD, declenchant un faux niveau
+  `DANGER`. Le calcul utilise desormais les `pip_size`/`pip_value_per_lot`
+  calibres de `config/instruments.yaml`, avec fallback conversion quote->USD
+  si la config manque.
+- **Propagation config** : les brokers cTrader recoivent `instruments_config`
+  depuis la factory, le PriceFeed et la construction live, afin que l'equity
+  utilise la meme convention que le sizing et le controle post-fill.

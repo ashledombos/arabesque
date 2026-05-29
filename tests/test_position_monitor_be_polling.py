@@ -79,11 +79,12 @@ def _make_monitor(
     *, be_polling_enabled: bool = True,
     interval_s: float = 60.0,
     freshness_s: float = 300.0,
+    min_amend_interval_s: float = 0.0,
     on_audit_event=None,
     brokers: dict | None = None,
 ) -> LivePositionMonitor:
     cfg = MonitorConfig(
-        min_amend_interval_s=0.0,
+        min_amend_interval_s=min_amend_interval_s,
         tick_check_interval_s=0.0,
         be_polling_enabled=be_polling_enabled,
         be_polling_interval_s=interval_s,
@@ -186,6 +187,12 @@ def test_pass_arms_be_with_fresh_ctrader_quote():
     assert len(pass_events) == 1
     assert pass_events[0]["checked"] == 1
     assert pass_events[0]["armed"] == 1
+    decision_events = [a for a in audits if a["event"] == "be_polling_decision"]
+    assert len(decision_events) == 1
+    assert decision_events[0]["decision"] == "armed"
+    assert decision_events[0]["breakeven_set_before"] is False
+    assert decision_events[0]["breakeven_set_after"] is True
+    assert decision_events[0]["quote_source"] == "polling_backup"
 
 
 def test_pass_skips_when_ctrader_market_ts_absent():
@@ -245,6 +252,60 @@ def test_pass_audit_records_skip_reasons():
     assert (checked, armed, skipped) == (0, 0, 1)
     assert audits[-1]["event"] == "be_polling_pass"
     assert audits[-1]["skip_reasons"] == {"quote_stale_or_clock_skew": 1}
+
+
+def test_pass_audits_not_eligible_decision():
+    """Quote fraîche mais MFE < trigger → décision explicite, pas d'amend."""
+    fq = FreshQuote(
+        symbol="TEST", price=100.20, quote_type="bid",
+        market_ts=_now(), observed_at=_now(),
+    )
+    broker = CTraderBroker(fresh_quote=fq)
+    audits: list[dict] = []
+    mon = _make_monitor(
+        brokers={"ftmo": broker},
+        on_audit_event=lambda p: audits.append(p),
+    )
+    pos = _register_long(mon)
+
+    checked, armed, skipped = asyncio.run(mon._be_polling_pass(freshness_threshold_s=300))
+
+    assert (checked, armed, skipped) == (1, 0, 0)
+    assert not pos.breakeven_set
+    assert len(broker.amends) == 0
+    decisions = [a for a in audits if a["event"] == "be_polling_decision"]
+    assert len(decisions) == 1
+    assert decisions[0]["decision"] == "not_eligible"
+    assert decisions[0]["reason"] == "mfe_below_trigger"
+    assert decisions[0]["mfe_r"] == pytest.approx(0.2)
+
+
+def test_pass_audits_eligible_not_armed_decision():
+    """MFE >= trigger mais amend throttlé → décision exploitable post-mortem."""
+    fq = FreshQuote(
+        symbol="TEST", price=100.35, quote_type="bid",
+        market_ts=_now(), observed_at=_now(),
+    )
+    broker = CTraderBroker(fresh_quote=fq)
+    audits: list[dict] = []
+    mon = _make_monitor(
+        brokers={"ftmo": broker},
+        min_amend_interval_s=60.0,
+        on_audit_event=lambda p: audits.append(p),
+    )
+    pos = _register_long(mon)
+    pos.last_amend_time = time.time()
+
+    checked, armed, skipped = asyncio.run(mon._be_polling_pass(freshness_threshold_s=300))
+
+    assert (checked, armed, skipped) == (1, 0, 0)
+    assert not pos.breakeven_set
+    assert len(broker.amends) == 0
+    decisions = [a for a in audits if a["event"] == "be_polling_decision"]
+    assert len(decisions) == 1
+    assert decisions[0]["decision"] == "eligible_not_armed"
+    assert decisions[0]["reason"] == "min_amend_interval"
+    assert decisions[0]["mfe_r"] >= 0.3
 
 
 def test_pass_skips_when_fresh_quote_is_none():

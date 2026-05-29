@@ -106,6 +106,7 @@ class CTraderBroker(BaseBroker):
         self.client_secret = config.get("client_secret", "")
         self.access_token = config.get("access_token", "")
         self.refresh_token = config.get("refresh_token", "")
+        self._instruments_config = config.get("instruments_config", {}) or {}
 
         acc_id = config.get("account_id")
         self.account_id = int(acc_id) if acc_id else None
@@ -1489,8 +1490,10 @@ class CTraderBroker(BaseBroker):
     def _compute_equity(self, balance: float) -> float:
         """Compute equity = balance + floating PnL + swap + commission.
 
-        Uses live tick prices for unrealized PnL. This is approximate for
-        cross-currency pairs but sufficient for margin/DD protection.
+        Prefer calibrated ``instruments.yaml`` pip values. A raw
+        price-delta × lot-size computation is denominated in the quote
+        currency; on AUDJPY 2026-05-29 that treated a JPY floating PnL as USD
+        and put the account in false DANGER.
         """
         total_floating = 0.0
         for pos in self._positions:
@@ -1505,18 +1508,68 @@ class CTraderBroker(BaseBroker):
             else:
                 current = pos.entry_price  # no tick = no floating PnL
 
-            # Unrealized PnL in quote currency (approximate)
-            direction = 1.0 if pos.side == OrderSide.BUY else -1.0
-            lot_size = 100000  # default forex
-            if sym_id and sym_id in self._symbols:
-                lot_size = self._symbols[sym_id].lot_size
-
-            unrealized_pnl = (current - pos.entry_price) * direction * pos.volume * lot_size
+            unrealized_pnl = self._compute_position_floating_pnl(pos, sym_id, current)
 
             # Add swap + commission (already in account currency)
             total_floating += unrealized_pnl + pos.swap + pos.commission
 
         return balance + total_floating
+
+    def _compute_position_floating_pnl(
+        self, pos: Position, sym_id: Optional[int], current: float
+    ) -> float:
+        """Return unrealized PnL in account currency (USD in current setups)."""
+        direction = 1.0 if pos.side == OrderSide.BUY else -1.0
+        delta = (current - pos.entry_price) * direction
+        if delta == 0 or pos.volume == 0:
+            return 0.0
+
+        unified = self._resolve_symbol_name(sym_id) if sym_id else pos.symbol
+        inst = getattr(self, "_instruments_config", {}).get(unified, {})
+        yaml_pip_size = float(inst.get("pip_size", 0.0) or 0.0)
+        yaml_pip_value = float(inst.get("pip_value_per_lot", 0.0) or 0.0)
+        if yaml_pip_size > 0 and yaml_pip_value > 0:
+            return (delta / yaml_pip_size) * yaml_pip_value * pos.volume
+
+        lot_size = 100000.0
+        if sym_id and sym_id in self._symbols:
+            lot_size = float(self._symbols[sym_id].lot_size or lot_size)
+        pnl_quote = delta * pos.volume * lot_size
+        return self._convert_quote_pnl_to_account(unified, pnl_quote, current)
+
+    def _convert_quote_pnl_to_account(
+        self, symbol: str, pnl_quote: float, current_price: float
+    ) -> float:
+        """Best-effort quote-currency to USD conversion for fallback equity."""
+        symbol = (symbol or "").upper()
+        if len(symbol) < 6:
+            return pnl_quote
+        base_ccy = symbol[:3]
+        quote_ccy = symbol[-3:]
+        if quote_ccy == "USD":
+            return pnl_quote
+        if base_ccy == "USD" and current_price > 0:
+            return pnl_quote / current_price
+
+        usd_quote = self._latest_mid_for_unified(f"USD{quote_ccy}")
+        if usd_quote and usd_quote > 0:
+            return pnl_quote / usd_quote
+        quote_usd = self._latest_mid_for_unified(f"{quote_ccy}USD")
+        if quote_usd and quote_usd > 0:
+            return pnl_quote * quote_usd
+        return pnl_quote
+
+    def _latest_mid_for_unified(self, unified_symbol: str) -> Optional[float]:
+        """Return latest mid price for a subscribed symbol if available."""
+        for sid, tick in self._price_ticks.items():
+            if self._resolve_symbol_name(sid).upper() != unified_symbol:
+                continue
+            bid = float(getattr(tick, "bid", 0.0) or 0.0)
+            ask = float(getattr(tick, "ask", 0.0) or 0.0)
+            if bid > 0 and ask > 0:
+                return (bid + ask) / 2.0
+            return bid or ask or None
+        return None
 
     def _resolve_symbol_name(self, symbol_id: int) -> str:
         """Résout un symbolId numérique en nom unifié."""

@@ -156,6 +156,8 @@ class PriceFeedManager:
                 instruments_mapping[sym] = inst_data[source_broker_id]
         if instruments_mapping:
             broker_cfg["instruments_mapping"] = instruments_mapping
+        if instruments:
+            broker_cfg["instruments_config"] = instruments
 
         # Si symbols vide, prendre tous les instruments mappés sur ce broker
         if not symbols:
