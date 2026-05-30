@@ -1,6 +1,6 @@
 """Bot Telegram interactif pour piloter Arabesque depuis mobile.
 
-Lecture seule (phase 1) : status, positions, edge audit, journal.
+Lecture (phase 1) + commande /restart de l'engine (phase 1.5).
 Whitelist par chat_id depuis ``config/secrets.yaml``.
 
 Usage::
@@ -10,6 +10,7 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import subprocess
@@ -31,6 +32,9 @@ EDGE_AUDIT = ROOT / "logs" / "edge_audit_latest.md"
 JOURNAL_DIR = ROOT / "logs" / "journal"
 EQUITY_LOG = ROOT / "logs" / "equity_snapshots.jsonl"
 MAINT_STATE = ROOT / "logs" / "maintenance_state.jsonl"
+BOT_ACTIONS_LOG = ROOT / "logs" / "bot_actions.jsonl"
+
+RESTART_CONFIRM_WINDOW_S = 30
 
 
 def _md_to_plaintext(md: str) -> str:
@@ -134,16 +138,30 @@ def _last_equity() -> dict:
     return last_per_broker
 
 
+def _log_action(chat_id: int | None, action: str, status: str, detail: str = "") -> None:
+    BOT_ACTIONS_LOG.parent.mkdir(parents=True, exist_ok=True)
+    entry = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "chat_id": chat_id,
+        "action": action,
+        "status": status,
+        "detail": detail,
+    }
+    with BOT_ACTIONS_LOG.open("a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await context.bot_data["auth"](update, context):
         return
     msg = (
-        "🤖 Arabesque bot — phase 1 lecture\n\n"
+        "🤖 Arabesque bot\n\n"
         "/status — engine + DD + protection\n"
         "/positions — positions ouvertes par broker\n"
         "/edge — résumé audit edge live vs backtest\n"
         "/journal — derniers événements du mois (fallback dernier dispo)\n"
         "/suivi_state — dernier état /suivi (passages auto Claude)\n"
+        "/restart — redémarre arabesque-live (double confirmation)\n"
         "/help — ce message"
     )
     await update.message.reply_text(msg)
@@ -242,6 +260,84 @@ async def cmd_journal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text(f"{prefix}{tail}")
 
 
+async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not await context.bot_data["auth"](update, context):
+        return
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    context.bot_data.setdefault("pending_restart", {})[chat_id] = datetime.now(
+        timezone.utc
+    )
+    _log_action(chat_id, "restart_request", "pending")
+    await update.message.reply_text(
+        f"⚠️ Confirme avec /restart_confirm dans les {RESTART_CONFIRM_WINDOW_S}s "
+        f"pour redémarrer arabesque-live.\n"
+        f"Annule en ignorant le message."
+    )
+
+
+async def cmd_restart_confirm(
+    update: Update, context: ContextTypes.DEFAULT_TYPE
+) -> None:
+    if not await context.bot_data["auth"](update, context):
+        return
+    chat_id = update.effective_chat.id if update.effective_chat else None
+    pending = context.bot_data.setdefault("pending_restart", {})
+    requested_at = pending.pop(chat_id, None)
+    now = datetime.now(timezone.utc)
+    if requested_at is None:
+        _log_action(chat_id, "restart_confirm", "no_pending")
+        await update.message.reply_text(
+            "Aucune demande /restart en attente. Tape /restart d'abord."
+        )
+        return
+    age_s = (now - requested_at).total_seconds()
+    if age_s > RESTART_CONFIRM_WINDOW_S:
+        _log_action(chat_id, "restart_confirm", "expired", f"age={age_s:.1f}s")
+        await update.message.reply_text(
+            f"Demande expirée ({age_s:.0f}s > {RESTART_CONFIRM_WINDOW_S}s). "
+            f"Retape /restart."
+        )
+        return
+
+    await update.message.reply_text("⏳ Restart en cours…")
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "systemctl", "--user", "restart", "arabesque-live",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
+    except asyncio.TimeoutError:
+        _log_action(chat_id, "restart_exec", "timeout")
+        await update.message.reply_text("❌ systemctl timeout (30s).")
+        return
+    except Exception as e:
+        _log_action(chat_id, "restart_exec", "exception", str(e))
+        await update.message.reply_text(f"❌ Erreur : {e}")
+        return
+
+    if proc.returncode != 0:
+        err = (stderr.decode(errors="ignore") or stdout.decode(errors="ignore"))[:500]
+        _log_action(chat_id, "restart_exec", "fail", err)
+        await update.message.reply_text(
+            f"❌ Restart échec (rc={proc.returncode}) : {err}"
+        )
+        return
+
+    await asyncio.sleep(5)
+    eng = _engine_status()
+    active = eng.get("active")
+    up = eng.get("uptime_h")
+    up_s = f"{up:.1f}h" if up is not None else "?"
+    _log_action(
+        chat_id, "restart_exec", "ok",
+        f"active={active} uptime={up_s}",
+    )
+    await update.message.reply_text(
+        f"✅ Restart OK. Engine : {active} ({up_s})"
+    )
+
+
 async def cmd_suivi_state(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     if not await context.bot_data["auth"](update, context):
         return
@@ -305,6 +401,8 @@ def main() -> None:
     app.add_handler(CommandHandler("edge", cmd_edge))
     app.add_handler(CommandHandler("journal", cmd_journal))
     app.add_handler(CommandHandler("suivi_state", cmd_suivi_state))
+    app.add_handler(CommandHandler("restart", cmd_restart))
+    app.add_handler(CommandHandler("restart_confirm", cmd_restart_confirm))
     app.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
