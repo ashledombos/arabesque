@@ -18,9 +18,11 @@ from scripts.audit_execution_integrity import (
     MFE_THRESHOLD,
     SIGNATURES_PRIORITY,
     aggregate,
+    build_notification_body,
     classify_exit,
     classify_non_exit_anomaly,
     compute_verdict,
+    is_urgent_verdict,
 )
 
 
@@ -457,3 +459,49 @@ class TestVerdict:
         now = datetime(2026, 6, 10, tzinfo=timezone.utc)
         v = compute_verdict(agg, FORWARD_CUTOFF_UTC, now)
         assert v["per_signature"]["RECONCILED_STOP_HIGH_MFE"]["post_trade_ids"] == ["post-tid"]
+
+
+class TestNotificationSummary:
+    def test_red_verdict_is_urgent(self):
+        agg = aggregate([_enrich_ts(_exit(
+            ts="2026-05-30T10:00:00+00:00",
+            mfe_r=1.0,
+            exit_reason="reconciled_stop_loss",
+        ))])
+        verdict = compute_verdict(
+            agg, FORWARD_CUTOFF_UTC, datetime(2026, 6, 10, tzinfo=timezone.utc)
+        )
+        assert verdict["overall_status"] == "RED"
+        assert is_urgent_verdict(verdict) is True
+
+    def test_monitoring_verdict_is_not_urgent(self):
+        agg = aggregate([_enrich_ts(_exit(
+            ts="2026-05-22T10:00:00+00:00",
+            mfe_r=1.0,
+            exit_reason="reconciled_stop_loss",
+        ))])
+        verdict = compute_verdict(
+            agg, FORWARD_CUTOFF_UTC, datetime(2026, 5, 31, tzinfo=timezone.utc)
+        )
+        assert verdict["overall_status"] == "MONITORING"
+        assert is_urgent_verdict(verdict) is False
+
+    def test_notification_body_is_short_and_points_to_report(self):
+        since = datetime(2026, 5, 23, tzinfo=timezone.utc)
+        until = datetime(2026, 5, 30, tzinfo=timezone.utc)
+        agg = aggregate([_enrich_ts(_exit(
+            ts="2026-05-30T10:00:00+00:00",
+            trade_id="post-tid",
+            mfe_r=1.0,
+            exit_reason="reconciled_stop_loss",
+        ))])
+        verdict = compute_verdict(
+            agg, FORWARD_CUTOFF_UTC, datetime(2026, 6, 10, tzinfo=timezone.utc)
+        )
+        body = build_notification_body(
+            agg, verdict, since, until, "logs/execution_integrity_latest.md"
+        )
+        assert "Statut: 🔴 RED" in body
+        assert "Signatures critiques:" in body
+        assert "post-tid" in body
+        assert "logs/execution_integrity_latest.md" in body

@@ -1,0 +1,13 @@
+[Unit]
+Description=Arabesque execution integrity audit
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/var/home/machine/dev/arabesque
+ExecStart=/var/home/machine/dev/arabesque/.venv/bin/python scripts/audit_execution_integrity.py --days 7 --notify
+StandardOutput=journal
+StandardError=journal
+Environment=PYTHONUNBUFFERED=1
+Nice=10

@@ -13,10 +13,12 @@ Les `*.service.template` du dossier parent sont des modèles paramétrables (pat
 | `arabesque-feed-watchdog.service` | Aucune version template versionnée — créée le 2026-05-14 sans passer par le pipeline templates. |
 | `arabesque-feed-watchdog.timer` | Idem. |
 | `arabesque-telegram-bot.service` | Idem — créée le 2026-05-03 lors du déploiement du bot phase 1. |
+| `arabesque-execution-integrity.service` | Snapshot exact de l'audit quotidien d'intégrité d'exécution installé le 2026-05-30. |
+| `arabesque-execution-integrity.timer` | Snapshot exact du timer quotidien associé. |
 
 ## Vérification no-secret au moment du snapshot (2026-05-19)
 
-Les 3 fichiers contiennent uniquement :
+Les fichiers contiennent uniquement :
 - `WorkingDirectory=/var/home/machine/dev/arabesque`
 - `ExecStart=/var/home/machine/dev/arabesque/.venv/bin/python ...`
 - Métadonnées systemd standard (`Restart`, `Type`, `Description`, `After`).
@@ -33,6 +35,7 @@ cp deploy/systemd/installed/*.timer ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now arabesque-feed-watchdog.timer
 systemctl --user enable --now arabesque-telegram-bot.service
+systemctl --user enable --now arabesque-execution-integrity.timer
 ```
 
 Si la machine cible a un chemin différent, éditer les `WorkingDirectory=` et `ExecStart=` avant `daemon-reload`. Une version `.template` futur peut être ajoutée pour automatiser la substitution (non urgent tant que la machine de prod reste unique).

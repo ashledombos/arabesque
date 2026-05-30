@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Arabesque execution integrity audit daily
+
+[Timer]
+OnCalendar=*-*-* 08:15:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+Unit=arabesque-execution-integrity.service
+
+[Install]
+WantedBy=timers.target

@@ -3380,3 +3380,21 @@ utilise des identifiants d'ordre et de position distincts.
   urgente mais bloque l'auto-restart (`manual_required_open_positions`). Le
   restart automatique reste reserve au cas flat, pour eviter de couper un
   trade qui a besoin du BE/trailing/reconcile sous surveillance humaine.
+
+## Decision 2026-05-30 - timer audit integrite execution 7j
+
+- **Pas d'attente manuelle** : le compteur forward 7j
+  `scripts/audit_execution_integrity.py` est lance par systemd, pour eviter
+  que la validation post-correctifs depende d'un rappel humain quotidien.
+- **Cadence** : `arabesque-execution-integrity.timer` tourne chaque jour a
+  `08:15 UTC` avec `RandomizedDelaySec=300`. Le service est `oneshot` et
+  audit-only : il lit `logs/trade_journal.jsonl`, ecrit
+  `logs/execution_integrity_latest.md` + `logs/execution_integrity.jsonl`, puis
+  s'arrete.
+- **Notifications** : verdict routine `MONITORING`/`GREEN` -> Telegram seul.
+  Verdict `RED` (signature critique post-cutoff) -> Telegram + ntfy, en
+  respectant la politique "ntfy uniquement intervention urgente".
+- **Scope** : aucun changement signal, sizing, ordre, position, broker ou
+  restart live. Le timer surveille seulement que les signatures
+  `BE_MISSED`, `RECONCILED_HIGH_MFE`, `RECONCILED_STOP_HIGH_MFE` ne
+  reapparaissent pas apres le cutoff `6b3f464`.

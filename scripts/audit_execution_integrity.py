@@ -40,11 +40,13 @@ Usage :
     python scripts/audit_execution_integrity.py                # 7 derniers jours
     python scripts/audit_execution_integrity.py --days 14
     python scripts/audit_execution_integrity.py --since 2026-05-01
+    python scripts/audit_execution_integrity.py --notify       # Telegram, ntfy si RED
     python scripts/audit_execution_integrity.py --no-write     # dry-run console
 """
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -52,9 +54,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterable
 
+import yaml
+
+from arabesque.notifications import select_notification_channels
+
 JOURNAL = "logs/trade_journal.jsonl"
 OUT_MD = "logs/execution_integrity_latest.md"
 OUT_JSONL = "logs/execution_integrity.jsonl"
+SECRETS = Path("config/secrets.yaml")
 
 # Cutoff forward = max(timestamps des commits clés)
 # 968280f (audit be polling)      : 2026-05-29 22:07 +0200 → 20:07 UTC
@@ -531,6 +538,93 @@ def render_markdown(agg: dict, verdict: dict, since: datetime, until: datetime) 
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Notifications
+# ─────────────────────────────────────────────────────────────────────────────
+
+def is_urgent_verdict(verdict: dict) -> bool:
+    """Ntfy est réservé aux fuites critiques post-cutoff."""
+    return verdict.get("overall_status") == "RED"
+
+
+def build_notification_body(agg: dict, verdict: dict, since: datetime,
+                            until: datetime, out_md: str) -> str:
+    """Résumé court pour notification quotidienne.
+
+    Le rapport complet reste dans ``out_md`` ; Telegram reçoit le résumé de
+    cadence. Si le verdict passe RED, la même synthèse part aussi vers ntfy.
+    """
+    overall: Bucket = agg["overall"]
+    critical_post = sum(
+        info.get("post_cutoff", 0)
+        for info in verdict.get("per_signature", {}).values()
+    )
+    critical_total = sum(
+        overall.primary_counts.get(sig, 0) for sig in CRITICAL_SIGNATURES
+    )
+    critical_loss_r = sum(
+        overall.primary_loss_sum_r.get(sig, 0.0) for sig in CRITICAL_SIGNATURES
+    )
+    status = verdict.get("overall_status", "?")
+    emoji = _STATUS_EMOJI.get(status, "?")
+
+    lines = [
+        "Audit intégrité exécution",
+        f"Statut: {emoji} {status}",
+        f"Période: {since.date()} → {until.date()}",
+        f"Forward: {verdict['days_since_cutoff']} / "
+        f"{verdict['required_forward_days']}j depuis {verdict['cutoff_ref']}",
+        f"Exits analysés: {overall.n_exits}",
+        f"Signatures critiques: {critical_total} total, "
+        f"{critical_post} post-cutoff, coût net {critical_loss_r:+.2f}R",
+    ]
+
+    if status == "RED":
+        open_lines = []
+        for sig, info in verdict.get("per_signature", {}).items():
+            if info.get("status") == "open":
+                tids = ", ".join(info.get("post_trade_ids", [])[:5]) or "?"
+                open_lines.append(f"- {sig}: {info['post_cutoff']} ({tids})")
+        if open_lines:
+            lines.append("Fuites ouvertes:")
+            lines.extend(open_lines)
+
+    lines.append(f"Rapport: {out_md}")
+    return "\n".join(lines)
+
+
+async def send_notification(body: str, *, urgent: bool) -> bool:
+    """Envoie Telegram en routine, Telegram+ntfy en urgent."""
+    if not SECRETS.exists():
+        print("secrets.yaml non trouvé — notification non envoyée")
+        return False
+    try:
+        import apprise
+    except ImportError:
+        print("apprise non installé — notification non envoyée")
+        return False
+
+    secrets = yaml.safe_load(SECRETS.read_text()) or {}
+    channels = select_notification_channels(
+        (secrets.get("notifications") or {}).get("channels") or [],
+        urgent=urgent,
+    )
+    if not channels:
+        print("Aucun canal de notification configuré")
+        return False
+
+    ap = apprise.Apprise()
+    for channel in channels:
+        if isinstance(channel, str):
+            ap.add(channel)
+    title = "Arabesque Integrity"
+    if urgent:
+        title = f"[URGENT] {title}"
+    return await ap.async_notify(
+        body=body, title=title, body_format=apprise.NotifyFormat.TEXT
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # CLI
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -548,6 +642,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-write", action="store_true",
                         help="N'écrit rien sur disque (dry-run console)")
     parser.add_argument("--required-forward-days", type=float, default=7.0)
+    parser.add_argument("--notify", action="store_true",
+                        help="Notifier le verdict (Telegram, ntfy si RED)")
     args = parser.parse_args(argv)
 
     now = datetime.now(timezone.utc)
@@ -590,6 +686,13 @@ def main(argv: list[str] | None = None) -> int:
             f.write(json.dumps(record, default=str) + "\n")
         print(f"\n✓ Markdown : {args.out_md}")
         print(f"✓ Append    : {args.out_jsonl}")
+
+    if args.notify:
+        body = build_notification_body(agg, verdict, since, until, args.out_md)
+        ok = asyncio.run(send_notification(
+            body, urgent=is_urgent_verdict(verdict)
+        ))
+        print(f"✓ Notification : {'ok' if ok else 'failed'}")
 
     return 0
 
