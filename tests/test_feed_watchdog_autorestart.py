@@ -456,6 +456,39 @@ def test_pricefeed_partial_warns_without_restart(watchdog):
     assert uptime["pricefeed"]["active"] == 30
 
 
+def test_pricefeed_partial_weekend_summary_is_measured_without_alert(watchdog):
+    wd = watchdog
+    now = _no_weekend_now()
+    sent = []
+    partial = {
+        "ts": now.isoformat(),
+        "age_seconds": 60,
+        "active": 27,
+        "total": 31,
+        "dormant": 3,
+        "stale_major": 1,
+        "no_tick": 0,
+        "weekend": True,
+    }
+
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: 60), \
+         patch.object(wd, "_last_pricefeed_summary", lambda _now: partial), \
+         patch.object(wd, "_send_alert",
+                      lambda body, title, urgent=False: sent.append((title, urgent, body)) or True), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(now)):
+        wd.main()
+
+    assert sent == []
+    state = json.loads(wd.STATE.read_text())
+    assert state["last_status"].startswith(
+        "pricefeed_partial_weekend_suppressed:27/31"
+    )
+    uptime = json.loads(wd.UPTIME_EVENTS.read_text().splitlines()[0])
+    assert uptime["cause"] == "weekend"
+    assert uptime["pricefeed"]["weekend"] is True
+
+
 def test_pricefeed_summary_parser_extracts_latest(watchdog):
     wd = watchdog
     now = dt.datetime(2026, 5, 19, 10, 10, 0, tzinfo=dt.timezone.utc)
@@ -474,6 +507,24 @@ def test_pricefeed_summary_parser_extracts_latest(watchdog):
     assert summary["active"] == 30
     assert summary["total"] == 31
     assert summary["stale_major"] == 1
+
+
+def test_pricefeed_summary_parser_marks_weekend(watchdog):
+    wd = watchdog
+    now = dt.datetime(2026, 5, 31, 16, 10, 0, tzinfo=dt.timezone.utc)
+
+    class Result:
+        returncode = 0
+        stdout = (
+            "mai 31 18:05:00 host app[1]: [PriceFeed] 📊 27/31 actifs, "
+            "3 dormants, 1 stale majeurs, 0 jamais reçus — 20 ticks total 🌙 WEEKEND"
+        )
+
+    with patch.object(wd.subprocess, "run", lambda *a, **kw: Result()):
+        summary = wd._last_pricefeed_summary(now)
+
+    assert summary is not None
+    assert summary["weekend"] is True
 
 
 def test_pricefeed_summary_parser_ignores_stale_summary(watchdog):

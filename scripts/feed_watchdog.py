@@ -294,6 +294,7 @@ def _last_pricefeed_summary(now: dt.datetime) -> dict | None:
             "dormant": dormant,
             "stale_major": stale_major,
             "no_tick": no_tick,
+            "weekend": "WEEKEND" in line,
         }
         if latest is None or ts_utc > dt.datetime.fromisoformat(latest["ts"]):
             latest = entry
@@ -344,6 +345,8 @@ def _infer_uptime_cause(status: str) -> str:
         return "weekend"
     if status.startswith("feed_stale"):
         return "feed_stale"
+    if status.startswith("pricefeed_partial_weekend"):
+        return "weekend"
     if status.startswith("pricefeed_partial"):
         return "partial_feed"
     if status == "no_bar_data_in_window":
@@ -844,6 +847,18 @@ def main() -> int:
             stale_major = int(pf_summary.get("stale_major") or 0)
             no_tick = int(pf_summary.get("no_tick") or 0)
             if total > 0 and (active < total or stale_major > 0 or no_tick > 0):
+                if pf_summary.get("weekend") and no_tick == 0:
+                    # Les CFD cTrader ont des fenêtres weekend où certains
+                    # symboles restent naturellement dormants/stale alors que
+                    # les barres continuent. Mesurer sans notifier pour éviter
+                    # l'alerte fatigue sur un état attendu et non actionnable.
+                    state["last_status"] = (
+                        f"pricefeed_partial_weekend_suppressed:{active}/{total} "
+                        f"stale_major={stale_major} no_tick={no_tick}"
+                    )
+                    state.pop("feed_stale_since_ts", None)
+                    _write_state(state)
+                    return 0
                 state["last_status"] = (
                     f"pricefeed_partial:{active}/{total} "
                     f"stale_major={stale_major} no_tick={no_tick}"

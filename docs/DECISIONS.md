@@ -3398,3 +3398,17 @@ utilise des identifiants d'ordre et de position distincts.
   restart live. Le timer surveille seulement que les signatures
   `BE_MISSED`, `RECONCILED_HIGH_MFE`, `RECONCILED_STOP_HIGH_MFE` ne
   reapparaissent pas apres le cutoff `6b3f464`.
+
+## Decision 2026-05-31 - watchdog partial feed weekend silencieux
+
+- **Constat** : pendant la fenetre weekend cTrader, le PriceFeed peut rester
+  partiel (`27/31 actifs`, quelques symboles dormants/stale) tout en recevant
+  assez de ticks pour fermer les barres. Le log PriceFeed marque explicitement
+  ces resumes avec `WEEKEND`.
+- **Regle** : si le BarAggregator est vivant, que le resume PriceFeed est
+  marque weekend, et que `no_tick == 0`, le watchdog mesure l'etat dans
+  `logs/uptime_events.jsonl` mais ne notifie plus Telegram. Cela evite
+  l'alerte fatigue sur un etat attendu et non actionnable.
+- **Escalade conservee** : hors weekend, ou si des symboles sont `jamais
+  recus`, ou si les barres deviennent stale, les alertes existantes restent en
+  place. Aucun changement auto-restart, ordre, signal ou sizing.
