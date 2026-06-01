@@ -3456,3 +3456,38 @@ utilise des identifiants d'ordre et de position distincts.
   `AUTO_RESTART_REQUIRES_FLAT` deja en place. Le scope doc
   `docs/SCOPE_TASK_39_HOT_PATH_5_2026-05-24.md` reste archive pour
   reference historique mais n'est plus a implementer en l'etat.
+
+## Decision 2026-06-01 - weekend gap guard FX/metals explicite
+
+- **Incident fondateur** : le trade live `AUDJPY` Extension
+  `1d725a82-a82` (FTMO) est entre LONG le 2026-05-29 a 15:00 UTC
+  (`entry=114.525`, `SL=114.3205`) et est reste ouvert pendant le week-end.
+  A la reouverture du 2026-05-31 21:05 UTC, le SL serveur-side a ete execute
+  a `114.205`, soit `-1.565R` au lieu de `-1R`. `be_source=not_armed` et les
+  decisions BE polling indiquaient `mfe_below_trigger` : ce n'est pas un bug
+  BE/trailing, mais un vrai gap de reouverture. La jambe GFT du meme signal
+  etait deja sortie vendredi a `-0.079R`, d'ou l'asymetrie.
+- **Audit** : `tmp/audit_weekend_gap_fx.py` a rejoue Extension+Glissade sur
+  `AUDJPY/GBPJPY/CHFJPY/XAUUSD` depuis 2024-04-01 avec sous-barres M1, puis a
+  compare le live. Le backtest ne simule pas le slippage au-dela du SL
+  (`loss_gt_1r=0`), donc il sous-estime ce risque prop-firm. Sur le panier
+  audite, un blocage des nouvelles entrees vendredi >=15h UTC aurait un effet
+  BT legerement positif (`+0.445R`), et aurait evite l'incident live AUDJPY
+  (`+1.644R` sur la fenetre live auditee). Le flat automatique vendredi 20h
+  ressort positif en contrefactuel, mais il toucherait les positions ouvertes :
+  trop intrusif sans validation plus large.
+- **Decision** : ajout d'un `weekend_gap_guard` live distinct du
+  `weekend_crypto_guard`. Il bloque uniquement les **nouvelles entrees** sur
+  les instruments non-crypto explicitement listes, vendredi >=15h UTC, samedi
+  et dimanche. Il ne ferme jamais une position ouverte et ne modifie ni sizing,
+  ni signal, ni risk guard.
+- **Configuration initiale** : `settings.yaml -> weekend_gap_guard` active sur
+  `AUDJPY`, `GBPJPY`, `CHFJPY`, `XAUUSD`, brokers `ctrader` et `tradelocker`.
+  Le choix d'une liste explicite evite de transformer un incident AUDJPY en
+  filtre global sur tous les instruments.
+- **Trace** : les blocages sont journalises dans `logs/weekend_crypto_guard.jsonl`
+  avec `event=blocked_gap` et `guard=weekend_gap_guard`, pour permettre un ROI
+  audit comme le guard crypto.
+- **Hors scope** : pas de fermeture automatique avant week-end. A reconsidérer
+  uniquement si un audit plus large montre que le flat vendredi 20h ameliore
+  l'edge sans casser les trades gagnants.

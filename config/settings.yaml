@@ -184,6 +184,24 @@ weekend_crypto_guard:
     - ctrader
 
 # -----------------------------------------------------------------------------
+# WEEKEND GAP GUARD — Empêche les nouvelles positions tard le vendredi sur les
+# instruments non-crypto explicitement exposés aux gaps de réouverture.
+# Incident fondateur : AUDJPY FTMO 2026-05-29 15:00 → 2026-05-31 21:05,
+# SL exécuté à -1.565R au lieu de -1R. Ne ferme jamais une position existante.
+# -----------------------------------------------------------------------------
+weekend_gap_guard:
+  enabled: true
+  cutoff_utc_hour: 15
+  broker_types:
+    - ctrader
+    - tradelocker
+  symbols:
+    - AUDJPY
+    - GBPJPY
+    - CHFJPY
+    - XAUUSD
+
+# -----------------------------------------------------------------------------
 # FILTRES PRÉ-PLACEMENT
 # -----------------------------------------------------------------------------
 filters:

@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+import arabesque.execution.order_dispatcher as order_dispatcher_mod
 from arabesque.broker.base import OrderResult, OrderType, PriceTick, SymbolInfo
 from arabesque.core.guards import AccountState, PropConfig
 from arabesque.core.models import Signal, Side
@@ -70,6 +71,16 @@ def _signal() -> Signal:
     )
 
 
+def _audjpy_signal() -> Signal:
+    sig = _signal()
+    sig.instrument = "AUDJPY"
+    sig.close = 114.525
+    sig.sl = 114.3205
+    sig.tp_indicative = 114.937
+    sig.atr = 0.35
+    return sig
+
+
 def _pending(signal: Signal) -> PendingSignal:
     return PendingSignal(
         signal=signal,
@@ -95,11 +106,89 @@ def _dispatcher(gft_prop: PropConfig) -> OrderDispatcher:
     )
 
 
+def _dispatcher_with_settings(settings: dict) -> OrderDispatcher:
+    return OrderDispatcher(
+        brokers={"ftmo_challenge": _Broker(), "gft_compte1": _Broker()},
+        instruments_cfg={
+            "AUDJPY": {"pip_size": 0.001, "pip_value_per_lot": 9.0},
+            "BTCUSD": {"session_model": "24x7"},
+        },
+        prop_config=PropConfig(),
+        settings=settings,
+        dry_run=True,
+    )
+
+
+def _freeze_dispatcher_now(monkeypatch, when: datetime) -> None:
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return when.astimezone(tz or timezone.utc)
+
+    monkeypatch.setattr(order_dispatcher_mod, "datetime", FixedDatetime)
+
+
 def test_live_dispatcher_enables_worst_case_budget():
     dispatcher = _dispatcher(PropConfig())
 
     assert dispatcher.guards.live_mode is True
     assert dispatcher._guards_by_broker["gft_compte1"].live_mode is True
+
+
+def test_weekend_gap_guard_blocks_listed_fx_after_friday_cutoff(monkeypatch):
+    dispatcher = _dispatcher_with_settings({
+        "weekend_gap_guard": {
+            "enabled": True,
+            "cutoff_utc_hour": 15,
+            "symbols": ["AUDJPY"],
+            "broker_types": ["tradelocker"],
+        }
+    })
+    _freeze_dispatcher_now(
+        monkeypatch, datetime(2026, 5, 29, 15, 0, tzinfo=timezone.utc)
+    )
+
+    assert dispatcher._is_weekend_gap_blocked(
+        "gft_compte1", dispatcher.brokers["gft_compte1"], _audjpy_signal()
+    ) is True
+
+
+def test_weekend_gap_guard_allows_listed_fx_before_cutoff(monkeypatch):
+    dispatcher = _dispatcher_with_settings({
+        "weekend_gap_guard": {
+            "enabled": True,
+            "cutoff_utc_hour": 15,
+            "symbols": ["AUDJPY"],
+            "broker_types": ["tradelocker"],
+        }
+    })
+    _freeze_dispatcher_now(
+        monkeypatch, datetime(2026, 5, 29, 14, 59, tzinfo=timezone.utc)
+    )
+
+    assert dispatcher._is_weekend_gap_blocked(
+        "gft_compte1", dispatcher.brokers["gft_compte1"], _audjpy_signal()
+    ) is False
+
+
+def test_weekend_gap_guard_does_not_duplicate_crypto_guard(monkeypatch):
+    dispatcher = _dispatcher_with_settings({
+        "weekend_gap_guard": {
+            "enabled": True,
+            "cutoff_utc_hour": 15,
+            "symbols": ["BTCUSD"],
+            "broker_types": ["tradelocker"],
+        }
+    })
+    sig = _audjpy_signal()
+    sig.instrument = "BTCUSD"
+    _freeze_dispatcher_now(
+        monkeypatch, datetime(2026, 5, 29, 18, 0, tzinfo=timezone.utc)
+    )
+
+    assert dispatcher._is_weekend_gap_blocked(
+        "gft_compte1", dispatcher.brokers["gft_compte1"], sig
+    ) is False
 
 
 def test_gft_order_is_sized_from_gft_state_not_primary_pending_budget():

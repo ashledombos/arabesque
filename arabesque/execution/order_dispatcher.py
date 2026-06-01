@@ -213,6 +213,25 @@ class OrderDispatcher:
                 f"brokers: {self._wcg_broker_types}"
             )
 
+        # Weekend gap guard config.
+        #
+        # Distinct du crypto guard : ici on vise les instruments fermés le
+        # week-end (FX/metals) qui peuvent rouvrir au-delà du SL broker-side.
+        # Le guard ne ferme jamais une position ; il bloque uniquement les
+        # nouvelles entrées tard le vendredi sur une liste explicite.
+        wgg = (settings or {}).get("weekend_gap_guard", {})
+        self._wgg_enabled = wgg.get("enabled", False)
+        self._wgg_cutoff_hour = wgg.get("cutoff_utc_hour", 15)
+        self._wgg_symbols = set(wgg.get("symbols", []))
+        self._wgg_broker_types = set(wgg.get("broker_types", []))
+        if self._wgg_enabled:
+            logger.info(
+                f"[Dispatcher] Weekend gap guard actif: "
+                f"vendredi >= {self._wgg_cutoff_hour}h UTC, "
+                f"symbols: {sorted(self._wgg_symbols)}, "
+                f"brokers: {self._wgg_broker_types or 'all'}"
+            )
+
         # Strategy × broker exclusions (e.g. cabriole -> [gft_compte1])
         sbe_cfg = (settings or {}).get("strategy_broker_exclusions", {}) or {}
         self._strategy_broker_exclusions: Dict[str, set] = {
@@ -839,6 +858,39 @@ class OrderDispatcher:
             return True
         return False
 
+    def _is_weekend_gap_blocked(
+        self, broker_id: str, broker: BaseBroker, signal: Signal
+    ) -> bool:
+        """Bloque les nouvelles entrées exposées au gap de réouverture.
+
+        AUDJPY 2026-05-29 -> 2026-05-31 a montré qu'un instrument non-crypto
+        fermé le week-end peut rouvrir au-delà du SL (-1.565R réel). Cette
+        garde est volontairement explicite par symbole pour ne pas transformer
+        un incident isolé en filtre global non validé.
+        """
+        if not self._wgg_enabled:
+            return False
+
+        if self._wgg_symbols and signal.instrument not in self._wgg_symbols:
+            return False
+
+        broker_type = broker.config.get("type", "")
+        if self._wgg_broker_types and broker_type not in self._wgg_broker_types:
+            return False
+
+        # Les crypto ont déjà un guard dédié, plus précis pour cTrader.
+        inst_cfg = self.instruments_cfg.get(signal.instrument, {})
+        if inst_cfg.get("session_model") == "24x7":
+            return False
+
+        now = datetime.now(timezone.utc)
+        wd = now.weekday()
+        if wd in (5, 6):
+            return True
+        if wd == 4 and now.hour >= self._wgg_cutoff_hour:
+            return True
+        return False
+
     def _log_weekend_guard(self, event: str, signal: Signal, broker_id: str,
                            extra: dict | None = None) -> None:
         """Persiste un événement du weekend crypto guard en JSONL."""
@@ -912,6 +964,25 @@ class OrderDispatcher:
             return OrderResult(
                 success=False,
                 message=f"Weekend crypto guard: {sym} bloqué sur {broker_id}"
+            )
+
+        # Weekend gap guard — bloque les nouvelles positions sur instruments
+        # fermés le week-end et listés explicitement (ex: AUDJPY après incident
+        # -1.565R à la réouverture du 2026-05-31).
+        if self._is_weekend_gap_blocked(broker_id, broker, signal):
+            logger.info(
+                f"[Dispatcher] 🛡️ Weekend gap guard: {sym} {signal.side.value} "
+                f"bloqué sur {broker_id} (vendredi >= {self._wgg_cutoff_hour}h UTC)"
+            )
+            self._log_weekend_guard(
+                "blocked_gap",
+                signal,
+                broker_id,
+                {"guard": "weekend_gap_guard"},
+            )
+            return OrderResult(
+                success=False,
+                message=f"Weekend gap guard: {sym} bloqué sur {broker_id}"
             )
 
         # Vérifier si l'instrument est disponible sur ce broker
