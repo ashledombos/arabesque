@@ -33,8 +33,16 @@ JOURNAL_DIR = ROOT / "logs" / "journal"
 EQUITY_LOG = ROOT / "logs" / "equity_snapshots.jsonl"
 MAINT_STATE = ROOT / "logs" / "maintenance_state.jsonl"
 BOT_ACTIONS_LOG = ROOT / "logs" / "bot_actions.jsonl"
+POSITION_MONITOR_STATE = ROOT / "logs" / "position_monitor_state.json"
 
 RESTART_CONFIRM_WINDOW_S = 30
+# Calque du cooldown feed_watchdog (2 restarts/h max). Toute tentative récente
+# bloque, qu'elle ait reussi ou non : on ne veut pas qu'un echec systemctl
+# puisse etre rejoué en boucle depuis Telegram.
+RESTART_COOLDOWN_S = 600
+# Delai entre stop et start pour laisser cTrader purger la session serveur-side
+# (TTL ALREADY_LOGGED_IN observe plusieurs minutes lors des incidents 29-30/05).
+RESTART_STOP_SLEEP_S = 60
 
 
 def _md_to_plaintext(md: str) -> str:
@@ -138,7 +146,13 @@ def _last_equity() -> dict:
     return last_per_broker
 
 
-def _log_action(chat_id: int | None, action: str, status: str, detail: str = "") -> None:
+def _log_action(
+    chat_id: int | None,
+    action: str,
+    status: str,
+    detail: str = "",
+    extra: dict | None = None,
+) -> None:
     BOT_ACTIONS_LOG.parent.mkdir(parents=True, exist_ok=True)
     entry = {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -147,8 +161,130 @@ def _log_action(chat_id: int | None, action: str, status: str, detail: str = "")
         "status": status,
         "detail": detail,
     }
+    if extra:
+        entry.update(extra)
     with BOT_ACTIONS_LOG.open("a") as f:
         f.write(json.dumps(entry) + "\n")
+
+
+# Actions concerns par le cooldown : toute tentative recente bloque, qu'elle
+# ait reussi, echoue, time-out ou leve une exception. Un /restart_request seul
+# (avant confirmation) n'est pas compte — c'est la sequence physique qui peut
+# perturber le live.
+_RESTART_COOLDOWN_ACTIONS = {"restart_exec", "restart_stop", "restart_start"}
+
+
+def _last_restart_attempt_age_s() -> float | None:
+    """Retourne l'age (s) de la derniere tentative restart, tous statuts confondus.
+
+    None si jamais tente ou journal absent. Lecture taillee (dernieres 500
+    lignes) car le journal grossit avec /status, /positions, etc.
+    """
+    if not BOT_ACTIONS_LOG.exists():
+        return None
+    try:
+        lines = BOT_ACTIONS_LOG.read_text().splitlines()[-500:]
+    except OSError:
+        return None
+    now = datetime.now(timezone.utc)
+    for line in reversed(lines):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if entry.get("action") not in _RESTART_COOLDOWN_ACTIONS:
+            continue
+        ts_raw = entry.get("ts")
+        if not ts_raw:
+            continue
+        try:
+            ts = datetime.fromisoformat(ts_raw)
+        except ValueError:
+            continue
+        return (now - ts).total_seconds()
+    return None
+
+
+def _read_open_positions() -> tuple[int | None, dict[str, list[dict]]]:
+    """Lit ``logs/position_monitor_state.json`` et retourne (count, par broker).
+
+    Renvoie ``(None, {})`` si le fichier est absent ou illisible : l'appelant
+    doit traiter ``None`` comme **inconnu** et fail-closed (refuser le restart
+    par defaut). Le fichier est rafraichi a chaque cycle reconcile (~2 min) +
+    sur register/unregister, donc l'absence en pratique signifie engine arrete
+    ou state file purge — situation ou un refus systematique est legitime.
+    """
+    if not POSITION_MONITOR_STATE.exists():
+        return None, {}
+    try:
+        data = json.loads(POSITION_MONITOR_STATE.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None, {}
+    if not isinstance(data, dict):
+        return None, {}
+    by_broker: dict[str, list[dict]] = {}
+    for pos in data.values():
+        if not isinstance(pos, dict):
+            continue
+        broker_id = str(pos.get("broker_id", "?"))
+        by_broker.setdefault(broker_id, []).append({
+            "symbol": pos.get("symbol", "?"),
+            "side": pos.get("side", "?"),
+            "position_id": str(pos.get("position_id", "?")),
+        })
+    count = sum(len(v) for v in by_broker.values())
+    return count, by_broker
+
+
+def _format_positions_human(by_broker: dict[str, list[dict]]) -> str:
+    if not by_broker:
+        return "  (aucune)"
+    lines = []
+    for broker, items in sorted(by_broker.items()):
+        for it in items:
+            lines.append(
+                f"  • {broker} : {it['symbol']} {it['side']} (id={it['position_id']})"
+            )
+    return "\n".join(lines)
+
+
+async def _notify_ntfy_urgent(title: str, body: str) -> None:
+    """Envoie une alerte urgente (Telegram + ntfy) via apprise.
+
+    Reservee aux situations bloquantes ou aux echecs systemctl. Les messages
+    Telegram nominaux du flux /restart restent envoyes via reply_text et n'ont
+    pas besoin de passer par ce helper.
+    """
+    if not SECRETS.exists():
+        return
+    try:
+        secrets = yaml.safe_load(SECRETS.read_text()) or {}
+    except (OSError, yaml.YAMLError):
+        return
+    from arabesque.notifications import select_notification_channels
+
+    raw_channels = (secrets.get("notifications") or {}).get("channels") or []
+    channels = select_notification_channels(raw_channels, urgent=True)
+    if not channels:
+        return
+    try:
+        import apprise
+    except ImportError:
+        return
+    ap = apprise.Apprise()
+    for ch in channels:
+        if isinstance(ch, str):
+            ap.add(ch)
+    try:
+        await ap.async_notify(
+            body=body,
+            title=f"[URGENT] {title}",
+            body_format=apprise.NotifyFormat.TEXT,
+        )
+    except Exception as exc:  # ne JAMAIS faire planter le bot sur un echec notif
+        logger.warning("ntfy urgent notification failed: %s", exc)
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -264,15 +400,103 @@ async def cmd_restart(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if not await context.bot_data["auth"](update, context):
         return
     chat_id = update.effective_chat.id if update.effective_chat else None
-    context.bot_data.setdefault("pending_restart", {})[chat_id] = datetime.now(
-        timezone.utc
+    args = [a.lower() for a in (context.args or [])]
+    force = "force" in args
+
+    count, by_broker = _read_open_positions()
+
+    # Fail-closed sur etat inconnu : on ne sait pas si des trades sont
+    # exposes, on refuse meme avec ``force`` (l'operateur doit verifier
+    # manuellement, par exemple via /positions, avant d'insister).
+    if count is None:
+        _log_action(
+            chat_id, "restart_request", "blocked_state_unknown",
+            f"state_file={POSITION_MONITOR_STATE.name} absent_ou_illisible",
+        )
+        await update.message.reply_text(
+            "⛔ Etat positions inconnu (position_monitor_state.json absent ou "
+            "illisible). Restart refusé par sécurité — vérifie /positions et "
+            "relance quand l'état est lisible."
+        )
+        await _notify_ntfy_urgent(
+            "Arabesque /restart bloqué",
+            "Etat positions inconnu, /restart refusé. Intervention humaine.",
+        )
+        return
+
+    if count > 0 and not force:
+        positions_text = _format_positions_human(by_broker)
+        _log_action(
+            chat_id, "restart_request", "blocked_open_positions",
+            f"count={count}",
+            extra={"positions_by_broker": by_broker, "force": False},
+        )
+        await update.message.reply_text(
+            f"⛔ {count} position(s) ouverte(s) — restart refusé par défaut.\n"
+            f"{positions_text}\n\n"
+            f"Pour outrepasser : /restart force (puis /restart_confirm).\n"
+            f"Un restart en position interrompt monitoring/BE/trailing."
+        )
+        await _notify_ntfy_urgent(
+            "Arabesque /restart bloqué (positions ouvertes)",
+            f"{count} position(s) ouverte(s). Operateur doit confirmer "
+            f"avec /restart force s'il veut outrepasser.",
+        )
+        return
+
+    context.bot_data.setdefault("pending_restart", {})[chat_id] = {
+        "ts": datetime.now(timezone.utc),
+        "force": force,
+        "positions_at_request": by_broker,
+    }
+    _log_action(
+        chat_id, "restart_request", "pending",
+        f"force={force} count={count}",
+        extra={"force": force, "positions_count": count,
+               "positions_by_broker": by_broker},
     )
-    _log_action(chat_id, "restart_request", "pending")
-    await update.message.reply_text(
-        f"⚠️ Confirme avec /restart_confirm dans les {RESTART_CONFIRM_WINDOW_S}s "
-        f"pour redémarrer arabesque-live.\n"
-        f"Annule en ignorant le message."
+    if force and count > 0:
+        positions_text = _format_positions_human(by_broker)
+        await update.message.reply_text(
+            f"⚠️ MODE FORCE — {count} position(s) ouverte(s) :\n"
+            f"{positions_text}\n\n"
+            f"Le restart va interrompre monitoring/BE/trailing en cours. "
+            f"Le stop déclenche save_state, le start restaure les positions, "
+            f"mais tout MFE/trailing en vol depuis le dernier checkpoint sera "
+            f"perdu (≤ 2 min).\n\n"
+            f"Confirme avec /restart_confirm dans les "
+            f"{RESTART_CONFIRM_WINDOW_S}s. Annule en ignorant."
+        )
+    else:
+        await update.message.reply_text(
+            f"⚠️ Aucune position ouverte. Confirme avec /restart_confirm "
+            f"dans les {RESTART_CONFIRM_WINDOW_S}s.\n"
+            f"Séquence : stop → sleep {RESTART_STOP_SLEEP_S}s → start "
+            f"(libère la session cTrader).\n"
+            f"Annule en ignorant le message."
+        )
+
+
+async def _run_systemctl(
+    action: str, timeout_s: float = 30.0,
+) -> tuple[int | None, str, str]:
+    """Lance ``systemctl --user <action> arabesque-live``.
+
+    Retourne ``(returncode, stdout, stderr)``. ``returncode is None`` signale
+    un timeout — l'appelant le distingue d'un echec rc != 0.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "systemctl", "--user", action, "arabesque-live",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
+    try:
+        stdout, stderr = await asyncio.wait_for(
+            proc.communicate(), timeout=timeout_s,
+        )
+    except asyncio.TimeoutError:
+        return None, "", "timeout"
+    return proc.returncode, stdout.decode(errors="ignore"), stderr.decode(errors="ignore")
 
 
 async def cmd_restart_confirm(
@@ -282,14 +506,21 @@ async def cmd_restart_confirm(
         return
     chat_id = update.effective_chat.id if update.effective_chat else None
     pending = context.bot_data.setdefault("pending_restart", {})
-    requested_at = pending.pop(chat_id, None)
+    request = pending.pop(chat_id, None)
     now = datetime.now(timezone.utc)
-    if requested_at is None:
+    if request is None:
         _log_action(chat_id, "restart_confirm", "no_pending")
         await update.message.reply_text(
             "Aucune demande /restart en attente. Tape /restart d'abord."
         )
         return
+
+    requested_at = request["ts"] if isinstance(request, dict) else request
+    force = bool(request.get("force")) if isinstance(request, dict) else False
+    positions_by_broker = (
+        request.get("positions_at_request") if isinstance(request, dict) else {}
+    )
+
     age_s = (now - requested_at).total_seconds()
     if age_s > RESTART_CONFIRM_WINDOW_S:
         _log_action(chat_id, "restart_confirm", "expired", f"age={age_s:.1f}s")
@@ -299,28 +530,100 @@ async def cmd_restart_confirm(
         )
         return
 
-    await update.message.reply_text("⏳ Restart en cours…")
-    try:
-        proc = await asyncio.create_subprocess_exec(
-            "systemctl", "--user", "restart", "arabesque-live",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+    cooldown_age = _last_restart_attempt_age_s()
+    if cooldown_age is not None and cooldown_age < RESTART_COOLDOWN_S:
+        remaining = int(RESTART_COOLDOWN_S - cooldown_age)
+        _log_action(
+            chat_id, "restart_confirm", "cooldown",
+            f"last_attempt_age={cooldown_age:.0f}s remaining={remaining}s",
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=30)
-    except asyncio.TimeoutError:
-        _log_action(chat_id, "restart_exec", "timeout")
-        await update.message.reply_text("❌ systemctl timeout (30s).")
-        return
-    except Exception as e:
-        _log_action(chat_id, "restart_exec", "exception", str(e))
-        await update.message.reply_text(f"❌ Erreur : {e}")
+        await update.message.reply_text(
+            f"⛔ Cooldown actif. Dernière tentative il y a "
+            f"{int(cooldown_age)}s ; réessaie dans {remaining}s "
+            f"(seuil {RESTART_COOLDOWN_S}s)."
+        )
         return
 
-    if proc.returncode != 0:
-        err = (stderr.decode(errors="ignore") or stdout.decode(errors="ignore"))[:500]
-        _log_action(chat_id, "restart_exec", "fail", err)
+    log_extra = {
+        "force": force,
+        "positions_by_broker": positions_by_broker or {},
+    }
+
+    # --- STOP -------------------------------------------------------------
+    await update.message.reply_text("⏸️ Stop en cours…")
+    try:
+        rc, stdout, stderr = await _run_systemctl("stop")
+    except Exception as exc:
+        _log_action(chat_id, "restart_stop", "exception", str(exc),
+                    extra=log_extra)
+        await update.message.reply_text(f"❌ Stop : exception {exc}")
+        await _notify_ntfy_urgent(
+            "Arabesque /restart : exception au stop",
+            f"chat_id={chat_id} force={force} err={exc}",
+        )
+        return
+    if rc is None:
+        _log_action(chat_id, "restart_stop", "timeout", extra=log_extra)
+        await update.message.reply_text("❌ Stop : systemctl timeout (30s).")
+        await _notify_ntfy_urgent(
+            "Arabesque /restart : timeout au stop",
+            f"chat_id={chat_id} force={force} — état engine inconnu.",
+        )
+        return
+    if rc != 0:
+        err = (stderr or stdout)[:500]
+        _log_action(chat_id, "restart_stop", "fail",
+                    f"rc={rc} err={err}", extra=log_extra)
         await update.message.reply_text(
-            f"❌ Restart échec (rc={proc.returncode}) : {err}"
+            f"❌ Stop échec (rc={rc}) : {err}\nSéquence interrompue."
+        )
+        await _notify_ntfy_urgent(
+            "Arabesque /restart : echec stop",
+            f"chat_id={chat_id} force={force} rc={rc} err={err}",
+        )
+        return
+    _log_action(chat_id, "restart_stop", "ok", extra=log_extra)
+
+    # --- SLEEP (async, ne bloque pas l'event loop du bot) ----------------
+    await update.message.reply_text(
+        f"⏳ Stop OK. Attente {RESTART_STOP_SLEEP_S}s avant start "
+        f"(purge session cTrader)…"
+    )
+    await asyncio.sleep(RESTART_STOP_SLEEP_S)
+
+    # --- START -----------------------------------------------------------
+    await update.message.reply_text("▶️ Start en cours…")
+    try:
+        rc, stdout, stderr = await _run_systemctl("start")
+    except Exception as exc:
+        _log_action(chat_id, "restart_start", "exception", str(exc),
+                    extra=log_extra)
+        await update.message.reply_text(f"❌ Start : exception {exc}")
+        await _notify_ntfy_urgent(
+            "Arabesque /restart : exception au start",
+            f"chat_id={chat_id} engine probablement arrete. err={exc}",
+        )
+        return
+    if rc is None:
+        _log_action(chat_id, "restart_start", "timeout", extra=log_extra)
+        await update.message.reply_text(
+            "❌ Start : systemctl timeout (30s) — engine peut-être arrêté."
+        )
+        await _notify_ntfy_urgent(
+            "Arabesque /restart : timeout au start",
+            f"chat_id={chat_id} engine probablement arrete.",
+        )
+        return
+    if rc != 0:
+        err = (stderr or stdout)[:500]
+        _log_action(chat_id, "restart_start", "fail",
+                    f"rc={rc} err={err}", extra=log_extra)
+        await update.message.reply_text(
+            f"❌ Start échec (rc={rc}) : {err}\nEngine probablement arrêté."
+        )
+        await _notify_ntfy_urgent(
+            "Arabesque /restart : echec start",
+            f"chat_id={chat_id} rc={rc} err={err}",
         )
         return
 
@@ -330,8 +633,8 @@ async def cmd_restart_confirm(
     up = eng.get("uptime_h")
     up_s = f"{up:.1f}h" if up is not None else "?"
     _log_action(
-        chat_id, "restart_exec", "ok",
-        f"active={active} uptime={up_s}",
+        chat_id, "restart_start", "ok",
+        f"active={active} uptime={up_s}", extra=log_extra,
     )
     await update.message.reply_text(
         f"✅ Restart OK. Engine : {active} ({up_s})"

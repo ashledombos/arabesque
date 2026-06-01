@@ -3412,3 +3412,47 @@ utilise des identifiants d'ordre et de position distincts.
 - **Escalade conservee** : hors weekend, ou si des symboles sont `jamais
   recus`, ou si les barres deviennent stale, les alertes existantes restent en
   place. Aucun changement auto-restart, ordre, signal ou sizing.
+
+## Decision 2026-05-31 - pivot Task #39 : restart manuel Telegram, plus d'auto-restart canal trading
+
+- **Contexte** : la note de scope `docs/SCOPE_TASK_39_HOT_PATH_5_2026-05-24.md`
+  proposait un auto-restart `arabesque-live.service` quand le canal trading
+  cTrader meurt (`recent_reconnect_failures_count(window_s=300) >= 2` ET >=1
+  position ouverte), via un heartbeat disque consomme par
+  `scripts/feed_watchdog.py`. Cette voie est **abandonnee/differee** apres
+  les incidents 2026-05-26 (GFT HTTP 429 + faux fill close) et la cascade
+  ALREADY_LOGGED_IN du 2026-05-29 a 2026-05-30 : restart un service avec
+  position(s) ouverte(s) peut interrompre un trade en cours, supprimer une
+  protection serveur-side ou rejouer un fill, ce qui couterait plus que le
+  bug qu'il pretend reparer.
+- **Doctrine retenue** :
+  1. `AUTO_RESTART_REQUIRES_FLAT` (commit `6b3f464`, 2026-05-29) interdit
+     tout auto-restart `feed_watchdog` tant qu'au moins une position est
+     ouverte cote broker. L'alerte urgente Telegram+ntfy reste, mais
+     l'action est differee a l'operateur.
+  2. `/restart` Telegram (commit `70a23d8`, 2026-05-30) devient l'outil
+     operateur distant valide : double confirmation `/restart` puis
+     `/restart_confirm` dans une fenetre de 30s, audit JSONL dans
+     `logs/bot_actions.jsonl`. C'est la voie humaine validee quand SSH
+     n'est pas disponible.
+  3. La memoire `project_task39_priority_critical` (datee 2026-05-24) est
+     **obsolete** sur le point "auto-restart prioritaire" : la priorite
+     critique etait correcte tant que le pattern DASHUSD-like n'avait pas
+     d'autre voie de resolution, mais le `/restart` Telegram fournit
+     desormais cette voie sans le risque d'interruption automatique.
+- **Ecart connu a corriger dans `arabesque/bot/telegram_bot.py`** (a
+  arbitrer separement, non couvert par cette decision) :
+  - La commande actuelle execute `systemctl --user restart arabesque-live`
+    en une seule etape. La cible documentee ici est
+    `stop -> sleep 60 -> start` pour laisser le canal cTrader liberer
+    proprement la session serveur-side (TTL ALREADY_LOGGED_IN observe sur
+    plusieurs minutes).
+  - La commande actuelle ne refuse pas avec positions ouvertes : elle
+    devrait refuser par defaut et exiger un mot-cle explicite (`force`)
+    pour outrepasser, calque sur la garde `AUTO_RESTART_REQUIRES_FLAT`.
+  - Le journal `logs/bot_actions.jsonl` capture deja chaque appel.
+- **Hors scope** : aucun changement signal, sizing, ordre, broker, ni
+  modification du contenu de `feed_watchdog.py` au-dela de la garde
+  `AUTO_RESTART_REQUIRES_FLAT` deja en place. Le scope doc
+  `docs/SCOPE_TASK_39_HOT_PATH_5_2026-05-24.md` reste archive pour
+  reference historique mais n'est plus a implementer en l'etat.
