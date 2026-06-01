@@ -210,14 +210,15 @@ def _last_restart_attempt_age_s() -> float | None:
 def _read_open_positions() -> tuple[int | None, dict[str, list[dict]]]:
     """Lit ``logs/position_monitor_state.json`` et retourne (count, par broker).
 
-    Renvoie ``(None, {})`` si le fichier est absent ou illisible : l'appelant
-    doit traiter ``None`` comme **inconnu** et fail-closed (refuser le restart
-    par defaut). Le fichier est rafraichi a chaque cycle reconcile (~2 min) +
-    sur register/unregister, donc l'absence en pratique signifie engine arrete
-    ou state file purge — situation ou un refus systematique est legitime.
+    - Fichier **absent** -> ``(0, {})``. ``position_monitor.save_state()`` purge
+      le fichier sur etat flat (cf. ``arabesque/execution/position_monitor.py``
+      L201-204), donc l'absence est l'indicateur normal de "rien d'ouvert".
+    - Fichier **illisible / corrompu / JSON invalide** -> ``(None, {})``.
+      L'appelant doit traiter ``None`` comme **inconnu** et fail-closed.
+    - Fichier **valide** -> ``(count, by_broker)``.
     """
     if not POSITION_MONITOR_STATE.exists():
-        return None, {}
+        return 0, {}
     try:
         data = json.loads(POSITION_MONITOR_STATE.read_text())
     except (OSError, json.JSONDecodeError):

@@ -83,15 +83,31 @@ def _mock_ntfy(monkeypatch):
 # /restart — pré-checks
 # --------------------------------------------------------------------------
 
-def test_restart_blocked_when_state_file_missing(
+def test_restart_state_file_missing_treated_as_flat(
     tmp_actions_log, tmp_state_file, fake_update, fake_context, monkeypatch,
 ):
-    """État inconnu → refus fail-closed même si engine pourrait être flat."""
+    """Fichier d'état absent → engine flat (save_state purge sur 0 position)."""
     ntfy = _mock_ntfy(monkeypatch)
     asyncio.run(bot.cmd_restart(fake_update, fake_context))
 
-    assert "pending_restart" not in fake_context.bot_data or \
-        12345 not in fake_context.bot_data.get("pending_restart", {})
+    assert 12345 in fake_context.bot_data["pending_restart"]
+    msg = fake_update.message.reply_text.call_args.args[0]
+    assert "Aucune position ouverte" in msg
+    log = _read_log(tmp_actions_log)
+    assert log[-1]["status"] == "pending"
+    assert log[-1]["positions_count"] == 0
+    ntfy.assert_not_awaited()
+
+
+def test_restart_blocked_when_state_file_corrupted(
+    tmp_actions_log, tmp_state_file, fake_update, fake_context, monkeypatch,
+):
+    """Fichier JSON invalide → fail-closed (vraie ambiguïté d'état)."""
+    tmp_state_file.write_text("{not valid json")
+    ntfy = _mock_ntfy(monkeypatch)
+    asyncio.run(bot.cmd_restart(fake_update, fake_context))
+
+    assert 12345 not in fake_context.bot_data.get("pending_restart", {})
     msg = fake_update.message.reply_text.call_args.args[0]
     assert "Etat positions inconnu" in msg
     assert "refusé" in msg
