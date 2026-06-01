@@ -85,18 +85,33 @@ WEEKEND_GUARD_SUN_HOUR = 22           # dimanche 22:00 UTC → fin weekend
 # mort silencieusement.
 POSITIONS_STATE_STALE_S = 600
 
+# NB: `\w{3,4}` est obligatoire pour matcher les noms de mois français
+# de 4 lettres (`juin`, `juil`, `août`, `mars`, `sept`). Avant 2026-06-01
+# le pattern `\w{3}` cassait silencieusement pile au passage à juin —
+# faux positifs `no_bar_data_in_window` (incident 2026-06-01 ~05:25 UTC).
 BAR_PATTERN = re.compile(
-    r"^(\w{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2}).*BarAggregator.*Résumé"
+    r"^(\w{3,4})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2}).*BarAggregator.*Résumé"
 )
 PRICEFEED_SUMMARY_PATTERN = re.compile(
-    r"^(\w{3})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2}).*"
+    r"^(\w{3,4})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2}).*"
     r"PriceFeed.*?(\d+)/(\d+) actifs, "
     r"(\d+) dormants, (\d+) stale majeurs, (\d+) jamais reçus"
 )
+# Clés explicites pour 3 ET 4 lettres : ne plus tronquer à `[:3]` côté
+# appelants (sinon `juin` et `juil` collisionnent tous deux sur `jui`).
 MONTH_MAP = {
-    "jan": 1, "feb": 2, "fév": 2, "mar": 3, "apr": 4, "avr": 4,
-    "may": 5, "mai": 5, "jun": 6, "jui": 6, "jul": 7, "aug": 8,
-    "aoû": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12, "déc": 12,
+    "jan": 1, "janv": 1,
+    "feb": 2, "fév": 2, "fev": 2, "févr": 2, "fevr": 2,
+    "mar": 3, "mars": 3,
+    "apr": 4, "avr": 4, "avri": 4,
+    "may": 5, "mai": 5,
+    "jun": 6, "juin": 6,
+    "jul": 7, "juil": 7,
+    "aug": 8, "aoû": 8, "aou": 8, "août": 8, "aout": 8,
+    "sep": 9, "sept": 9,
+    "oct": 10, "octo": 10,
+    "nov": 11, "nove": 11,
+    "dec": 12, "déc": 12, "déce": 12, "dece": 12,
 }
 
 
@@ -216,7 +231,7 @@ def _last_bar_age_seconds(now: dt.datetime) -> int | None:
         if not m:
             continue
         month_str, day_str, hh, mm, ss = m.groups()
-        month = MONTH_MAP.get(month_str.lower()[:3])
+        month = MONTH_MAP.get(month_str.lower())
         if not month:
             continue
         try:
@@ -237,7 +252,7 @@ def _last_bar_age_seconds(now: dt.datetime) -> int | None:
 
 def _parse_journal_ts(now: dt.datetime, match: re.Match) -> dt.datetime | None:
     month_str, day_str, hh, mm, ss = match.groups()[:5]
-    month = MONTH_MAP.get(month_str.lower()[:3])
+    month = MONTH_MAP.get(month_str.lower())
     if not month:
         return None
     try:
