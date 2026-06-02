@@ -9,9 +9,13 @@ sections 3+7) :
   - Étage 1 (1ère alerte) : notif normale, recommandation `systemctl restart`
     manuel. Cooldown 30 min entre 2 notifs.
   - Étage 3 (auto-restart) : si `feed_stale` persiste depuis > 30 min,
-    `systemctl --user restart arabesque-live.service` automatiquement.
+    stop + sleep 60 + start automatiquement.
     Évite les 19h54 de feed mort où l'utilisateur porte seul la surveillance
     (incident 2026-05-22).
+  - Canal trading mort : si le feed reste vivant mais reconcile/amend cTrader
+    boucle en timeouts/ALREADY_LOGGED_IN, auto-repair immédiate par stop +
+    sleep 60 + start, même avec position ouverte. Le risque principal est alors
+    de laisser un BE/SL amend non transmis, pas le restart lui-même.
   - Étage 4 (anti-boucle) : max 2 restarts dans la dernière heure. Au 3e,
     on stoppe l'auto-restart et on envoie une **alerte critique distincte**
     (priority=urgent côté ntfy). Empêche les boucles de redémarrage masquant
@@ -57,7 +61,8 @@ PRICEFEED_SUMMARY_MAX_AGE_S = 600
 RESTART_PERSISTENCE_MIN = 30          # feed_stale doit persister > 30 min
 RESTART_MAX_PER_HOUR = 2              # 3e tentative dans l'heure → escalade
 RESTART_STOP_SLEEP_S = 60             # stop+sleep pour libérer session cTrader
-AUTO_RESTART_REQUIRES_FLAT = True     # jamais de restart auto avec position ouverte
+AUTO_RESTART_REQUIRES_FLAT = True     # feed_stale ordinaire seulement ; trading_channel_dead outrepasse
+TRADING_TIMEOUT_RESTART_THRESHOLD = 3  # reconcile timeouts consécutifs avant réparation auto
 
 # Hot Path #2 bis — backoff progressif des restart auto en weekend avec
 # position ouverte. cTrader accepte les sessions weekend mais leur comportement
@@ -96,6 +101,9 @@ PRICEFEED_SUMMARY_PATTERN = re.compile(
     r"^(\w{3,4})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2}).*"
     r"PriceFeed.*?(\d+)/(\d+) actifs, "
     r"(\d+) dormants, (\d+) stale majeurs, (\d+) jamais reçus"
+)
+TRADING_RECONCILE_TIMEOUT_PATTERN = re.compile(
+    r"reconcile broker (?P<broker>\w+) : (?P<count>\d+) timeouts consécutifs"
 )
 # Clés explicites pour 3 ET 4 lettres : ne plus tronquer à `[:3]` côté
 # appelants (sinon `juin` et `juil` collisionnent tous deux sur `jui`).
@@ -316,6 +324,86 @@ def _last_pricefeed_summary(now: dt.datetime) -> dict | None:
     if latest and latest["age_seconds"] > PRICEFEED_SUMMARY_MAX_AGE_S:
         return None
     return latest
+
+
+def _last_trading_channel_issue(now: dt.datetime) -> dict | None:
+    """Detect cTrader trading-channel death from live logs.
+
+    Price feed and trading session can fail independently. The 2026-06-02
+    incident had fresh bars, but reconcile/amend stayed stuck in
+    ``ALREADY_LOGGED_IN`` and BTCUSD BE could not be sent. This detector only
+    considers errors *after* the latest ``Moteur prêt`` marker so stale pre-
+    restart lines do not immediately trigger another restart.
+    """
+    try:
+        r = subprocess.run(
+            ["journalctl", "--user", "-u", "arabesque-live.service",
+             "--since", "30 minutes ago", "--no-pager"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except subprocess.TimeoutExpired:
+        return None
+    if r.returncode != 0:
+        return None
+
+    last_ready_ts: dt.datetime | None = None
+    latest_issue: dict | None = None
+    already_logged_count = 0
+
+    for line in r.stdout.splitlines():
+        m_ts = re.match(r"^(\w{3,4})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})", line)
+        if not m_ts:
+            continue
+        ts_utc = _parse_journal_ts(now, m_ts)
+        if ts_utc is None:
+            continue
+
+        if "Moteur prêt" in line:
+            last_ready_ts = ts_utc
+            latest_issue = None
+            already_logged_count = 0
+            continue
+
+        if last_ready_ts is not None and ts_utc <= last_ready_ts:
+            continue
+
+        timeout_match = TRADING_RECONCILE_TIMEOUT_PATTERN.search(line)
+        if timeout_match:
+            count = int(timeout_match.group("count"))
+            if count >= TRADING_TIMEOUT_RESTART_THRESHOLD:
+                latest_issue = {
+                    "ts": ts_utc.isoformat(),
+                    "age_seconds": int((now - ts_utc).total_seconds()),
+                    "kind": "reconcile_timeouts",
+                    "broker_id": timeout_match.group("broker"),
+                    "consecutive_timeouts": count,
+                    "line": line[-500:],
+                }
+            continue
+
+        if "SL amend ABANDONED" in line or "Amend timeout" in line:
+            latest_issue = {
+                "ts": ts_utc.isoformat(),
+                "age_seconds": int((now - ts_utc).total_seconds()),
+                "kind": "amend_abandoned",
+                "line": line[-500:],
+            }
+            continue
+
+        if "ALREADY_LOGGED_IN" in line:
+            already_logged_count += 1
+            if already_logged_count >= TRADING_TIMEOUT_RESTART_THRESHOLD:
+                latest_issue = {
+                    "ts": ts_utc.isoformat(),
+                    "age_seconds": int((now - ts_utc).total_seconds()),
+                    "kind": "already_logged_in_loop",
+                    "already_logged_in_count": already_logged_count,
+                    "line": line[-500:],
+                }
+
+    if latest_issue and latest_issue.get("age_seconds", 0) <= 30 * 60:
+        return latest_issue
+    return None
 
 
 def _read_state() -> dict:
@@ -642,6 +730,85 @@ def main() -> int:
         state["last_pricefeed_summary"] = pf_summary
     else:
         state.pop("last_pricefeed_summary", None)
+
+    trading_issue = _last_trading_channel_issue(now)
+    if trading_issue:
+        state["trading_channel_issue"] = trading_issue
+        state["last_status"] = (
+            f"trading_channel_dead:{trading_issue.get('kind')} "
+            f"open={open_count}"
+        )
+        weekend_now = _is_weekend_utc(now)
+        recent = (
+            _recent_weekend_restart_count(now)
+            if weekend_now
+            else _recent_restart_count(now, window_s=3600)
+        )
+        limit = WEEKEND_RESTART_MAX_24H if weekend_now else RESTART_MAX_PER_HOUR
+
+        if recent >= limit:
+            body = (
+                f"CANAL TRADING cTrader MORT mais auto-repair bloquee par "
+                f"anti-boucle ({recent}/{limit}).\n"
+                f"Type: {trading_issue.get('kind')} ; "
+                f"positions ouvertes trackees: {open_count}.\n"
+                f"Derniere signature: {trading_issue.get('line', '')}\n"
+                f"Intervention humaine requise."
+            )
+            _append_restart_history(
+                now,
+                "skipped_trading_channel_loop_guard",
+                state["last_status"],
+                weekend=weekend_now,
+            )
+            _send_alert(
+                body,
+                "Arabesque — anti-boucle canal trading",
+                urgent=True,
+            )
+            state["last_alert_ts"] = now.isoformat()
+            state["last_status"] += f"+loop_guard(recent={recent})"
+            _write_state(state)
+            return 0
+
+        ok, msg = _attempt_auto_restart(
+            now, reason=state["last_status"], weekend=weekend_now
+        )
+        if ok:
+            body = (
+                f"CANAL TRADING cTrader MORT — auto-repair executee.\n"
+                f"Type: {trading_issue.get('kind')} ; "
+                f"positions ouvertes trackees: {open_count}.\n"
+                f"Action: stop + sleep {RESTART_STOP_SLEEP_S}s + start.\n"
+                f"Tentative {recent + 1}/{limit} dans la fenetre anti-boucle.\n"
+                f"Derniere signature: {trading_issue.get('line', '')}"
+            )
+            _send_alert(body, "Arabesque — auto-repair canal trading", urgent=True)
+            state["last_alert_ts"] = now.isoformat()
+            state.pop("feed_stale_since_ts", None)
+            state["last_status"] += "+autorepair_ok"
+        else:
+            body = (
+                f"CANAL TRADING cTrader MORT mais auto-repair ECHOUE : {msg}.\n"
+                f"Type: {trading_issue.get('kind')} ; "
+                f"positions ouvertes trackees: {open_count}.\n"
+                f"Derniere signature: {trading_issue.get('line', '')}\n"
+                f"Intervention humaine requise."
+            )
+            _append_restart_history(
+                now, "failed", f"trading_channel:{msg}", weekend=weekend_now
+            )
+            _send_alert(
+                body,
+                "Arabesque — auto-repair canal trading ECHEC",
+                urgent=True,
+            )
+            state["last_alert_ts"] = now.isoformat()
+            state["last_status"] += f"+autorepair_failed:{msg}"
+        _write_state(state)
+        return 0
+
+    state.pop("trading_channel_issue", None)
 
     is_feed_stale = age_s is not None and age_s > STALE_THRESHOLD_MIN * 60
     no_bar_data = age_s is None

@@ -3491,3 +3491,81 @@ utilise des identifiants d'ordre et de position distincts.
 - **Hors scope** : pas de fermeture automatique avant week-end. A reconsidérer
   uniquement si un audit plus large montre que le flat vendredi 20h ameliore
   l'edge sans casser les trades gagnants.
+
+## Decision 2026-06-02 - weekend_gap_guard 15h UTC confirme apres rejeu BT elargi
+
+- **Contexte** : la decision 2026-06-01 a livre `weekend_gap_guard` (cutoff
+  vendredi >=15h UTC sur AUDJPY/GBPJPY/CHFJPY/XAUUSD) avec un audit limite.
+  Rejeu elargi le 2026-06-02 : Extension + Glissade sur
+  AUDJPY/GBPJPY/CHFJPY/**USDJPY**/XAUUSD, 20 mois (2024-04-01 -> 2026-06-01),
+  split IS/OOS au 2025-08-01, 4 cutoffs (15h/18h/20h/21h) + flat-friday
+  20h/21h. Dossier : `docs/AUDIT_WEEKEND_GAP_BT_2026-06-02.md`, donnees brutes
+  `tmp/weekend_gap_fx_audit.json`.
+- **Resultats agreges** (n=311 BT, n=33 live) :
+  - baseline BT +9.96R, 0 perte >1R (BT pessimiste = SL strict, ne modelise
+    pas le gap).
+  - `no_new_fri_15` (etat actuel) : ΔR BT +1.04R, ΔR live +1.64R, exclut le
+    seul incident gap weekend live documente (AUDJPY 1d725a82, entry 15h00
+    UTC pile).
+  - `no_new_fri_18` : ΔR BT +1.45R (meilleur ratio gain/trade-exclu) mais
+    laisse passer l'entree 15h00 UTC fondatrice => rejete.
+  - `no_new_fri_20/21` : ΔR BT +1.0R, exclusion marginale (1 trade).
+  - `flat_friday_20` : ΔR BT +6.22R proxy (Close H1 vs sortie naturelle, ne
+    modelise pas le gap), ΔR live +0.74R sur 1 cas. Statistiquement faible.
+- **Decision** :
+  1. **Conserver cutoff 15h UTC** (commit `7c7809e`). Justification : capte le
+     cas fondateur AUDJPY 15:00, coherent avec `weekend_crypto_guard`, ΔR BT
+     positif.
+  2. **Rejeter cutoff 18h** malgre un meilleur ΔR BT : la fenetre 15-18h UTC
+     rouverte ne couvre plus l'incident type observe en live, et le gain BT
+     ne modelise pas la queue gap.
+  3. **Ne pas adopter flat-friday** maintenant. Le seul incident live couvert
+     par le cutoff 15h amont, donc flat-friday n'apporte rien de plus sur ce
+     cas. Le ΔR BT n'est pas une preuve fiable de protection (proxy H1 close).
+  4. **Pas d'extension `symbols`** (CADJPY/NZDJPY/EURJPY) tant qu'un nouvel
+     instrument FX/JPY ne devient pas actif en live.
+- **Critere de reouverture** : reetudier l'arbitrage flat-friday si **>=2
+  nouveaux exits live post-`7c7809e`** ont `crosses_weekend=True` ET
+  `result_r < -1.0`. Sinon, statu quo.
+- **Tracabilite** : dossier d'audit complet `docs/AUDIT_WEEKEND_GAP_BT_2026-06-02.md`
+  (tableaux par strategie x instrument, IS/OOS, scenarios chiffres, liste des
+  6 pertes >1R live avec gap_excess_r). Aucun changement de code livre par
+  cette decision.
+
+## Decision 2026-06-03 - auto-repair canal trading cTrader mort
+
+- **Incident fondateur** : le 2026-06-02 soir, le feed prix etait vivant
+  (barres fermees, BE polling recevait des quotes), mais le canal trading
+  cTrader FTMO etait mort : timeouts reconcile en boucle, `ALREADY_LOGGED_IN`
+  recurrent, et amend SL BTCUSD abandonne. BTCUSD SHORT avait atteint le seuil
+  BE (`MFE > 0.3R`) mais le SL restait a son niveau initial car l'amend ne
+  pouvait pas etre transmis. Le risque etait de rendre un trade qui meritait
+  BE+ a nouveau perdant de ~1R.
+- **Pivot doctrine** : la garde historique `AUTO_RESTART_REQUIRES_FLAT` reste
+  valable pour un `feed_stale` ordinaire, mais **ne s'applique plus** a un
+  canal trading mort confirme. Dans ce cas, ne pas redemarrer est plus risque
+  que redemarrer : les SL/TP serveur-side restent en place pendant l'arret,
+  alors que le moteur ne peut plus envoyer BE/trailing/reconcile.
+- **Auto-repair livree** : `scripts/feed_watchdog.py` detecte maintenant les
+  signatures post-`Moteur pret` du canal trading mort :
+  `reconcile broker ... N timeouts consecutifs` avec `N>=3`,
+  `SL amend ABANDONED` / `Amend timeout`, ou boucle `ALREADY_LOGGED_IN`.
+  Les erreurs anterieures au dernier `Moteur pret` sont ignorees pour eviter
+  de redemarrer en boucle sur de vieux logs apres un restart reussi.
+- **Action** : auto-repair immediate par `systemctl --user stop
+  arabesque-live.service` -> `sleep 60` -> `systemctl --user start
+  arabesque-live.service`, y compris avec positions ouvertes. Pas de
+  `systemctl restart` direct, car il peut relancer trop vite et conserver la
+  session cTrader cote serveur en `ALREADY_LOGGED_IN`.
+- **Journalisation / alerte** : `logs/feed_watchdog_state.json` conserve
+  `trading_channel_issue`, `logs/uptime_events.jsonl` recoit l'etat via
+  `_write_state`, et `logs/watchdog_restart_history.jsonl` journalise l'issue
+  `ok` / `failed` / `skipped_trading_channel_loop_guard`. Toute auto-repair
+  trading-channel part en Telegram + ntfy (`urgent=True`).
+- **Anti-boucle** : meme compteur que le watchdog weekday (`2` restarts max
+  par heure) ou compteur weekend (`4` max sur 24h). Au cap, l'auto-repair est
+  bloquee et une alerte urgente demande intervention humaine.
+- **Hors scope** : pas de changement signal, sizing, risk, position manager,
+  broker cTrader, ni fermeture automatique de position. Cette decision ne
+  fait qu'automatiser la sequence de redemarrage que l'operateur aurait
+  executee manuellement quand le canal trading est deja inutilisable.

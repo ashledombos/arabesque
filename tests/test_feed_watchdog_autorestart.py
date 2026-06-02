@@ -188,6 +188,83 @@ def test_autorestart_blocked_when_position_open(watchdog):
     assert "manual_required_open_positions" in state["last_status"]
 
 
+def test_trading_channel_dead_autorepairs_even_with_open_position(watchdog):
+    wd = watchdog
+    now = _no_weekend_now()
+    wd.POSITIONS_STATE.write_text(json.dumps({
+        "ftmo:BTC": {"broker_id": "ftmo_challenge", "position_id": "BTC", "symbol": "BTCUSD"}
+    }))
+    issue = {
+        "kind": "reconcile_timeouts",
+        "broker_id": "ftmo_challenge",
+        "consecutive_timeouts": 18,
+        "line": "reconcile broker ftmo_challenge : 18 timeouts consécutifs",
+    }
+
+    restart_calls = []
+    sent_alerts = []
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: 60), \
+         patch.object(wd, "_last_trading_channel_issue", lambda _now: issue), \
+         patch.object(wd, "_attempt_auto_restart",
+                      lambda now_, reason, weekend=False:
+                      restart_calls.append((reason, weekend)) or (True, "ok")), \
+         patch.object(wd, "_send_alert",
+                      lambda body, title, urgent=False:
+                      sent_alerts.append((title, urgent, body)) or True), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(now)):
+        wd.main()
+
+    assert len(restart_calls) == 1
+    assert "trading_channel_dead:reconcile_timeouts" in restart_calls[0][0]
+    assert restart_calls[0][1] is False
+    assert len(sent_alerts) == 1
+    title, urgent, body = sent_alerts[0]
+    assert urgent is True
+    assert "auto-repair canal trading" in title
+    assert "positions ouvertes trackees: 1" in body
+    state = json.loads(wd.STATE.read_text())
+    assert state["last_status"].endswith("+autorepair_ok")
+    assert state["trading_channel_issue"]["kind"] == "reconcile_timeouts"
+
+
+def test_trading_channel_loop_guard_blocks_third_repair(watchdog):
+    wd = watchdog
+    now = _no_weekend_now()
+    wd.RESTART_HISTORY.parent.mkdir(parents=True, exist_ok=True)
+    wd.RESTART_HISTORY.write_text("\n".join(json.dumps(e) for e in [
+        {"ts": (now - dt.timedelta(minutes=40)).isoformat(), "outcome": "ok", "reason": "old1"},
+        {"ts": (now - dt.timedelta(minutes=10)).isoformat(), "outcome": "ok", "reason": "old2"},
+    ]) + "\n")
+    issue = {
+        "kind": "amend_abandoned",
+        "line": "SL amend ABANDONED after 3 attempts: BTCUSD [Amend timeout]",
+    }
+
+    restart_calls = []
+    sent_alerts = []
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: 60), \
+         patch.object(wd, "_last_trading_channel_issue", lambda _now: issue), \
+         patch.object(wd, "_attempt_auto_restart",
+                      lambda now_, reason, weekend=False:
+                      restart_calls.append(reason) or (True, "ok")), \
+         patch.object(wd, "_send_alert",
+                      lambda body, title, urgent=False:
+                      sent_alerts.append((title, urgent, body)) or True), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(now)):
+        wd.main()
+
+    assert restart_calls == []
+    assert len(sent_alerts) == 1
+    title, urgent, body = sent_alerts[0]
+    assert urgent is True
+    assert "anti-boucle canal trading" in title
+    assert "auto-repair bloquee" in body
+    history = [json.loads(l) for l in wd.RESTART_HISTORY.read_text().splitlines()]
+    assert any(e["outcome"] == "skipped_trading_channel_loop_guard" for e in history)
+
+
 # ---------------------------------------------------------------------------
 # 4. Anti-boucle (étage 4) : 3e restart bloqué + notif distincte
 # ---------------------------------------------------------------------------
@@ -454,6 +531,55 @@ def test_pricefeed_partial_warns_without_restart(watchdog):
     assert uptime["event"] == "uptime_sample"
     assert uptime["cause"] == "partial_feed"
     assert uptime["pricefeed"]["active"] == 30
+
+
+def test_trading_channel_issue_parser_ignores_errors_before_ready(watchdog):
+    wd = watchdog
+    now = dt.datetime(
+        2026, 6, 3, 3, 40, 0,
+        tzinfo=dt.timezone(dt.timedelta(hours=2)),
+    )
+    log = "\n".join([
+        "Jun 03 03:20:00 host python[1]: 2026-06-03 03:20:00 [ERROR] "
+        "arabesque.live.position_monitor: [Monitor] 🚨 reconcile broker "
+        "ftmo_challenge : 18 timeouts consécutifs — canal trading probablement mort",
+        "Jun 03 03:28:38 host python[2]: 2026-06-03 03:28:38 [INFO] "
+        "arabesque.live.engine: [Engine] ✅ Moteur prêt — ticks → barres",
+    ])
+
+    class Result:
+        returncode = 0
+        stdout = log
+
+    with patch.object(wd.subprocess, "run", lambda *a, **kw: Result()):
+        assert wd._last_trading_channel_issue(now) is None
+
+
+def test_trading_channel_issue_parser_detects_errors_after_ready(watchdog):
+    wd = watchdog
+    now = dt.datetime(
+        2026, 6, 3, 3, 40, 0,
+        tzinfo=dt.timezone(dt.timedelta(hours=2)),
+    )
+    log = "\n".join([
+        "Jun 03 03:28:38 host python[2]: 2026-06-03 03:28:38 [INFO] "
+        "arabesque.live.engine: [Engine] ✅ Moteur prêt — ticks → barres",
+        "Jun 03 03:33:16 host python[2]: 2026-06-03 03:33:16 [ERROR] "
+        "arabesque.live.position_monitor: [Monitor] 🚨 reconcile broker "
+        "ftmo_challenge : 4 timeouts consécutifs — canal trading probablement mort",
+    ])
+
+    class Result:
+        returncode = 0
+        stdout = log
+
+    with patch.object(wd.subprocess, "run", lambda *a, **kw: Result()):
+        issue = wd._last_trading_channel_issue(now)
+
+    assert issue is not None
+    assert issue["kind"] == "reconcile_timeouts"
+    assert issue["broker_id"] == "ftmo_challenge"
+    assert issue["consecutive_timeouts"] == 4
 
 
 def test_pricefeed_partial_weekend_summary_is_measured_without_alert(watchdog):
