@@ -3569,3 +3569,39 @@ utilise des identifiants d'ordre et de position distincts.
   broker cTrader, ni fermeture automatique de position. Cette decision ne
   fait qu'automatiser la sequence de redemarrage que l'operateur aurait
   executee manuellement quand le canal trading est deja inutilisable.
+
+## Decision 2026-06-05 - extension passee en rodage x0.25 (drift structurel + integrite BE RED)
+
+- **Constat /suivi 2026-06-05** (compte flat, marche ferme jusqu'a dimanche
+  22:00 UTC) : deux signaux convergents sur Extension.
+  - **Edge audit J-30 rafraichi** (`scripts/audit_edge_live_vs_backtest.py
+    --since 2026-05-06`) : Extension `Live Exp=-0.349R` (n=39) vs
+    `BT Exp=+0.097R` (n=50), `dExp=-0.446R`, et surtout `BT-base=+0.014R`
+    -> le backtest colle a la baseline 20 mois donc le **regime est normal**.
+    Verdict `drift_structurel` (dExp < -0.30 sur n>=30). La sous-performance
+    live n'est donc PAS imputable au marche.
+  - **Integrite execution forward 7j RED**
+    (`logs/execution_integrity_latest.md`, cutoff `6b3f464` 2026-05-29) :
+    5 `BE_MISSED` post-cutoff (critere GREEN = 0 non atteint). 4 sans cout
+    net (sortis ~+0.2R) + 1 perte `-1.01R` (MANUSD FTMO 2026-06-03 05:59,
+    MFE a effleure exactement 0.300R = le seuil BE puis reverse avant
+    armement, ~20 min apres le restart auto-repair). Le patch d'observabilite
+    BE `968280f` a reduit mais pas ferme la fuite d'armement BE.
+  - L'AUDJPY `-1.565R` (1d725a82-a82) est classe `EXIT_NO_BROKER_QUOTE` =
+    gap weekend deja adjuge (decision 2026-06-01), PAS un bug BE.
+- **Decision** : ajout de `extension` a `rodage.strategies` dans
+  `config/settings.yaml` -> risk multiplier `x0.25` (~0.10%/trade). Extension
+  tournait jusqu'ici au risque valide plein (0.40%) car hors liste rodage.
+  Validation operateur explicite (boussole : proteger la courbe pendant qu'on
+  investigue). Restart engine flat 2026-06-06 00:10 UTC, dispatcher confirme
+  `Rodage actif: {glissade, cabriole, extension, fouette} x 0.25`.
+- **Hors scope** : aucun changement signal/sizing/core ; uniquement le tier de
+  risque. Pas d'exclusion broker, pas d'ultra-rodage (juge premature vs x0.25).
+- **A investiguer avant reevaluation** (zone position_manager / BE polling,
+  Opus) : (1) pourquoi l'armement BE rate-t-il au ras du seuil 0.30R et/ou en
+  conditions post-restart ; (2) reconcilier la divergence
+  `edge_audit (BT +0.097R, regime ok)` vs `replay_live_vs_theory (theo -9.4R
+  sur les trades live pris)` — selection de trades vs poche de regime.
+- **Critere de reevaluation** : revenir a `x0.50` puis plein risque seulement
+  apres fix de la fuite BE (integrite repassee GREEN sur 7j) ET `dExp`
+  Extension remonte au-dessus de -0.15R sur n>=30.

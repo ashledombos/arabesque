@@ -86,6 +86,7 @@ rodage:
     - glissade                   # Activé live 2026-03-22, drift_modéré J-30 (n=8 small-n)
     - fouette                    # Activé live 2026-03-28, WF 4/4 PASS (0 trade live, neutre)
     - cabriole                   # Activé live 2026-03-28, WF 6/6 PASS (drift_modéré 2e audit, n=32, ΔExp=-0.252R)
+    - extension                  # 2026-06-05 : drift structurel ΔExp=-0.446R (n=39) sur régime NORMAL (BT colle baseline +0.014R) + intégrité BE_MISSED RED (5 post-cutoff, 1 perte -1.01R MANUSD au ras du seuil 0.30R). Rodage ×0.25 défensif (boussole : protéger la courbe) le temps d'investiguer la fuite d'armement BE + réconcilier divergence edge_audit(BT +0.097R)/replay_live_vs_theory(théo -9.4R). Réévaluer après fix BE.
   # Ultra-rodage : levier disponible si /suivi détecte un drift suspect mais qu'on
   # veut continuer à collecter de la donnée live sans risquer le compte.
   # 0.10% sur compte 100k$ ≈ ~$100/trade — 10 pertes consécutives = 1% du compte.
