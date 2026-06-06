@@ -132,7 +132,11 @@ def load_journal(path: str = "logs/trade_journal.jsonl",
         print(f"❌ Aucun trade 'exit' dans le journal{scope}.")
         sys.exit(1)
     df = pd.DataFrame(entries)
-    df["ts_dt"] = pd.to_datetime(df["ts"], utc=True)
+    # format="ISO8601" : le journal mélange des timestamps avec et sans
+    # microsecondes (ex: "...15:04:01+00:00" vs "...05:59:00.123456+00:00").
+    # Sans format explicite, pandas infère la précision sur la 1re ligne et
+    # plante sur les suivantes (crash quotidien report-daily, fix 2026-06-06).
+    df["ts_dt"] = pd.to_datetime(df["ts"], utc=True, format="ISO8601")
     return df
 
 
