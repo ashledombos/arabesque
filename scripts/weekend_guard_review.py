@@ -255,7 +255,7 @@ def main() -> int:
                 body = "🛡️ Weekend guard ROI\n" + "\n".join(
                     f"• {s} : {v}" for s, v in verdicts
                 )
-                asyncio.run(ap.async_notify(body=body, title="Arabesque /bilan"))
+                asyncio.run(ap.async_notify(body=body, title="Arabesque /bilan", body_format=apprise.NotifyFormat.TEXT))
         except Exception as e:
             print(f"notif err: {e}")
     return 0

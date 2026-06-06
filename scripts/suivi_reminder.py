@@ -146,7 +146,8 @@ def _send_escalation(apprise, now: dt.datetime, reason: str) -> bool:
         f"État watchdog : logs/feed_watchdog_state.json"
     )
     sent = asyncio.run(ap.async_notify(
-        body=body, title="[URGENT] Arabesque feed escalade"
+        body=body, title="[URGENT] Arabesque feed escalade",
+        body_format=apprise.NotifyFormat.TEXT
     ))
     with STATE.open("a") as f:
         f.write(json.dumps({
@@ -206,7 +207,7 @@ def main() -> int:
         f"En retard de {overdue_h:.1f}h.\n"
         f"Lance /suivi quand tu peux."
     )
-    sent = asyncio.run(ap.async_notify(body=body, title="Arabesque /suivi"))
+    sent = asyncio.run(ap.async_notify(body=body, title="Arabesque /suivi", body_format=apprise.NotifyFormat.TEXT))
 
     with STATE.open("a") as f:
         f.write(

@@ -319,7 +319,7 @@ async def send_report(report: str, secrets_path: Path) -> None:
         if isinstance(ch, str):
             ap.add(ch)
 
-    ok = await ap.async_notify(body=report, title="Arabesque Report")
+    ok = await ap.async_notify(body=report, title="Arabesque Report", body_format=apprise.NotifyFormat.TEXT)
     status = "✅" if ok else "❌"
     print(f"Notification {status}")
 

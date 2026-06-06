@@ -471,7 +471,7 @@ def main():
                     for ch in channels:
                         if isinstance(ch, str):
                             ap.add(ch)
-                    ok = asyncio.run(ap.async_notify(body=report, title="Arabesque Drift"))
+                    ok = asyncio.run(ap.async_notify(body=report, title="Arabesque Drift", body_format=apprise.NotifyFormat.TEXT))
                     print(f"Notification: {'✅' if ok else '❌'}")
             except Exception as e:
                 print(f"Notification error: {e}")

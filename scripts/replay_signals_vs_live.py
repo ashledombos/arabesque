@@ -395,7 +395,7 @@ def main() -> int:
                         ap.add(ch)
                 body = (f"🔍 Trades manquants {since:%Y-%m-%d}→{until:%Y-%m-%d}\n"
                         + "\n".join(notif_lines))
-                asyncio.run(ap.async_notify(body=body, title="Arabesque /suivi"))
+                asyncio.run(ap.async_notify(body=body, title="Arabesque /suivi", body_format=apprise.NotifyFormat.TEXT))
         except Exception as e:
             print(f"notif err: {e}")
 

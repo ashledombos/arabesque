@@ -888,7 +888,11 @@ async def send_notification(report: str) -> None:
         if isinstance(ch, str):
             ap.add(ch)
 
-    ok = await ap.async_notify(body=report, title="Arabesque Health")
+    # body_format=TEXT : sinon apprise envoie en HTML par défaut sur Telegram,
+    # et un '<' non échappé dans le rapport (ex. "(< 30 trades, bruit)") fait
+    # rejeter le message côté Telegram (400) → ok=False, alertes santé perdues.
+    ok = await ap.async_notify(body=report, title="Arabesque Health",
+                               body_format=apprise.NotifyFormat.TEXT)
     print(f"Notification: {'✅' if ok else '❌'}")
 
 
