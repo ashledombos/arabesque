@@ -652,11 +652,16 @@ class TradeLockerBroker(BaseBroker):
             exit_price = row.get("filledPrice") or row.get("avgPrice") or row.get("price")
             if exit_price is None:
                 return None
+            # swap : TradeLocker peut l'exposer sous "swap" (financement). None
+            # si absent de la réponse (à confirmer selon version d'API) plutôt
+            # que 0, pour ne pas masquer un coût réel par une valeur factice.
+            swap_raw = row.get("swap")
             return {
                 "exit_price": float(exit_price),
                 "exit_time": str(row.get("filledTime", row.get("updatedTime", ""))),
                 "gross_profit": float(row.get("grossPl", 0)),
                 "commission": float(row.get("commission", 0)),
+                "swap": float(swap_raw) if swap_raw is not None else None,
             }
         except Exception:
             return None

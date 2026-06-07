@@ -1015,6 +1015,10 @@ class LiveEngine:
                 )
         real_exit_price = real_fill.get("exit_price") if real_fill else None
         real_exit_time = real_fill.get("exit_time") if real_fill else None
+        # P&L réalisé broker (additif, best-effort) — None si broker injoignable
+        real_gross_profit = real_fill.get("gross_profit") if real_fill else None
+        real_commission = real_fill.get("commission") if real_fill else None
+        real_swap = real_fill.get("swap") if real_fill else None
 
         # 2. Reconstruction MFE depuis bars min1
         mfe_r = 0.0
@@ -1138,6 +1142,10 @@ class LiveEngine:
             "source": source,
             "bars_used": bars_used,
             "real_fill": bool(real_fill),
+            # P&L réalisé broker (additif, best-effort) — None si broker injoignable
+            "gross_profit": real_gross_profit,
+            "commission": real_commission,
+            "swap": real_swap,
         }
 
     async def _reconcile_missed_exits(self) -> None:
@@ -1276,6 +1284,9 @@ class LiveEngine:
                     be_source=recon["be_source"],
                     trailing_tier=recon["trailing_tier"],
                     exit_price_source="reconciled",
+                    broker_gross_profit=recon.get("gross_profit"),
+                    broker_commission=recon.get("commission"),
+                    broker_swap=recon.get("swap"),
                 )
 
             reconciled += 1

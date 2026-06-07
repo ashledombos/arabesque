@@ -2132,6 +2132,11 @@ class CTraderBroker(BaseBroker):
             cpd = deal.closePositionDetail
             money_digits = getattr(deal, "moneyDigits", 2)
             divisor = 10 ** money_digits
+            # swap : présent sur ProtoOAClosePositionDetail (financement
+            # overnight). getattr best-effort si le champ manque sur une
+            # version d'API ; None plutôt que 0 pour distinguer "pas de swap"
+            # de "swap inconnu".
+            swap_raw = getattr(cpd, "swap", None)
             return {
                 "exit_price": deal.executionPrice,
                 "exit_time": datetime.fromtimestamp(
@@ -2139,6 +2144,7 @@ class CTraderBroker(BaseBroker):
                 ).isoformat(),
                 "gross_profit": cpd.grossProfit / divisor,
                 "commission": cpd.commission / divisor,
+                "swap": (swap_raw / divisor) if swap_raw is not None else None,
                 "entry_price": cpd.entryPrice,
             }
 

@@ -1217,6 +1217,7 @@ class LivePositionMonitor:
                             exit_price_source = "estimated"
                             broker = self._brokers.get(pos.broker_id)
                             broker_bid_x, broker_ask_x = 0.0, 0.0
+                            broker_gross_x = broker_commission_x = broker_swap_x = None
                             if broker:
                                 try:
                                     real_fill = await broker.get_closed_position_detail(
@@ -1233,6 +1234,10 @@ class LivePositionMonitor:
                                             )
                                         exit_price = real_price
                                         exit_price_source = "real_fill"
+                                        # P&L réalisé broker (additif, best-effort)
+                                        broker_gross_x = real_fill.get("gross_profit")
+                                        broker_commission_x = real_fill.get("commission")
+                                        broker_swap_x = real_fill.get("swap")
                                 except Exception:
                                     pass
                                 try:
@@ -1264,6 +1269,9 @@ class LivePositionMonitor:
                                         broker_bid=broker_bid_x,
                                         broker_ask=broker_ask_x,
                                         exit_price_source=exit_price_source,
+                                        broker_gross_profit=broker_gross_x,
+                                        broker_commission=broker_commission_x,
+                                        broker_swap=broker_swap_x,
                                     )
                                 except Exception:
                                     pass
@@ -1416,8 +1424,13 @@ class LivePositionMonitor:
                     exit_reason = self._estimate_exit_reason(pos)
                     exit_price = self._estimate_exit_price(pos, exit_reason)
                     exit_price_source = "estimated"
+                    broker_gross_x = broker_commission_x = broker_swap_x = None
                     if real_fill and real_fill.get("exit_price"):
                         real_price = real_fill["exit_price"]
+                        # P&L réalisé broker (additif, best-effort)
+                        broker_gross_x = real_fill.get("gross_profit")
+                        broker_commission_x = real_fill.get("commission")
+                        broker_swap_x = real_fill.get("swap")
                         slippage = abs(real_price - exit_price)
                         if slippage > 0.0001:
                             logger.info(
@@ -1476,6 +1489,9 @@ class LivePositionMonitor:
                                 broker_bid=broker_bid_x,
                                 broker_ask=broker_ask_x,
                                 exit_price_source=exit_price_source,
+                                broker_gross_profit=broker_gross_x,
+                                broker_commission=broker_commission_x,
+                                broker_swap=broker_swap_x,
                             )
                         except Exception as e:
                             logger.warning(

@@ -875,6 +875,9 @@ class LiveMonitor:
         broker_bid: float = 0.0,
         broker_ask: float = 0.0,
         exit_price_source: str = "unknown",
+        broker_gross_profit: Optional[float] = None,
+        broker_commission: Optional[float] = None,
+        broker_swap: Optional[float] = None,
     ) -> Optional[LiveTrade]:
         """Enregistre la sortie d'un trade.
 
@@ -959,6 +962,30 @@ class LiveMonitor:
             self._closed_trades = self._closed_trades[-self._max_closed_history:]
 
         spread_at_exit = (broker_ask - broker_bid) if (broker_bid > 0 and broker_ask > 0) else 0.0
+
+        # --- P&L réalisé broker (ADDITIF, best-effort) ----------------------
+        # `pnl_cash` ci-dessus est THÉORIQUE (result_r × risk_cash) : il ignore
+        # les coûts (swap/commission) ET suppose taille exécutée == taille
+        # voulue (faux quand un min-lot broker force un sur-sizing, cf. GFT).
+        # On journalise ici le P&L réel du broker quand il est disponible, sans
+        # jamais remplacer result_r ni pnl_cash. Best-effort : si le broker n'a
+        # pas répondu (champs None), l'exit reste journalisé avec None.
+        # Convention de signe : gross_profit/commission/swap sont signés tels
+        # que rapportés par le broker (un coût = valeur négative). Un champ None
+        # = "inconnu" (≠ 0) et n'entre pas dans le net.
+        gross_pnl_cash = broker_gross_profit
+        commission_cash = broker_commission
+        swap_cash = broker_swap
+        if gross_pnl_cash is not None:
+            net_pnl_cash = gross_pnl_cash + (commission_cash or 0.0) + (swap_cash or 0.0)
+            pnl_cash_gap = net_pnl_cash - trade.pnl_cash
+        else:
+            net_pnl_cash = None
+            pnl_cash_gap = None
+
+        def _r2(x):
+            return round(x, 2) if x is not None else None
+
         self._append_journal({
             "event": "exit",
             "ts": trade.ts_exit,
@@ -971,6 +998,11 @@ class LiveMonitor:
             "sl": trade.sl,
             "result_r": round(trade.result_r, 3),
             "pnl_cash": round(trade.pnl_cash, 2),
+            "gross_pnl_cash": _r2(gross_pnl_cash),
+            "commission_cash": _r2(commission_cash),
+            "swap_cash": _r2(swap_cash),
+            "net_pnl_cash": _r2(net_pnl_cash),
+            "pnl_cash_gap": _r2(pnl_cash_gap),
             "mfe_r": round(mfe_r, 2),
             "be_set": be_set,
             "be_source": be_source,
