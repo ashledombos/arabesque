@@ -582,6 +582,64 @@ def test_trading_channel_issue_parser_detects_errors_after_ready(watchdog):
     assert issue["consecutive_timeouts"] == 4
 
 
+def _risk_invalid_line(ts: str) -> str:
+    # Signature exacte de l'incident 2026-06-08 (canal trading zombie après
+    # force-reconnect du feed) : feed vivant mais trading bloqué fail-closed.
+    return (
+        f"Jun 03 {ts} host python[2]: 2026-06-03 {ts} [WARNING] "
+        "arabesque.live.engine: [Engine] ftmo_challenge: positions "
+        "indisponibles - etat risque invalide (cTrader not connected while "
+        "reading pending orders)"
+    )
+
+
+def test_trading_channel_not_connected_detected_after_threshold(watchdog):
+    wd = watchdog
+    now = dt.datetime(
+        2026, 6, 3, 3, 40, 0,
+        tzinfo=dt.timezone(dt.timedelta(hours=2)),
+    )
+    log = "\n".join([
+        "Jun 03 03:28:38 host python[2]: 2026-06-03 03:28:38 [INFO] "
+        "arabesque.live.engine: [Engine] ✅ Moteur prêt — ticks → barres",
+        _risk_invalid_line("03:30:00"),
+        _risk_invalid_line("03:32:00"),
+        _risk_invalid_line("03:34:00"),
+    ])
+
+    class Result:
+        returncode = 0
+        stdout = log
+
+    with patch.object(wd.subprocess, "run", lambda *a, **kw: Result()):
+        issue = wd._last_trading_channel_issue(now)
+
+    assert issue is not None
+    assert issue["kind"] == "trading_channel_not_connected"
+    assert issue["risk_invalid_count"] == 3
+
+
+def test_trading_channel_not_connected_below_threshold_is_none(watchdog):
+    wd = watchdog
+    now = dt.datetime(
+        2026, 6, 3, 3, 40, 0,
+        tzinfo=dt.timezone(dt.timedelta(hours=2)),
+    )
+    log = "\n".join([
+        "Jun 03 03:28:38 host python[2]: 2026-06-03 03:28:38 [INFO] "
+        "arabesque.live.engine: [Engine] ✅ Moteur prêt — ticks → barres",
+        _risk_invalid_line("03:30:00"),
+        _risk_invalid_line("03:32:00"),
+    ])
+
+    class Result:
+        returncode = 0
+        stdout = log
+
+    with patch.object(wd.subprocess, "run", lambda *a, **kw: Result()):
+        assert wd._last_trading_channel_issue(now) is None
+
+
 def test_pricefeed_partial_weekend_summary_is_measured_without_alert(watchdog):
     wd = watchdog
     now = _no_weekend_now()

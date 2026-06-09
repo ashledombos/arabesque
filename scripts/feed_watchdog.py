@@ -349,6 +349,7 @@ def _last_trading_channel_issue(now: dt.datetime) -> dict | None:
     last_ready_ts: dt.datetime | None = None
     latest_issue: dict | None = None
     already_logged_count = 0
+    risk_invalid_count = 0
 
     for line in r.stdout.splitlines():
         m_ts = re.match(r"^(\w{3,4})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})", line)
@@ -362,6 +363,7 @@ def _last_trading_channel_issue(now: dt.datetime) -> dict | None:
             last_ready_ts = ts_utc
             latest_issue = None
             already_logged_count = 0
+            risk_invalid_count = 0
             continue
 
         if last_ready_ts is not None and ts_utc <= last_ready_ts:
@@ -398,6 +400,28 @@ def _last_trading_channel_issue(now: dt.datetime) -> dict | None:
                     "age_seconds": int((now - ts_utc).total_seconds()),
                     "kind": "already_logged_in_loop",
                     "already_logged_in_count": already_logged_count,
+                    "line": line[-500:],
+                }
+            continue
+
+        # Incident 2026-06-08 : canal trading zombie après force-reconnect du
+        # feed. Le moteur loggue en boucle « positions indisponibles - etat
+        # risque invalide (cTrader not connected while reading pending orders) »
+        # et le dispatcher bloque les signaux « fail-closed » — feed vivant mais
+        # trading mort pendant 22h, signature non couverte jusqu'ici.
+        if (
+            "not connected while reading pending orders" in line
+            or "etat risque invalide" in line
+            or "bloqué fail-closed" in line
+            or "bloque fail-closed" in line
+        ):
+            risk_invalid_count += 1
+            if risk_invalid_count >= TRADING_TIMEOUT_RESTART_THRESHOLD:
+                latest_issue = {
+                    "ts": ts_utc.isoformat(),
+                    "age_seconds": int((now - ts_utc).total_seconds()),
+                    "kind": "trading_channel_not_connected",
+                    "risk_invalid_count": risk_invalid_count,
                     "line": line[-500:],
                 }
 

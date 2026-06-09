@@ -65,6 +65,7 @@ def _build_feed_stub(symbols: List[str] | None = None) -> PriceFeedManager:
     feed._alert_sent = False
     feed._alert_threshold_reconnects = 3
     feed._force_reconnect = False
+    feed._on_broker_replaced = None
     return feed
 
 
@@ -399,3 +400,79 @@ def test_consumer_callbacks_preserved_through_bypass():
         "REGRESSION : le bypass ne doit pas toucher aux callbacks consumer "
         "PriceFeed-level (self._callbacks)."
     )
+
+
+# ---------------------------------------------------------------------------
+# 9. Fix 2026-06-08 : un broker neuf connecté notifie on_broker_replaced pour
+#    que le moteur bascule le canal trading sur la nouvelle connexion.
+# ---------------------------------------------------------------------------
+
+def test_force_reconnect_notifies_broker_replaced():
+    """Quand le force-reconnect recrée un broker neuf et le connecte,
+    ``on_broker_replaced(new_broker)`` doit être appelé avec ce broker — sinon
+    le moteur reste sur l'ancien broker zombie (incident 2026-06-08, 22h).
+    """
+    feed = _build_feed_stub()
+    feed._broker = None
+    feed._force_reconnect = False  # pas de cleanup, on va dans la branche else
+    received = []
+    feed._on_broker_replaced = lambda b: received.append(b)
+
+    class _NewBroker:
+        def __init__(self, *a, **kw):
+            self._connected = False
+
+        async def connect(self):
+            self._connected = True
+            return True
+
+        async def get_symbols(self):
+            # Halte nette juste APRÈS le callback (qui est appelé avant
+            # get_symbols dans _connect_and_subscribe).
+            raise AssertionError("STOP after callback")
+
+    with patch("arabesque.broker.ctrader.CTraderBroker", _NewBroker):
+        with pytest.raises(AssertionError, match="STOP after callback"):
+            asyncio.run(feed._connect_and_subscribe())
+
+    assert len(received) == 1, (
+        "on_broker_replaced doit être appelé exactement une fois sur broker neuf."
+    )
+    assert received[0] is feed._broker, (
+        "Le callback doit recevoir le NOUVEAU broker (celui désormais dans "
+        "feed._broker), pas l'ancien."
+    )
+
+
+def test_callback_failure_does_not_break_reconnect(caplog):
+    """Un callback ``on_broker_replaced`` qui lève ne doit pas casser la
+    reconnexion feed (best-effort) — on log un warning et on continue.
+    """
+    feed = _build_feed_stub()
+    feed._broker = None
+    feed._force_reconnect = False
+
+    def _boom(_b):
+        raise RuntimeError("callback boom")
+
+    feed._on_broker_replaced = _boom
+
+    class _NewBroker:
+        def __init__(self, *a, **kw):
+            self._connected = False
+
+        async def connect(self):
+            self._connected = True
+            return True
+
+        async def get_symbols(self):
+            raise AssertionError("STOP")  # halte après le callback
+
+    with patch("arabesque.broker.ctrader.CTraderBroker", _NewBroker), \
+         caplog.at_level(logging.WARNING, logger="arabesque.live.price_feed"):
+        with pytest.raises(AssertionError, match="STOP"):
+            asyncio.run(feed._connect_and_subscribe())
+
+    assert any(
+        "on_broker_replaced échec" in r.message for r in caplog.records
+    ), "Un callback qui lève doit être catché et loggé, pas propagé."

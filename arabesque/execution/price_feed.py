@@ -66,12 +66,21 @@ class PriceFeedManager:
         reconnect_delay_s: float = 5.0,
         token_refresh_interval_h: float = 12.0,
         existing_broker=None,
+        on_broker_replaced=None,
     ):
         self.broker_id = broker_id
         self.broker_cfg = broker_cfg
         self.symbols = list(symbols)
         self.reconnect_delay_s = reconnect_delay_s
         self.token_refresh_interval_h = token_refresh_interval_h
+
+        # Callback appelé quand le force-reconnect recrée un broker neuf, pour
+        # que le moteur (qui partage le même objet broker pour le canal trading)
+        # bascule sa référence sur la nouvelle connexion. Sans ça, le feed se
+        # reconnecte mais le trading reste sur l'ancien broker zombie
+        # (_connected=False → « not connected while reading pending orders »).
+        # Incident fondateur 2026-06-08 (~22h de trading bloqué fail-closed).
+        self._on_broker_replaced = on_broker_replaced
 
         # State
         self._broker = existing_broker   # Réutiliser un broker déjà connecté
@@ -468,6 +477,17 @@ class PriceFeedManager:
             connected = await self._broker.connect()
             if not connected:
                 raise ConnectionError(f"Impossible de se connecter à {self.broker_id}")
+
+            # Broker neuf connecté → prévenir le moteur pour qu'il bascule sa
+            # référence partagée (canal trading) sur cette connexion. Best-effort :
+            # une erreur du callback ne doit jamais casser la boucle feed.
+            if self._on_broker_replaced is not None:
+                try:
+                    self._on_broker_replaced(self._broker)
+                except Exception as e:
+                    logger.warning(
+                        f"[PriceFeed] on_broker_replaced échec ({self.broker_id}): {e}"
+                    )
 
         self._connected = True
         logger.info(f"[PriceFeed] ✅ Connecté — chargement des symboles...")

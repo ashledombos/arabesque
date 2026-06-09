@@ -1418,6 +1418,36 @@ class LiveEngine:
     # Price feed
     # ------------------------------------------------------------------
 
+    def _on_source_broker_replaced(self, new_broker) -> None:
+        """Le PriceFeed a recréé le broker source (force-reconnect après feed
+        stale). Basculer la référence partagée pour que le canal trading
+        (lecture pending orders, ordres, reconcile) utilise la nouvelle
+        connexion et non l'ancien broker zombie (`_connected=False`).
+
+        `self._brokers` est partagé par référence avec position_monitor /
+        dispatcher / live_monitor → un seul update du dict les couvre tous (ils
+        font un lookup par broker_id à chaque appel). Les BarAggregators gardent
+        leur propre attribut `broker` (get_history) → mis à jour aussi.
+        Incident fondateur 2026-06-08 : sans ça, le feed se reconnecte mais le
+        trading reste bloqué fail-closed (~22h observées).
+        """
+        pf_cfg = self.settings.get("price_feed", {})
+        source_broker_id = pf_cfg.get("source_broker", "")
+        if not source_broker_id:
+            return
+        old = self._brokers.get(source_broker_id)
+        if old is new_broker:
+            return
+        self._brokers[source_broker_id] = new_broker
+        for agg in (self._bar_aggregators or {}).values():
+            if getattr(agg, "broker", None) is old:
+                agg.broker = new_broker
+        logger.warning(
+            f"[Engine] 🔄 Broker source '{source_broker_id}' remplacé après "
+            f"force-reconnect feed — canal trading rebasculé sur la nouvelle "
+            f"connexion (fix incident 2026-06-08)."
+        )
+
     async def _start_price_feed(self) -> None:
         from arabesque.execution.price_feed import PriceFeedManager
 
@@ -1458,6 +1488,7 @@ class LiveEngine:
             broker_cfg=broker_cfg,
             symbols=symbols,
             existing_broker=source_broker,
+            on_broker_replaced=self._on_source_broker_replaced,
         )
 
         # Subscribe ticks to the correct aggregator(s) for each symbol
