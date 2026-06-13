@@ -3667,3 +3667,22 @@ que depuis le 06-07 → **10 exits seulement** les portent (06-10→12).
 - Aucune hausse de risk dans le cadre de ces deux tâches.
 - Toute modif `config/settings.yaml` = **commit config séparé**, compte flat, restart contrôlé.
 - Tâches hors zone Opus (analyse + reporting + config) — pas de `signal.py`/`core`/`position_manager`.
+
+### Résultat P2 (2026-06-13, même jour) — tail-risk levé, cap=7 acceptable
+
+Audit exécuté : `tmp/replay_tailrisk_crypto.py` → `docs/audit/tailrisk_crypto_2026-06-13.md`.
+Le book peut être 100% crypto unidirectionnel (max crypto concurrent = cap, max
+LONG = max SHORT = cap). Stress gap corrélé sur toutes les positions crypto, en
+partant du DD courant FTMO -6.92% :
+- **cap=5** : -3R → -8.61% (pause interne, pas de breach).
+- **cap=7** : -3R → **-9.28%** (pas de hard breach, marge 0.72% ; touche la pause 8%).
+  -2R → -8.49%. → **ACCEPTABLE**.
+- **cap=10** : -3R → **-10.29% = BREACH** du hard -10%. -2R → -9.17% (de justesse).
+  → **DIFFÉRER** jusqu'à reprise du DD FTMO (~-5%, où -3R ≈ -8.4%, pas de breach).
+GFT ne breach dans aucun scénario. Contrainte mordante = total DD (départ -6.92%),
+pas le daily. Le weekend_crypto_guard couvre en partie le scénario gap weekend.
+
+**Décision** : le gate intellectuel de cap=7 est levé. Passage 5→7 applicable selon
+la séquence ci-dessus (flat, aucun incident, commit config séparé, restart contrôlé,
+observation 2 sem / 30 trades, seuils de rollback inchangés). cap=10 reste différé.
+Aucun changement live appliqué ce jour (analyse d'abord, décision opérateur ensuite).

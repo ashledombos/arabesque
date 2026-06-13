@@ -1,0 +1,139 @@
+{
+  "ts": "2026-06-13T09:00:57.892059+00:00",
+  "since": "2024-09-01",
+  "until": "2026-06-13",
+  "n_signals": 1337,
+  "n_crypto_instr": 27,
+  "worst_cluster_h4": 14,
+  "dd_now": {
+    "ftmo": -6.92,
+    "gft": -5.28
+  },
+  "per_cap": {
+    "5": {
+      "n_accept": 1184,
+      "max_crypto": 5,
+      "max_long_c": 5,
+      "max_short_c": 5,
+      "or_f": 0.5625000000000001,
+      "or_g": 0.375
+    },
+    "7": {
+      "n_accept": 1251,
+      "max_crypto": 7,
+      "max_long_c": 7,
+      "max_short_c": 7,
+      "or_f": 0.7875,
+      "or_g": 0.525
+    },
+    "10": {
+      "n_accept": 1299,
+      "max_crypto": 10,
+      "max_long_c": 10,
+      "max_short_c": 10,
+      "or_f": 1.1250000000000002,
+      "or_g": 0.75
+    }
+  },
+  "stress": [
+    {
+      "cap": 5,
+      "gap": -1,
+      "hit_f": 0.5625000000000001,
+      "tot_f": -7.4825,
+      "breach_f": "ok",
+      "hit_g": 0.375,
+      "tot_g": -5.655,
+      "breach_g": "ok",
+      "nmax": 5
+    },
+    {
+      "cap": 5,
+      "gap": -2,
+      "hit_f": 1.1250000000000002,
+      "tot_f": -8.045,
+      "breach_f": "pause8%",
+      "hit_g": 0.75,
+      "tot_g": -6.03,
+      "breach_g": "ok",
+      "nmax": 5
+    },
+    {
+      "cap": 5,
+      "gap": -3,
+      "hit_f": 1.6875,
+      "tot_f": -8.6075,
+      "breach_f": "pause8%",
+      "hit_g": 1.125,
+      "tot_g": -6.405,
+      "breach_g": "ok",
+      "nmax": 5
+    },
+    {
+      "cap": 7,
+      "gap": -1,
+      "hit_f": 0.7875,
+      "tot_f": -7.7075,
+      "breach_f": "ok",
+      "hit_g": 0.525,
+      "tot_g": -5.805000000000001,
+      "breach_g": "ok",
+      "nmax": 7
+    },
+    {
+      "cap": 7,
+      "gap": -2,
+      "hit_f": 1.575,
+      "tot_f": -8.495,
+      "breach_f": "pause8%",
+      "hit_g": 1.05,
+      "tot_g": -6.33,
+      "breach_g": "ok",
+      "nmax": 7
+    },
+    {
+      "cap": 7,
+      "gap": -3,
+      "hit_f": 2.3625000000000003,
+      "tot_f": -9.2825,
+      "breach_f": "pause8%",
+      "hit_g": 1.575,
+      "tot_g": -6.855,
+      "breach_g": "ok",
+      "nmax": 7
+    },
+    {
+      "cap": 10,
+      "gap": -1,
+      "hit_f": 1.1250000000000002,
+      "tot_f": -8.045,
+      "breach_f": "pause8%",
+      "hit_g": 0.75,
+      "tot_g": -6.03,
+      "breach_g": "ok",
+      "nmax": 10
+    },
+    {
+      "cap": 10,
+      "gap": -2,
+      "hit_f": 2.2500000000000004,
+      "tot_f": -9.17,
+      "breach_f": "pause8%",
+      "hit_g": 1.5,
+      "tot_g": -6.78,
+      "breach_g": "ok",
+      "nmax": 10
+    },
+    {
+      "cap": 10,
+      "gap": -3,
+      "hit_f": 3.375,
+      "tot_f": -10.295,
+      "breach_f": "BREACH",
+      "hit_g": 2.25,
+      "tot_g": -7.53,
+      "breach_g": "ok",
+      "nmax": 10
+    }
+  ]
+}
