@@ -3605,3 +3605,65 @@ utilise des identifiants d'ordre et de position distincts.
 - **Critere de reevaluation** : revenir a `x0.50` puis plein risque seulement
   apres fix de la fuite BE (integrite repassee GREEN sur 7j) ET `dExp`
   Extension remonte au-dessus de -0.15R sur n>=30.
+
+---
+
+## Décision 2026-06-13 — Plans `max_open_positions` (cap) + coûts historiques : priorités, critères, rollback, dates de revue
+
+**Contexte** : /bilan 06-13 + replay `tmp/replay_cap_analysis.py` (rapport
+`docs/audit/cap_analysis_2026-06-13.md`) → cap=5 **sous-échantillonne** l'edge
+(~27R/21 mois laissés) **sans réduire le risque** (max DD / worst day / breach
+identiques sur 5/7/10). Seul angle mort : tail-risk crypto corrélé. En parallèle,
+les champs de coûts broker (gross/commission/swap/net/gap) ne sont journalisés
+que depuis le 06-07 → **10 exits seulement** les portent (06-10→12).
+
+**Priorisation actée** :
+- **P1 = coûts historiques** (explique le DD réel, peut conduire à couper des
+  instruments chers / durcir sizing GFT).
+- **P2 = tail-risk crypto corrélé** (prérequis avant tout passage cap 5→7).
+
+### P1 — Rapport coûts historiques (read-only, zone Sonnet)
+
+- **Spec** : script read-only ; agréger par broker × instrument × stratégie :
+  gross, commission, swap, net, `pnl_cash_gap` (réel − théorique) ; **distinguer
+  swap/commission vs sur-sizing/min-lot GFT** ; produire recommandations
+  (instruments à couper, holds weekend à éviter, sizing GFT à durcir).
+- **Bloquant data** : seulement **10 exits** avec champs coûts au 06-13. Insuffisant
+  pour des recommandations par instrument. Le DD historique (-6.92% FTMO) s'est
+  construit **avant** le 06-07 → seuls les champs par-trade futurs l'éclaireront.
+  Le gap agrégé (~44% du DD = coûts invisibles) est déjà estimé (entrée HANDOFF 06-07).
+- **Condition de lancement** : **n ≥ 30 exits avec `net_pnl_cash`** depuis le 06-07
+  (à ~5-10/semaine → atteint ~début juillet).
+- **DATE DE REVUE : 2026-07-04** (ou plus tôt si un instrument ressort manifestement
+  cher avant). Si n < 30 à cette date → re-noter, ne pas forcer.
+- **Contrainte** : aucun changement live (coupe d'instrument, sizing) avant le rapport.
+
+### P2 — Audit tail-risk crypto corrélé (prérequis cap=7, zone Sonnet, analyse)
+
+- **Pas de dépendance data** → faisable dès la prochaine session d'analyse.
+- **Spec** : mesurer l'exposition simultanée LONG/SHORT crypto H4 ; pire open risk
+  crypto **agrégé** (somme des risk_cash crypto ouverts simultanément) ; scénarios
+  stress (gap crypto corrélé adverse, spread widening) à 5/7/10 positions
+  simultanées ; comparer cap=5 vs 7 vs 10 **sous stress** (pas seulement en moyenne).
+- **DATE DE REVUE / À FAIRE AVANT : 2026-06-20** (ne pas laisser stagner la décision cap).
+
+### Décision cap `max_open_positions` (séquencée, conditionnelle)
+
+1. **Bloquant** : P2 (tail-risk) doit conclure **OK sous stress** avant tout changement.
+2. **Si tail-risk OK** : proposer **5 → 7 uniquement** (PAS 10 directement). Conditions
+   d'application : **compte flat, aucun incident actif, commit config séparé, restart
+   contrôlé**. Validation opérateur explicite.
+3. **Observation cap=7** : **2 semaines OU 30 trades propres**, **sans hausse de risk**.
+   - **Rollback immédiat à cap=5 si l'un de** : (a) FTMO total DD franchit **-8%**
+     (seuil pause interne) ; (b) un worst-day live **< -10R** observé ; (c) `open_risk`
+     observé **> 1.5%** ; (d) tout verdict `execution_invariants` = alert/critique ;
+     (e) **événement de perte corrélée crypto** (≥ 3 positions crypto au SL le même jour).
+   - Rollback = retour `max_open_positions: 5`, commit config séparé, restart contrôlé flat.
+4. **Passage à 10** : **seulement après** validation propre de cap=7 (observation passée
+   sans rollback).
+
+### Contraintes transverses (gravées)
+- Aucun changement live tant que le gate de chaque tâche n'est pas franchi.
+- Aucune hausse de risk dans le cadre de ces deux tâches.
+- Toute modif `config/settings.yaml` = **commit config séparé**, compte flat, restart contrôlé.
+- Tâches hors zone Opus (analyse + reporting + config) — pas de `signal.py`/`core`/`position_manager`.
