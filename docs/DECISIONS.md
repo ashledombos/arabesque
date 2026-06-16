@@ -3686,3 +3686,23 @@ pas le daily. Le weekend_crypto_guard couvre en partie le scénario gap weekend.
 la séquence ci-dessus (flat, aucun incident, commit config séparé, restart contrôlé,
 observation 2 sem / 30 trades, seuils de rollback inchangés). cap=10 reste différé.
 Aucun changement live appliqué ce jour (analyse d'abord, décision opérateur ensuite).
+
+### Application 2026-06-16 — `max_open_positions` 5 → 7 DÉPLOYÉE
+
+Go opérateur donné le 2026-06-16 18:42 UTC. Séquence respectée à la lettre :
+- **Compte flat des 2 brokers** (FTMO 0 pos / 0 ordre, GFT 0 pos / 0 ordre) re-vérifié
+  juste avant l'édition.
+- **Aucun incident actif** : protection NORMAL des 2 côtés, invariants exécution `ok`
+  (FTMO + GFT), feed vivant, 0 erreur PriceFeed.
+- **DD au moment du passage** : FTMO -6.95%, GFT -5.28% — inchangé vs l'audit P2
+  (-6.92%), donc le verdict tail-risk « cap=7 acceptable au DD courant » reste valide.
+- **Commit config séparé** : `config/settings.yaml` ligne `max_open_positions: 7` +
+  docs, commit dédié (rien d'autre).
+- **Restart contrôlé** : `systemctl --user restart arabesque-live.service`, compte flat
+  donc aucun trade interrompu.
+
+**Observation cap=7 (démarre 2026-06-16)** : 2 semaines OU 30 trades extension+glissade
+propres, sans hausse de risk. **Seuils de rollback → retour `max_open_positions: 5`** si
+l'un de : FTMO total DD < -8% · worst-day live < -10R · open_risk observé > 1.5% ·
+invariants alert/critique · événement de perte corrélée crypto (≥3 SL crypto même jour).
+**cap=10 différé** jusqu'à reprise du DD FTMO (~-5%). Revue : 2026-06-30 ou n≥30.

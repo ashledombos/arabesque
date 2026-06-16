@@ -209,7 +209,7 @@ filters:
   min_margin_percent: 30
   max_daily_drawdown_percent: 4.0
   max_total_drawdown_percent: 9.0
-  max_open_positions: 5
+  max_open_positions: 7  # 5->7 le 2026-06-16 : tail-risk crypto corrélé levé (docs/audit/tailrisk_crypto_2026-06-13.md). cap=10 différé jusqu'à reprise DD.
   max_pending_orders: 10
   prevent_duplicate_orders: true
 
