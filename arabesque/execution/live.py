@@ -868,10 +868,27 @@ class LiveEngine:
 
         total = 0
         unavailable_brokers: list[str] = []
+        registered_keys: set[str] = set()
         for broker_id, broker in self._brokers.items():
             try:
                 positions = await broker.get_positions()
                 if not positions:
+                    # Un [] d'un broker injoignable n'est PAS une preuve de flat :
+                    # cTrader renvoie [] quand ``_connected`` est False (canal
+                    # trading mort). Ne pas conclure "aucune position" tant que le
+                    # journal porte une entry ouverte pour ce broker — marquer le
+                    # broker non confirmé pour ré-adoption depuis le journal.
+                    # Incident 2026-06-12 : restart maintenance ~21h, canal mort,
+                    # position glissade BTCUSD lâchée 4 jours du BE-polling.
+                    is_conn = (
+                        broker.is_connected()
+                        if hasattr(broker, "is_connected")
+                        else True
+                    )
+                    if not is_conn and any(
+                        k.startswith(f"{broker_id}:") for k in journal_open_entries
+                    ):
+                        unavailable_brokers.append(broker_id)
                     continue
 
                 for pos in positions:
@@ -947,6 +964,7 @@ class LiveEngine:
                                 f"[Engine] Position ouverte sans entry journal "
                                 f"à restaurer: {broker_id}:{pos.position_id}"
                             )
+                    registered_keys.add(f"{broker_id}:{pos.position_id}")
                     total += 1
                     logger.info(
                         f"[Engine] 📋 Réconciliation: {pos.symbol} "
@@ -961,6 +979,28 @@ class LiveEngine:
                     f"[Engine] Erreur réconciliation {broker_id}: {e}"
                 )
 
+        # Ré-adoption depuis le journal pour les brokers non confirmés
+        # (injoignables : get_positions a levé, ou a renvoyé [] alors que le
+        # canal trading est mort). Une position connue-ouverte doit garder sa
+        # surveillance BE/trailing même sans confirmation broker au démarrage.
+        # On ne fabrique aucun exit (cf. feedback_reconcile_broker_unreachable) :
+        # la boucle reconcile la clôturera proprement si elle s'avère fermée une
+        # fois le broker revenu. Incident fondateur 2026-06-12.
+        readopted = 0
+        for broker_id in unavailable_brokers:
+            for key, record in journal_open_entries.items():
+                if not key.startswith(f"{broker_id}:") or key in registered_keys:
+                    continue
+                if self._readopt_position_from_journal(broker_id, record):
+                    registered_keys.add(key)
+                    readopted += 1
+        if readopted:
+            logger.warning(
+                f"[Engine] 🔁 Ré-adoption: {readopted} position(s) "
+                f"connue(s)-ouverte(s) ré-enregistrée(s) depuis le journal "
+                f"(broker injoignable au démarrage) — BE-polling repris"
+            )
+
         if total:
             logger.info(
                 f"[Engine] ✅ Réconciliation: {total} position(s) existante(s) enregistrée(s)"
@@ -972,6 +1012,60 @@ class LiveEngine:
             )
         else:
             logger.info("[Engine] 📋 Réconciliation: aucune position ouverte")
+
+    def _readopt_position_from_journal(self, broker_id: str, record: dict) -> bool:
+        """Ré-enregistre une position connue-ouverte (journal) dans le monitor.
+
+        Utilisé quand le broker n'a pas confirmé son état au démarrage (canal
+        trading mort) : sans cela, le BE-polling — qui ne scanne que
+        ``self._positions`` — ne couvrirait jamais la position jusqu'au prochain
+        restart. On ne fabrique aucun exit ; si la position s'avère fermée une
+        fois le broker revenu, la boucle reconcile la clôturera normalement.
+
+        ``digits`` retombe sur 5 (broker injoignable → pas de ``get_symbol_info``) ;
+        le BE amend re-enrichit au besoin une fois le broker reconnecté.
+
+        Retourne True si la position a été ré-enregistrée.
+        """
+        from arabesque.core.models import Side
+
+        if not self._position_monitor:
+            return False
+
+        position_id = str(record.get("position_id", ""))
+        symbol = record.get("instrument", "")
+        sl = record.get("sl") or 0.0
+        if not position_id or not symbol or sl <= 0:
+            logger.warning(
+                f"[Engine] Ré-adoption impossible (champs manquants): "
+                f"{broker_id}:{position_id or '?'}"
+            )
+            return False
+
+        side = (
+            Side.LONG
+            if str(record.get("side", "LONG")).upper() == "LONG"
+            else Side.SHORT
+        )
+        self._position_monitor.register_position(
+            broker_id=broker_id,
+            position_id=position_id,
+            symbol=symbol,
+            side=side,
+            entry=record.get("entry_price", 0.0),
+            sl=sl,
+            tp=record.get("tp") or 0.0,
+            volume=record.get("volume", 0.0),
+            digits=5,
+        )
+        live_monitor = getattr(self, "_live_monitor", None)
+        if live_monitor:
+            live_monitor.restore_open_trade(record)
+        logger.info(
+            f"[Engine] 🔁 Ré-adoption journal: {symbol} {side.value} "
+            f"{broker_id}:{position_id} (broker injoignable, BE-polling repris)"
+        )
+        return True
 
     async def _reconstruct_exit_from_history(
         self,
