@@ -19,10 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-import logging
 from unittest.mock import AsyncMock, MagicMock
-
-import pytest
 
 from arabesque.execution.live import LiveEngine
 
@@ -60,7 +57,7 @@ def test_readopts_journal_open_position_when_broker_returns_empty_but_disconnect
 
     broker = MagicMock()
     broker.get_positions = AsyncMock(return_value=[])          # canal trading mort
-    broker.is_connected = MagicMock(return_value=False)        # broker injoignable
+    broker.is_connected = False        # @property bool sur BrokerBase — broker injoignable
     broker.get_symbol_info = AsyncMock(return_value=None)
 
     engine = _make_engine(broker, journal, monkeypatch)
@@ -84,7 +81,7 @@ def test_does_not_readopt_when_broker_connected_and_genuinely_flat(
 
     broker = MagicMock()
     broker.get_positions = AsyncMock(return_value=[])          # broker répond
-    broker.is_connected = MagicMock(return_value=True)         # broker sain
+    broker.is_connected = True         # @property bool sur BrokerBase — broker sain
     broker.get_symbol_info = AsyncMock(return_value=None)
 
     engine = _make_engine(broker, journal, monkeypatch)
@@ -100,7 +97,7 @@ def test_readopts_journal_open_position_when_broker_raises(tmp_path, monkeypatch
 
     broker = MagicMock()
     broker.get_positions = AsyncMock(side_effect=ConnectionError("trading channel dead"))
-    broker.is_connected = MagicMock(return_value=False)
+    broker.is_connected = False
     broker.get_symbol_info = AsyncMock(return_value=None)
 
     engine = _make_engine(broker, journal, monkeypatch)

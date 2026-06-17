@@ -880,10 +880,13 @@ class LiveEngine:
                     # broker non confirmé pour ré-adoption depuis le journal.
                     # Incident 2026-06-12 : restart maintenance ~21h, canal mort,
                     # position glissade BTCUSD lâchée 4 jours du BE-polling.
+                    # ``is_connected`` est un @property (bool) sur BrokerBase ;
+                    # rester robuste si un connecteur l'expose en méthode.
+                    is_conn_attr = getattr(broker, "is_connected", True)
                     is_conn = (
-                        broker.is_connected()
-                        if hasattr(broker, "is_connected")
-                        else True
+                        is_conn_attr()
+                        if callable(is_conn_attr)
+                        else bool(is_conn_attr)
                     )
                     if not is_conn and any(
                         k.startswith(f"{broker_id}:") for k in journal_open_entries
