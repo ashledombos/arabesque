@@ -587,8 +587,27 @@ class TradeLockerBroker(BaseBroker):
             result = self._api.modify_position(int(position_id), params)
             if result:
                 return OrderResult(success=True, message="Position modified")
-            else:
-                return OrderResult(success=False, message="Failed to modify position")
+            # Le SDK TradeLocker peut renvoyer une valeur falsy alors que la
+            # modification s'applique réellement (valeur de retour ambiguë /
+            # consistance différée). Avant de conclure à l'échec, confirmer en
+            # relisant le SL effectif via les ordres protecteurs liés. Sinon on
+            # rate l'armement BE (be_set jamais posé) + fausse alerte
+            # amend_abandoned, alors que le SL a bel et bien bougé.
+            # Incident 2026-06-18 : 4 trades GFT sortis au niveau BE (+0.20R)
+            # mais enregistrés be_set=False / stop_loss.
+            if stop_loss is not None:
+                try:
+                    prot = await self.get_position_protection(str(position_id))
+                except Exception:
+                    prot = None
+                if prot and prot[0] is not None:
+                    tol = max(abs(stop_loss) * 1e-3, 1e-9)
+                    if abs(prot[0] - stop_loss) <= tol:
+                        return OrderResult(
+                            success=True,
+                            message="Position modified (confirmé par relecture SL)",
+                        )
+            return OrderResult(success=False, message="Failed to modify position")
         except Exception as e:
             return OrderResult(success=False, message=str(e))
 
