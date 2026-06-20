@@ -95,7 +95,55 @@ def _load_exits(
     return out
 
 
-def _evaluate(exits: list[dict]) -> dict:
+# Raisons be_polling distinguant un BE physiquement NON-armable (marché) d'un
+# raté d'exécution. Un -1R dont le MFE a effleuré 0.3R puis s'est effondré sous
+# l'offset BE ne pouvait PAS armer (on ne pose pas un stop au-dessus du marché)
+# → ce n'est pas un bug. Cf. NERUSD 2026-06-15 (MFE 0.32R, 426 polls
+# `price_fell_back_before_amend`).
+_BE_MARKET_REASONS = {"price_fell_back_before_amend", "sl_already_covers_be"}
+
+
+def _load_be_polling_reasons(
+    since: dt.datetime, until: dt.datetime
+) -> dict[str, str]:
+    """position_id -> 'market' | 'execution' (raison dominante eligible_not_armed).
+
+    Absent du dict = pas de donnée poll (records pré-2026-05-29) → l'appelant
+    reste conservateur (compte le cas comme avant).
+    """
+    from collections import Counter
+    by_pos: dict[str, Counter] = {}
+    if not JOURNAL.exists():
+        return {}
+    for line in JOURNAL.read_text().splitlines():
+        if '"event": "be_polling_decision"' not in line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if obj.get("decision") != "eligible_not_armed":
+            continue
+        ts_raw = obj.get("ts")
+        try:
+            ts = dt.datetime.fromisoformat(ts_raw)
+        except (TypeError, ValueError):
+            continue
+        if not (since <= ts <= until):
+            continue
+        pid = str(obj.get("position_id", ""))
+        if not pid:
+            continue
+        by_pos.setdefault(pid, Counter())[obj.get("reason", "unknown")] += 1
+    out: dict[str, str] = {}
+    for pid, c in by_pos.items():
+        reason = c.most_common(1)[0][0]
+        out[pid] = "market" if reason in _BE_MARKET_REASONS else "execution"
+    return out
+
+
+def _evaluate(exits: list[dict], be_polling_reasons: dict[str, str] | None = None) -> dict:
+    be_polling_reasons = be_polling_reasons or {}
     n = len(exits)
     out = {"n_exits": n, "triggers": [], "verdict": "ok", "details": {}}
     if n == 0:
@@ -160,18 +208,25 @@ def _evaluate(exits: list[dict]) -> dict:
     be_should = [e for e in losers_full
                  if (e.get("mfe_r") or 0) >= 0.3
                  and not _be_was_armed_broker(e)]
+    # Exclure les aller-retours physiquement NON-armables (be_polling dominant =
+    # price_fell_back) : marché, pas bug. On ne déclenche que sur les non-armés
+    # ARMABLES (raison exécution, ou pas de donnée poll = conservateur).
+    be_market = [e for e in be_should
+                 if be_polling_reasons.get(str(e.get("position_id", ""))) == "market"]
+    be_bug = [e for e in be_should if e not in be_market]
     n_lf = len(losers_full)
-    pct = 100.0 * len(be_should) / n_lf if n_lf else 0.0
-    out["details"]["be_unarmed"] = {"count": len(be_should),
+    pct = 100.0 * len(be_bug) / n_lf if n_lf else 0.0
+    out["details"]["be_unarmed"] = {"count": len(be_bug),
+                                     "market_roundtrip_excluded": len(be_market),
                                      "of_full_losers": n_lf,
                                      "pct": round(pct, 1)}
     if n_lf >= 5:
         if pct > 25:
             out["triggers"].append(("be_unarmed_ratio", "CRITIQUE",
-                f"{len(be_should)}/{n_lf} losers -1R avaient MFE≥0.3R sans BE armé broker ({pct:.1f}%)"))
+                f"{len(be_bug)}/{n_lf} losers -1R ARMABLES sans BE armé broker ({pct:.1f}%) — {len(be_market)} aller-retours marché exclus"))
         elif pct > 10:
             out["triggers"].append(("be_unarmed_ratio", "ALERT",
-                f"{len(be_should)}/{n_lf} losers -1R avaient MFE≥0.3R sans BE armé broker ({pct:.1f}%)"))
+                f"{len(be_bug)}/{n_lf} losers -1R ARMABLES sans BE armé broker ({pct:.1f}%) — {len(be_market)} aller-retours marché exclus"))
 
     # 5) be_inferred_but_loser : exits be_source=inferred_from_mfe ET loser
     # significatif. Pattern XAUUSD 14-05 : engine down → tick 0.3R jamais reçu
@@ -293,12 +348,14 @@ def main() -> int:
     until = (dt.datetime.fromisoformat(args.until).replace(tzinfo=dt.timezone.utc)
              if args.until else now)
 
+    be_reasons = _load_be_polling_reasons(since, until)
+
     if args.per_broker:
         # Évalue séparément, verdict global = pire des deux
         reports = {}
         for b in ("ftmo_challenge", "gft_compte1"):
             ex = _load_exits(since, until, broker=b)
-            reports[b] = _evaluate(ex)
+            reports[b] = _evaluate(ex, be_reasons)
         worst = max(reports.values(), key=lambda r: _verdict_rank(r["verdict"]))
         global_verdict = worst["verdict"]
         if args.json:
@@ -319,7 +376,7 @@ def main() -> int:
         return 0
 
     exits = _load_exits(since, until, broker=args.broker)
-    report = _evaluate(exits)
+    report = _evaluate(exits, be_reasons)
 
     if args.json:
         print(json.dumps(report, indent=2))
