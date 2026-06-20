@@ -1667,6 +1667,14 @@ class CTraderBroker(BaseBroker):
             order_type = OrderType.LIMIT if order.orderType == 1 else OrderType.STOP
             sym_id = order.tradeData.symbolId
             lot_cents = self._get_lot_size_cents(sym_id)
+            # cTrader pré-assigne un positionId à un STOP/LIMIT pending (la
+            # position qu'il créera au fill). orderId ≠ positionId. Au placement,
+            # _process_order_response renvoie le positionId comme result_id (stocké
+            # dans _pending_fills) ; il faut donc exposer positionId ici pour que le
+            # check "pending broker non tracké" puisse le rapprocher. Sans ça :
+            # incident 2026-06-18 (etat risque invalide en boucle 2h30, orderId
+            # 161355954 vs positionId 54797135 tracké).
+            order_pos_id = getattr(order, "positionId", None)
             self._pending_orders.append(PendingOrder(
                 order_id=str(order.orderId),
                 symbol=self._resolve_symbol_name(sym_id),
@@ -1680,6 +1688,7 @@ class CTraderBroker(BaseBroker):
                 label=getattr(order, "label", ""),
                 comment=getattr(order, "comment", ""),
                 broker_id=self.broker_id,
+                raw_data={"position_id": str(order_pos_id) if order_pos_id else None},
             ))
 
     def _process_order_response(self, payload, ptype: str):
