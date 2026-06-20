@@ -101,6 +101,31 @@ C'est la question de couverture : *toutes les stratégies actives ont-elles bien
 - **Si `manquants > 2` sur une stratégie** → investigue : engine aveugle sur cette plage ? stratégie dropped silencieusement ? filtre cooldown/spread/slippage trop agressif ? feed stale ?
 - Inclure le résumé dans le bilan (par stratégie, ligne `manquants=N` à côté de `live=N`).
 
+#### 2.c-bis Couverture & biais de sélection (les ratés pondérés par leur R)
+
+Complète §2.c : §2.c **compte** les ratés, §2.c-bis les **pondère par leur `r_theo`** pour
+distinguer *couverture/variance* (sous-échantillonnage neutre) d'un *biais de sélection*
+(le live rate **systématiquement les bons** signaux). C'est le décodeur d'un `drift_structurel`
+edge_audit : à faible couverture, le résultat live est dominé par la variance, pas par l'edge.
+
+- Lance `python scripts/selection_coverage.py --since 2026-05-16T08:44` (Phase 4 bis ;
+  ou `--since <start>` pour la période du bilan). **Générateur** : écrit
+  `logs/selection_coverage_latest.md` + append `logs/selection_coverage.jsonl`. C'est `/bilan`
+  qui régénère ; `/suivi` ne fait que **lire** ce cache (analyse trop lourde pour le check léger).
+- Reporte dans le bilan : **couverture %** (n_pris / n_théo), `meanR_theo(pris)` vs
+  `meanR_theo(ratés)`, écart, et le `verdict` :
+  - `low_coverage_variance` (≈) → sous-échantillonnage ; le cap (`max_open_positions`) est le
+    levier, la moyenne de **population** reste la référence d'edge. Pas d'action edge.
+  - `mild_tilt` (écart 0.15–0.30R) → à surveiller, noter.
+  - `selection_bias` (écart > 0.30R sur n_pris≥20) → 🔶 **le live jette les bons signaux** :
+    investiguer le filtre live-only (ordering cap / spread / slippage / cooldown). Action requise.
+  - `low_n` (n_pris<15) → inconclusif, collecte.
+- **Tendance** : lire les dernières lignes de `logs/selection_coverage.jsonl` pour voir si la
+  **couverture monte** semaine après semaine (effet attendu du passage cap 5→7) et si l'écart
+  pris/ratés se stabilise ou se creuse. Inclure la trajectoire dans la section "Observations".
+- **Référence 2026-06-20 (post cap=7)** : `low_coverage_variance`, couverture 29%, écart +0.10R
+  (cf. [[project_selection_coverage]]). Re-mesure cible à **n_pris≥40** post-cap=7.
+
 #### 2.d Audit edge global (panorama persistant — l'objectif principal)
 
 C'est **la** question : *l'edge mesuré en backtest tient-il toujours en live ?* La perf est secondaire — un edge qui fuit, c'est la mort silencieuse du système.
