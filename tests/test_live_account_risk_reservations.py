@@ -256,3 +256,50 @@ def test_daily_journal_read_failure_invalidates_state(tmp_path, monkeypatch):
 
     assert engine._dispatcher.invalidated == ["gft_compte1"]
     assert "gft_compte1" not in engine._dispatcher.states
+
+
+def test_pending_matched_by_position_id_is_not_unknown(tmp_path, monkeypatch):
+    """Incident 2026-06-18 : STOP pending dont orderId(broker) ≠ id tracké, mais
+    dont positionId == l'id stocké dans _pending_fills (cTrader renvoie le
+    positionId au placement). Doit être reconnu comme tracké, PAS 'etat risque
+    invalide' en boucle."""
+    monkeypatch.setattr(
+        "arabesque.execution.live.TRADE_JOURNAL_PATH", tmp_path / "missing.jsonl",
+    )
+    # Au placement, cTrader a renvoyé le positionId (54797135) → stocké en order_id.
+    engine = _engine(
+        _Broker(pending=[SimpleNamespace(
+            order_id="161355954",                       # orderId broker réel
+            raw_data={"position_id": "54797135"},        # positionId == id tracké
+        )])
+    )
+    engine._pending_fills = {
+        "k1": {"broker_id": "gft_compte1", "order_id": "54797135",
+               "risk_cash": 14.0, "instrument": "BNBUSD"},
+    }
+
+    asyncio.run(engine._refresh_account_state())
+
+    assert engine._dispatcher.invalidated == []
+    assert "gft_compte1" in engine._dispatcher.states
+
+
+def test_genuinely_foreign_pending_still_flagged(tmp_path, monkeypatch):
+    """Garde-fou : un ordre placé hors Arabesque (orderId ET positionId inconnus)
+    reste flaggé 'inconnu' → invalidation (sécurité préservée)."""
+    monkeypatch.setattr(
+        "arabesque.execution.live.TRADE_JOURNAL_PATH", tmp_path / "missing.jsonl",
+    )
+    engine = _engine(
+        _Broker(pending=[SimpleNamespace(
+            order_id="999999", raw_data={"position_id": "888888"},
+        )])
+    )
+    engine._pending_fills = {
+        "k1": {"broker_id": "gft_compte1", "order_id": "54797135",
+               "risk_cash": 14.0, "instrument": "BNBUSD"},
+    }
+
+    asyncio.run(engine._refresh_account_state())
+
+    assert engine._dispatcher.invalidated == ["gft_compte1"]

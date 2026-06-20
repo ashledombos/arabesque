@@ -1752,12 +1752,24 @@ class LiveEngine:
                     str(pos.position_id) for pos in positions
                     if getattr(pos, "position_id", None)
                 }
+                # Un pending broker est "inconnu" seulement si NI son order_id NI
+                # son position_id ne correspond à ce qu'on a tracké, ET son
+                # position_id n'est pas une position déjà ouverte. cTrader
+                # pré-assigne un positionId ≠ orderId au STOP/LIMIT pending, et
+                # _process_order_response stocke le positionId dans _pending_fills
+                # → matcher aussi par positionId. Sinon : faux "non tracké" en
+                # boucle (incident 2026-06-18, etat risque invalide 2h30). Un
+                # ordre vraiment étranger (placé hors Arabesque) reste flaggé :
+                # ses deux ids sont inconnus.
+                def _order_pos_id(order) -> str:
+                    return str((getattr(order, "raw_data", None) or {}).get("position_id", "") or "")
+
                 unknown_pending_ids = [
                     str(order.order_id)
                     for order in broker_pending
                     if str(order.order_id) not in tracked_pending_ids
-                    and str((getattr(order, "raw_data", None) or {}).get("position_id", ""))
-                    not in open_position_ids
+                    and _order_pos_id(order) not in tracked_pending_ids
+                    and _order_pos_id(order) not in open_position_ids
                 ]
                 if unknown_pending_ids:
                     logger.warning(
