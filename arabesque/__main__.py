@@ -163,6 +163,19 @@ def _run_backtest(args: argparse.Namespace) -> int:
     instruments = _resolve_instruments(args)
     period = getattr(args, "period", "730d")
 
+    # Fenêtre temporelle --from/--to : appliquée APRÈS prepare (cf. boucle)
+    # pour que les indicateurs soient réchauffés sur l'historique complet,
+    # sinon on perdrait ~200 barres de warm-up au début de la fenêtre.
+    win_start = getattr(args, "start", None)
+    win_end = getattr(args, "end", None)
+    _ws = _we = None
+    if win_start or win_end:
+        import pandas as pd
+        _ws = pd.Timestamp(win_start, tz="UTC") if win_start else None
+        _we = pd.Timestamp(win_end, tz="UTC") if win_end else None
+        print(f"  [Fenêtre] {win_start or '…'} → {win_end or '…'} "
+              f"(indicateurs réchauffés sur l'historique complet)")
+
     if not instruments:
         print("Usage : python -m arabesque run --mode backtest BTCUSD XAUUSD", file=sys.stderr)
         print("    ou : python -m arabesque run --mode backtest --universe crypto", file=sys.stderr)
@@ -192,6 +205,15 @@ def _run_backtest(args: argparse.Namespace) -> int:
                 print(f"  Données insuffisantes pour {inst}", file=sys.stderr)
                 continue
             df = sig_gen.prepare(df)
+
+            # Fenêtre temporelle (--from/--to) : trancher après prepare pour
+            # conserver le warm-up des indicateurs (calculé sur l'historique
+            # complet), puis restreindre la période de trading.
+            if _ws is not None or _we is not None:
+                df = df.loc[_ws:_we]
+                if len(df) < 100:
+                    print(f"  Fenêtre trop courte pour {inst} ({len(df)} barres)", file=sys.stderr)
+                    continue
 
             # Charger les sub-bars M1 si disponibles
             sub_bar_df = None
