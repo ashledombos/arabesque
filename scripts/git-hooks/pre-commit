@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Pre-commit hook versionné (dans le repo) — activé via :
+#     git config core.hooksPath scripts/git-hooks
+# Lance le garde-fou hygiène avant chaque commit.
+# Bypass ponctuel : git commit --no-verify
+exec "$(git rev-parse --show-toplevel)/scripts/check.sh"

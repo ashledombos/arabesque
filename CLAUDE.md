@@ -182,6 +182,17 @@ Accumuler ≥ 100 trades avant décision. Activer si WR↑ ET Exp↑.
 - Un seul signal.py par stratégie (backtest = live, zéro divergence)
 - Shims de compatibilité si un module est déplacé
 
+### Garde-fous avant commit (anti-casse sur ajout/retrait)
+
+- **Lancer `scripts/check.sh` avant tout commit** (humain ou agent) : ruff
+  `F821`/`F811` (nom non défini = référence dangle après un retrait) + suite
+  pytest complète (~4s). Vert = sûr de commiter.
+- **Hook local** (feedback automatique) : à activer **une fois par clone/worktree**
+  via `git config core.hooksPath scripts/git-hooks`. Bypass ponctuel :
+  `git commit --no-verify`.
+- **CI** (`.github/workflows/ci.yml`) = backstop non contournable sur `main`/PR
+  (ne dépend pas de la config locale).
+
 ## Fin de session
 
 Toujours mettre à jour (si applicable) :

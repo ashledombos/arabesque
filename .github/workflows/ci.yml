@@ -1,0 +1,40 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# CI Arabesque — backstop non contournable sur main / PR.
+# Lance les mêmes checks que scripts/check.sh (ruff rupture + pytest).
+#
+# ⚠️ À VALIDER au premier run : l'install des deps peut demander 1-2 itérations
+#    (ctrader-open-api, twisted, et tradelocker qui s'installe en --no-deps —
+#    cf. install.sh). Si des tests échouent à la collecte par import manquant,
+#    ajouter le paquet ici ou marquer le test `importorskip`.
+# ─────────────────────────────────────────────────────────────────────────────
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[all]"
+          pip install ruff pytest
+          # tradelocker installé séparément (conflit requests) — best-effort,
+          # les tests qui en dépendent devraient utiliser importorskip.
+          pip install PyJWT joblib python-dotenv || true
+
+      - name: Lint — codes de rupture (F821/F811)
+        run: ruff check arabesque/ --select F821,F811
+
+      - name: Tests
+        run: pytest tests/ -q
