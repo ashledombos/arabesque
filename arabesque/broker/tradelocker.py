@@ -671,15 +671,20 @@ class TradeLockerBroker(BaseBroker):
             exit_price = row.get("filledPrice") or row.get("avgPrice") or row.get("price")
             if exit_price is None:
                 return None
-            # swap : TradeLocker peut l'exposer sous "swap" (financement). None
-            # si absent de la réponse (à confirmer selon version d'API) plutôt
-            # que 0, pour ne pas masquer un coût réel par une valeur factice.
+            # Coûts : None si le champ est absent de la réponse (plutôt que 0),
+            # pour ne pas masquer un coût réel ni un trou de données par une
+            # valeur factice. Un `commission: 0` réel reste distinct d'un champ
+            # manquant (None) → permet de savoir si GFT facture vraiment 0 ou si
+            # l'API ne l'expose pas. Le downstream traite None comme 0 dans le
+            # net (live_monitor) mais le journalise tel quel.
+            gross_raw = row.get("grossPl")
+            comm_raw = row.get("commission")
             swap_raw = row.get("swap")
             return {
                 "exit_price": float(exit_price),
                 "exit_time": str(row.get("filledTime", row.get("updatedTime", ""))),
-                "gross_profit": float(row.get("grossPl", 0)),
-                "commission": float(row.get("commission", 0)),
+                "gross_profit": float(gross_raw) if gross_raw is not None else None,
+                "commission": float(comm_raw) if comm_raw is not None else None,
                 "swap": float(swap_raw) if swap_raw is not None else None,
             }
         except Exception:

@@ -182,3 +182,35 @@ def test_get_closed_detail_selects_newest_opposite_filled_order():
 
     assert detail is not None
     assert detail["exit_price"] == pytest.approx(114.167)
+
+
+def test_get_closed_detail_reports_real_commission_when_present():
+    """La commission renvoyée par TradeLocker doit être journalisée telle quelle."""
+    orders = pd.DataFrame([
+        {"id": 10, "positionId": 42, "side": "buy", "status": "Filled",
+         "filledQty": 0.1, "avgPrice": 100.0, "price": 100.0, "createdDate": 1},
+        {"id": 11, "positionId": 42, "side": "sell", "status": "Filled",
+         "filledQty": 0.1, "avgPrice": 105.0, "price": 105.0, "createdDate": 2,
+         "grossPl": 20.0, "commission": -1.5, "swap": -0.3},
+    ])
+    detail = asyncio.run(_broker(_Api(orders=orders)).get_closed_position_detail("42"))
+    assert detail is not None
+    assert detail["commission"] == -1.5
+    assert detail["swap"] == -0.3
+    assert detail["gross_profit"] == 20.0
+
+
+def test_get_closed_detail_commission_is_none_when_field_absent():
+    """Champ commission absent de la réponse → None (pas 0), pour distinguer
+    un vrai 0 d'un trou de données (régression coûts GFT, audit 2026-06-23)."""
+    orders = pd.DataFrame([
+        {"id": 10, "positionId": 42, "side": "buy", "status": "Filled",
+         "filledQty": 0.1, "avgPrice": 100.0, "price": 100.0, "createdDate": 1},
+        {"id": 11, "positionId": 42, "side": "sell", "status": "Filled",
+         "filledQty": 0.1, "avgPrice": 105.0, "price": 105.0, "createdDate": 2},
+    ])
+    detail = asyncio.run(_broker(_Api(orders=orders)).get_closed_position_detail("42"))
+    assert detail is not None
+    assert detail["commission"] is None   # pas 0.0
+    assert detail["gross_profit"] is None
+    assert detail["swap"] is None
