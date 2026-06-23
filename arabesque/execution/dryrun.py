@@ -153,8 +153,9 @@ class ParquetClock:
     Rejoue les barres H1 depuis les parquets locaux et déclenche
     le même pipeline que BarPoller.
 
-    ``signal_generator`` peut être passé explicitement pour sélectionner
-    la stratégie. Si omis, ``CombinedSignalGenerator`` est utilisé par défaut.
+    ``signal_generator`` doit être fourni pour sélectionner la stratégie.
+    Le défaut historique (``CombinedSignalGenerator`` / mean-reversion) a été
+    abandonné et son module supprimé.
     """
 
     def __init__(
@@ -180,11 +181,12 @@ class ParquetClock:
             )
         self.on_bar_closed = on_bar_closed
 
-        if signal_generator is not None:
-            self._sig_gen = signal_generator
-        else:
-            # abandoned: CombinedSignalGenerator
-            self._sig_gen = CombinedSignalGenerator()
+        if signal_generator is None:
+            raise ValueError(
+                "signal_generator est requis : le défaut CombinedSignalGenerator "
+                "(mean-reversion) a été abandonné et son module supprimé."
+            )
+        self._sig_gen = signal_generator
 
         self._bar_cache: dict[str, list[dict]] = {}
         # Queue de signaux en attente d'exécution à la bougie suivante

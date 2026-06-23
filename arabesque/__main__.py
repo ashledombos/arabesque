@@ -173,6 +173,11 @@ def _run_backtest(args: argparse.Namespace) -> int:
         import pandas as pd
         _ws = pd.Timestamp(win_start, tz="UTC") if win_start else None
         _we = pd.Timestamp(win_end, tz="UTC") if win_end else None
+        # --to en date seule (YYYY-MM-DD, sans heure) → inclure TOUTE la journée.
+        # Sinon `.loc[:_we]` s'arrête à 00:00 UTC et tronque le dernier jour sur
+        # H1/H4 (réserve relevée par la revue 2026-06-23).
+        if _we is not None and "T" not in win_end and ":" not in win_end:
+            _we = _we + pd.Timedelta(days=1) - pd.Timedelta(microseconds=1)
         print(f"  [Fenêtre] {win_start or '…'} → {win_end or '…'} "
               f"(indicateurs réchauffés sur l'historique complet)")
 

@@ -608,10 +608,9 @@ def run_backtest(
     if strategy == "trend":
         from arabesque.strategies.extension.signal import ExtensionSignalGenerator as TrendSignalGenerator, ExtensionConfig as TrendSignalConfig
         sig_gen = TrendSignalGenerator(TrendSignalConfig())
-    elif strategy == "combined":
-        # from arabesque.backtest.signal_gen_combined import  # mean-reversion abandoned CombinedSignalGenerator
-        sig_gen = CombinedSignalGenerator(mr_config=signal_config)
     else:
+        # NB : "combined"/mean-reversion abandonné (module signal_gen_combined
+        # supprimé) — retiré pour éviter un NameError latent (cf. audit 2026-06-23).
         sig_gen = BacktestSignalGenerator(signal_config)
 
     df_prepared = sig_gen.prepare(df)
@@ -1035,8 +1034,8 @@ if __name__ == "__main__":
     parser.add_argument("--period", default="730d", help="Période Yahoo ex: 730d (défaut)")
     parser.add_argument("--start", default=None, help="Date début YYYY-MM-DD")
     parser.add_argument("--end", default=None, help="Date fin YYYY-MM-DD")
-    parser.add_argument("--strategy", default="mean_reversion",
-                        choices=["mean_reversion", "trend", "combined"])
+    parser.add_argument("--strategy", default="trend",
+                        choices=["mean_reversion", "trend"])
     parser.add_argument("--split", type=float, default=0.70, help="Ratio in-sample (défaut 0.70)")
     parser.add_argument("--risk", type=float, default=0.5, help="Risk %% par trade (défaut 0.5)")
     parser.add_argument("--balance", type=float, default=100_000, help="Capital de départ")
