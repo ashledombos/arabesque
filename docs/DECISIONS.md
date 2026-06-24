@@ -3732,6 +3732,9 @@ part ; (b) Glissade/Fouetté (XAU/BTC) inchangés.
 **Mécanisme** : `follow:false` retire l'instrument du feed ET d'Extension (un seul usage code,
 `live.py:1431`). Bonus : feed allégé (31 → 17 symboles suivis). **Réversible** : reflip `follow:true`.
 
-**Statut : PRÉPARÉ, PAS DÉPLOYÉ.** Le moteur live tourne sur l'ancien univers jusqu'au prochain
-restart. Déploiement **délibéré** quand le contexte est bon (compte flat, idéalement hors CAUTION).
+**Statut : DÉPLOYÉ 2026-06-24 ~15:12 UTC** (restart contrôlé compte flat, PID 2141752). Vérifié :
+`BarAggregator H4/extension prêt — 13 instrument(s)` = exactement le segment liquide ; PriceFeed
+17/17 souscrits, barres qui ferment (feed vivant) ; reconcile « aucune position ouverte » ; 0 erreur
+(hors quirk cosmétique TradeLocker). FTMO restait en CAUTION (non bloquant, la restriction réduit le
+risque). **Réversible** : reflip `follow:true` + restart.
 Réf : [[project_liquidity_segmentation_edge]], reproductible via `run --interval 4h --from/--to`.
