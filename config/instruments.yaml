@@ -437,7 +437,7 @@ XAGAUD:
 AAVUSD:
   ftmo_swing_test: "AAVUSD"
   ftmo_challenge: "AAVUSD"
-  follow: true
+  follow: false  # liquidité: retiré d'Extension (segment illiquide, WF OOS 2026-06-24)
   pip_size: 0.01
   pip_value_per_lot: 1
   contract_size: 100
@@ -457,7 +457,7 @@ ADAUSD:
 ALGUSD:
   ftmo_swing_test: "ALGUSD"
   ftmo_challenge: "ALGUSD"
-  follow: true
+  follow: false  # liquidité: retiré d'Extension (segment illiquide, WF OOS 2026-06-24)
   pip_size: 0.0001
   pip_value_per_lot: 10
   contract_size: 100000
@@ -477,7 +477,7 @@ AVAUSD:
 BARUSD:
   ftmo_swing_test: "BARUSD"
   ftmo_challenge: "BARUSD"
-  follow: true
+  follow: false  # liquidité: retiré d'Extension (segment illiquide, WF OOS 2026-06-24)
   pip_size: 0.0001
   pip_value_per_lot: 10
   contract_size: 100000
@@ -488,7 +488,7 @@ BCHUSD:
   ftmo_swing_test: "BCHUSD"
   ftmo_challenge: "BCHUSD"
   gft_compte1: "BCHUSD.X"
-  follow: true
+  follow: false  # liquidité: retiré d'Extension (segment illiquide, WF OOS 2026-06-24)
   pip_size: 0.01
   pip_value_per_lot: 1
   contract_size: 100
@@ -520,7 +520,7 @@ BTCUSD:
 DASHUSD:
   ftmo_swing_test: "DASHUSD"
   ftmo_challenge: "DASHUSD"
-  follow: true
+  follow: false  # liquidité: retiré d'Extension (segment illiquide, WF OOS 2026-06-24)
   pip_size: 0.01
   pip_value_per_lot: 1
   contract_size: 100
@@ -550,7 +550,7 @@ DOTUSD:
 ETCUSD:
   ftmo_swing_test: "ETCUSD"
   ftmo_challenge: "ETCUSD"
-  follow: true
+  follow: false  # liquidité: retiré d'Extension (segment illiquide, WF OOS 2026-06-24)
   pip_size: 0.01
   pip_value_per_lot: 10
   contract_size: 1000
@@ -581,7 +581,7 @@ FETUSD:
 GALUSD:
   ftmo_swing_test: "GALUSD"
   ftmo_challenge: "GALUSD"
-  follow: true
+  follow: false  # délisté / sans données (0 barre, fallback Yahoo) — retiré 2026-06-24
   pip_size: 0.001
   pip_value_per_lot: 10
   contract_size: 10000
@@ -591,7 +591,7 @@ GALUSD:
 GRTUSD:
   ftmo_swing_test: "GRTUSD"
   ftmo_challenge: "GRTUSD"
-  follow: true
+  follow: false  # liquidité: retiré d'Extension (segment illiquide, WF OOS 2026-06-24)
   pip_size: 0.0001
   pip_value_per_lot: 10
   contract_size: 100000
@@ -601,7 +601,7 @@ GRTUSD:
 ICPUSD:
   ftmo_swing_test: "ICPUSD"
   ftmo_challenge: "ICPUSD"
-  follow: true
+  follow: false  # liquidité: retiré d'Extension (segment illiquide, WF OOS 2026-06-24)
   pip_size: 0.001
   pip_value_per_lot: 10
   contract_size: 10000
@@ -611,7 +611,7 @@ ICPUSD:
 IMXUSD:
   ftmo_swing_test: "IMXUSD"
   ftmo_challenge: "IMXUSD"
-  follow: true
+  follow: false  # liquidité: retiré d'Extension (segment illiquide, WF OOS 2026-06-24)
   pip_size: 0.0001
   pip_value_per_lot: 10
   contract_size: 100000
@@ -642,7 +642,7 @@ LTCUSD:
 MANUSD:
   ftmo_swing_test: "MANUSD"
   ftmo_challenge: "MANUSD"
-  follow: true
+  follow: false  # liquidité: retiré d'Extension (segment illiquide, WF OOS 2026-06-24)
   pip_size: 0.0001
   pip_value_per_lot: 10
   contract_size: 100000
@@ -672,7 +672,7 @@ NEOUSD:
 SANUSD:
   ftmo_swing_test: "SANUSD"
   ftmo_challenge: "SANUSD"
-  follow: true
+  follow: false  # liquidité: retiré d'Extension (segment illiquide, WF OOS 2026-06-24)
   pip_size: 0.0001
   pip_value_per_lot: 10
   contract_size: 100000
@@ -703,7 +703,7 @@ UNIUSD:
 VECUSD:
   ftmo_swing_test: "VECUSD"
   ftmo_challenge: "VECUSD"
-  follow: true
+  follow: false  # liquidité: retiré d'Extension (segment illiquide, WF OOS 2026-06-24)
   pip_size: 0.00001
   pip_value_per_lot: 1
   contract_size: 100000
@@ -743,7 +743,7 @@ XRPUSD:
 XTZUSD:
   ftmo_swing_test: "XTZUSD"
   ftmo_challenge: "XTZUSD"
-  follow: true
+  follow: false  # liquidité: retiré d'Extension (segment illiquide, WF OOS 2026-06-24)
   pip_size: 0.0001
   pip_value_per_lot: 10
   contract_size: 100000

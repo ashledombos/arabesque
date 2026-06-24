@@ -3706,3 +3706,32 @@ propres, sans hausse de risk. **Seuils de rollback → retour `max_open_position
 l'un de : FTMO total DD < -8% · worst-day live < -10R · open_risk observé > 1.5% ·
 invariants alert/critique · événement de perte corrélée crypto (≥3 SL crypto même jour).
 **cap=10 différé** jusqu'à reprise du DD FTMO (~-5%). Revue : 2026-06-30 ou n≥30.
+
+## Decision 2026-06-24 - Extension crypto restreint au segment LIQUIDE (validé OOS) — PRÉPARÉ, NON DÉPLOYÉ
+
+**Décision** : restreindre l'univers crypto H4 d'Extension aux **13 instruments liquides**, en
+retirant les 13 illiquides + GALUSD (délisté/sans données). `follow: true → false` sur :
+AAVUSD, ALGUSD, BARUSD, BCHUSD, DASHUSD, ETCUSD, GRTUSD, ICPUSD, IMXUSD, MANUSD, SANUSD, VECUSD,
+XTZUSD (illiquides) + GALUSD (délisté). Univers crypto restant = les 13 liquides : BTCUSD, ETHUSD,
+SOLUSD, XRPUSD, BNBUSD, DOGEUSD, ADAUSD, AVAUSD, LNKUSD, NERUSD, LTCUSD, FETUSD, UNIUSD.
+
+**Pourquoi (anti-overfitting strict)** : segmentation par **liquidité** (médiane volume-dollar/barre
+H4), critère **structurel, externe au P&L, déclaré AVANT tout résultat**. Validé **deux fois** :
+- Split IS/OOS (IS 2024-07→2025-05 / OOS 2025-06→2026-03) : LIQUIDE +0.110R / **+0.078R OOS** (WR
+  80-82%) vs ILLIQUIDE -0.022R / +0.018R (gross ≈ 0 → net négatif vu leurs coûts plus élevés).
+- **Walk-forward roulant** (12 fenêtres H4, is-bars 1080 / oos-bars 360) : **PASS** — 192 trades OOS,
+  +23.7R (~+0.12R/trade), 11/13 positifs, 13/13 « Stable ». BTCUSD/AVAUSD flats (-0.012R, bruit) —
+  **non retirés** (le segment est défini a-priori, retirer sur résultat = re-cherry-picking).
+Le +0.041R de l'univers complet = edge liquide **dilué** par le poids mort illiquide. Net de coûts,
+le liquide reste ~+0.05R, l'illiquide bascule négatif (cf. modèle coûts cTrader par lot, 2026-06-23).
+
+**Non touché (questions séparées)** : (a) le leg **H1 forex/métaux** (AUDJPY, CHFJPY, GBPJPY, XAUUSD)
+reste `follow:true` — cost-négatif aussi mais pour d'autres raisons (XAUUSD est liquide), à analyser à
+part ; (b) Glissade/Fouetté (XAU/BTC) inchangés.
+
+**Mécanisme** : `follow:false` retire l'instrument du feed ET d'Extension (un seul usage code,
+`live.py:1431`). Bonus : feed allégé (31 → 17 symboles suivis). **Réversible** : reflip `follow:true`.
+
+**Statut : PRÉPARÉ, PAS DÉPLOYÉ.** Le moteur live tourne sur l'ancien univers jusqu'au prochain
+restart. Déploiement **délibéré** quand le contexte est bon (compte flat, idéalement hors CAUTION).
+Réf : [[project_liquidity_segmentation_edge]], reproductible via `run --interval 4h --from/--to`.
