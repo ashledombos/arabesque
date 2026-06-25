@@ -233,3 +233,16 @@ Notif Telegram envoyée : ✅
 - Timer : `~/.config/systemd/user/arabesque-suivi-reminder.timer` — `OnCalendar=hourly`, `Persistent=true` (rattrape les passages manqués au reboot)
 - Cooldown : 1 rappel toutes les 3h max (anti-spam)
 - Channels : ceux de `config/secrets.yaml → notifications.channels` (Telegram + ntfy)
+
+## Hygiène de contexte (à lire avant de lancer)
+
+- **Lance chaque `/suivi` dans un contexte vierge** : tape `/clear` puis `/suivi`, OU ouvre une
+  session fraîche. `/suivi` reconstruit tout depuis `logs/maintenance_state.jsonl` + `HANDOFF.md`
+  (la continuité vit dans les fichiers, pas dans la conversation) → il a besoin de **zéro** historique.
+  Run plus rapide et moins cher.
+- **`/clear` > `/compact`** ici : `/clear` efface le contexte (idéal, `/suivi` n'en a pas besoin) ;
+  `/compact` garderait un résumé inutile. Précaution : `/clear` jette tout le contexte non sauvegardé
+  → le faire quand le travail en cours est bien dans les fichiers/git.
+- **Pas d'auto-`/compact`/`/clear` possible depuis le skill** : ce sont des commandes du harness, ni
+  un skill ni un hook ne peuvent les invoquer. C'est un geste manuel (toi), ou l'auto-compaction du
+  harness quand le contexte se remplit.
