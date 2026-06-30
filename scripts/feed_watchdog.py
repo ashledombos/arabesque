@@ -90,37 +90,25 @@ WEEKEND_GUARD_SUN_HOUR = 22           # dimanche 22:00 UTC → fin weekend
 # mort silencieusement.
 POSITIONS_STATE_STALE_S = 600
 
-# NB: `\w{3,4}` est obligatoire pour matcher les noms de mois français
-# de 4 lettres (`juin`, `juil`, `août`, `mars`, `sept`). Avant 2026-06-01
-# le pattern `\w{3}` cassait silencieusement pile au passage à juin —
-# faux positifs `no_bar_data_in_window` (incident 2026-06-01 ~05:25 UTC).
-BAR_PATTERN = re.compile(
-    r"^(\w{3,4})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2}).*BarAggregator.*Résumé"
-)
+# Horodatage ISO de `journalctl -o short-iso` (indépendant de la langue).
+# AVANT on parsait le nom de mois français localisé → DEUX incidents de faux
+# « feed mort » au changement de mois : 2026-06-01 (`\w{3}`→`\w{3,4}` pour
+# `juin`) puis 2026-07-01 (les abréviations à point `juil.`/`sept.`/`déc.` et
+# `avril` à 5 lettres ne matchaient plus `\w{3,4}\s+`). Le parsing par nom de
+# mois est structurellement fragile (récidive garantie chaque mois à risque) :
+# on force désormais journalctl en `-o short-iso` et on parse l'ISO directement.
+ISO_TS = r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?[+-]\d{2}:?\d{2})"
+BAR_PATTERN = re.compile(r"^" + ISO_TS + r"\s+.*BarAggregator.*Résumé")
 PRICEFEED_SUMMARY_PATTERN = re.compile(
-    r"^(\w{3,4})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2}).*"
+    r"^" + ISO_TS + r"\s+.*"
     r"PriceFeed.*?(\d+)/(\d+) actifs, "
     r"(\d+) dormants, (\d+) stale majeurs, (\d+) jamais reçus"
 )
 TRADING_RECONCILE_TIMEOUT_PATTERN = re.compile(
     r"reconcile broker (?P<broker>\w+) : (?P<count>\d+) timeouts consécutifs"
 )
-# Clés explicites pour 3 ET 4 lettres : ne plus tronquer à `[:3]` côté
-# appelants (sinon `juin` et `juil` collisionnent tous deux sur `jui`).
-MONTH_MAP = {
-    "jan": 1, "janv": 1,
-    "feb": 2, "fév": 2, "fev": 2, "févr": 2, "fevr": 2,
-    "mar": 3, "mars": 3,
-    "apr": 4, "avr": 4, "avri": 4,
-    "may": 5, "mai": 5,
-    "jun": 6, "juin": 6,
-    "jul": 7, "juil": 7,
-    "aug": 8, "aoû": 8, "aou": 8, "août": 8, "aout": 8,
-    "sep": 9, "sept": 9,
-    "oct": 10, "octo": 10,
-    "nov": 11, "nove": 11,
-    "dec": 12, "déc": 12, "déce": 12, "dece": 12,
-}
+# MONTH_MAP supprimé le 2026-07-01 : on ne parse plus le nom de mois localisé
+# (journalctl forcé en `-o short-iso` → horodatage ISO, cf. ISO_TS).
 
 
 def _is_weekend_utc(now: dt.datetime) -> bool:
@@ -221,7 +209,7 @@ def _last_bar_age_seconds(now: dt.datetime) -> int | None:
     try:
         r = subprocess.run(
             ["journalctl", "--user", "-u", "arabesque-live.service",
-             "--since", "30 minutes ago", "--no-pager"],
+             "--since", "30 minutes ago", "--no-pager", "-o", "short-iso"],
             capture_output=True, text=True, timeout=10,
         )
     except subprocess.TimeoutExpired:
@@ -238,19 +226,9 @@ def _last_bar_age_seconds(now: dt.datetime) -> int | None:
         m = BAR_PATTERN.match(line)
         if not m:
             continue
-        month_str, day_str, hh, mm, ss = m.groups()
-        month = MONTH_MAP.get(month_str.lower())
-        if not month:
+        ts_utc = _parse_journal_ts(now, m)
+        if ts_utc is None:
             continue
-        try:
-            ts_local = dt.datetime(
-                now.year, month, int(day_str),
-                int(hh), int(mm), int(ss),
-                tzinfo=dt.timezone(dt.timedelta(hours=now.astimezone().utcoffset().total_seconds() / 3600))
-            )
-        except Exception:
-            continue
-        ts_utc = ts_local.astimezone(dt.timezone.utc)
         if last_ts is None or ts_utc > last_ts:
             last_ts = ts_utc
     if last_ts is None:
@@ -259,21 +237,17 @@ def _last_bar_age_seconds(now: dt.datetime) -> int | None:
 
 
 def _parse_journal_ts(now: dt.datetime, match: re.Match) -> dt.datetime | None:
-    month_str, day_str, hh, mm, ss = match.groups()[:5]
-    month = MONTH_MAP.get(month_str.lower())
-    if not month:
-        return None
+    """Parse l'horodatage ISO (group 1, format `journalctl -o short-iso`) en UTC.
+
+    Le ``now`` n'est plus utilisé (l'ISO porte sa propre année + offset) mais on
+    garde la signature pour les appelants. Robuste à la locale (cf. ISO_TS)."""
     try:
-        offset = now.astimezone().utcoffset()
-        hours = offset.total_seconds() / 3600 if offset else 0
-        ts_local = dt.datetime(
-            now.year, month, int(day_str),
-            int(hh), int(mm), int(ss),
-            tzinfo=dt.timezone(dt.timedelta(hours=hours))
-        )
+        ts = dt.datetime.fromisoformat(match.group(1))
     except Exception:
         return None
-    return ts_local.astimezone(dt.timezone.utc)
+    if ts.tzinfo is None:
+        return None
+    return ts.astimezone(dt.timezone.utc)
 
 
 def _last_pricefeed_summary(now: dt.datetime) -> dict | None:
@@ -293,7 +267,7 @@ def _last_pricefeed_summary(now: dt.datetime) -> dict | None:
     try:
         r = subprocess.run(
             ["journalctl", "--user", "-u", "arabesque-live.service",
-             "--since", "30 minutes ago", "--no-pager"],
+             "--since", "30 minutes ago", "--no-pager", "-o", "short-iso"],
             capture_output=True, text=True, timeout=10,
         )
     except subprocess.TimeoutExpired:
@@ -308,7 +282,7 @@ def _last_pricefeed_summary(now: dt.datetime) -> dict | None:
         ts_utc = _parse_journal_ts(now, m)
         if ts_utc is None:
             continue
-        active, total, dormant, stale_major, no_tick = map(int, m.groups()[5:])
+        active, total, dormant, stale_major, no_tick = map(int, m.groups()[1:])
         entry = {
             "ts": ts_utc.isoformat(),
             "age_seconds": int((now - ts_utc).total_seconds()),
@@ -338,7 +312,7 @@ def _last_trading_channel_issue(now: dt.datetime) -> dict | None:
     try:
         r = subprocess.run(
             ["journalctl", "--user", "-u", "arabesque-live.service",
-             "--since", "30 minutes ago", "--no-pager"],
+             "--since", "30 minutes ago", "--no-pager", "-o", "short-iso"],
             capture_output=True, text=True, timeout=10,
         )
     except subprocess.TimeoutExpired:
@@ -352,7 +326,7 @@ def _last_trading_channel_issue(now: dt.datetime) -> dict | None:
     risk_invalid_count = 0
 
     for line in r.stdout.splitlines():
-        m_ts = re.match(r"^(\w{3,4})\s+(\d{1,2})\s+(\d{2}):(\d{2}):(\d{2})", line)
+        m_ts = re.match(r"^" + ISO_TS, line)
         if not m_ts:
             continue
         ts_utc = _parse_journal_ts(now, m_ts)

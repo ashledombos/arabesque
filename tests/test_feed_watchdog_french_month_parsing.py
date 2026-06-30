@@ -1,21 +1,18 @@
-"""Régression 2026-06-01 — parsing journalctl mois français multi-lettres.
+"""Régression parsing journalctl — immunité à la locale (mois).
 
-Bug : `BAR_PATTERN` et `PRICEFEED_SUMMARY_PATTERN` utilisaient `(\\w{3})`
-qui ne matche que 3 caractères avant l'espace. Or les sorties `journalctl`
-sur locale fr_FR utilisent `juin`/`juil`/`août`/`mars`/`sept` (4 lettres),
-qui ne matchaient pas. Côté `MONTH_MAP`, le `month_str.lower()[:3]` faisait
-collisionner `juin` et `juil` sur la même clé `jui` → mois faux pour juillet.
+Historique : `BAR_PATTERN`/`PRICEFEED_SUMMARY_PATTERN` parsaient le nom de mois
+français de la sortie `journalctl` par défaut. Ça a cassé DEUX fois pile au
+changement de mois :
+  - 2026-06-01 : `\\w{3}` ne matchait pas `juin` (4 lettres).
+  - 2026-07-01 : `\\w{3,4}\\s+` ne matchait pas `juil.`/`sept.`/`déc.` (point)
+    ni `avril` (5 lettres) → `_last_bar_age_seconds` retournait `None` →
+    faux `no_bar_data_in_window` → spam Telegram « feed mort » alors que
+    l'engine émettait 5 barres/minute.
 
-Symptôme prod (incident 2026-06-01 ~05:25 UTC) : `_last_bar_age_seconds`
-retourne `None` (aucune ligne `BarAggregator` parsée pile au passage en
-juin) → faux positif `no_bar_data_in_window` → notif Telegram « pas de
-barres » alors que l'engine est sain et émet 5 barres par minute.
-
-Invariants verrouillés :
-1. `BAR_PATTERN` matche tous les noms de mois français (3 ou 4 lettres).
-2. `MONTH_MAP` mappe correctement `juin` ≠ `juil` (pas de collision).
-3. `_last_bar_age_seconds` retourne un âge cohérent pour un échantillon
-   `juin 01 ...` (régression directe).
+Correctif définitif : `journalctl -o short-iso` (horodatage ISO, indépendant
+de la langue) + parsing via `dt.datetime.fromisoformat`. Ces tests verrouillent
+le nouveau contrat : le parser doit lire les lignes ISO **quel que soit le
+mois** (y compris juin/juillet/septembre/décembre, historiquement piégeux).
 """
 from __future__ import annotations
 
@@ -37,54 +34,59 @@ def watchdog(tmp_path, monkeypatch):
     return wd
 
 
-@pytest.mark.parametrize("month_str,expected_month", [
-    ("jan", 1), ("janv", 1),
-    ("fév", 2), ("févr", 2),
-    ("mar", 3), ("mars", 3),
-    ("avr", 4), ("avri", 4),
-    ("mai", 5),
-    ("jun", 6), ("juin", 6),
-    ("jul", 7), ("juil", 7),
-    ("aoû", 8), ("août", 8),
-    ("sep", 9), ("sept", 9),
-    ("oct", 10),
-    ("nov", 11),
-    ("déc", 12),
-])
-def test_month_map_distinguishes_juin_and_juil(watchdog, month_str, expected_month):
-    """Pas de collision juin/juil ni régression sur les mois 3 lettres."""
-    assert watchdog.MONTH_MAP.get(month_str.lower()) == expected_month
-
-
-@pytest.mark.parametrize("month_str", ["mai", "juin", "juil", "août", "sept"])
-def test_bar_pattern_matches_french_months(watchdog, month_str):
-    """`BarAggregator Résumé` doit matcher quel que soit le mois français."""
-    line = (
-        f"{month_str} 01 07:25:00 host python[123]: "
-        "2026-06-01 07:25:00 [INFO] arabesque.live.bar_aggregator: "
+def _iso_bar_line(iso_prefix: str) -> str:
+    """Ligne `journalctl -o short-iso` d'un BarAggregator Résumé."""
+    return (
+        f"{iso_prefix} host python[123]: "
+        "[INFO] arabesque.live.bar_aggregator: "
         "[BarAggregator] ✅ Résumé: 4 barre(s) fermée(s), 0 signal(s) émis"
     )
-    m = watchdog.BAR_PATTERN.match(line)
-    assert m is not None, f"BAR_PATTERN ne matche pas mois={month_str!r}"
-    assert m.group(1).lower() == month_str.lower()
 
 
-def test_last_bar_age_parses_juin_lines(watchdog):
-    """Régression directe incident 2026-06-01 : 1 ligne juin → âge ≈ 60s.
+# Mois historiquement piégeux (juin/juil sans collision possible en ISO) +
+# offsets avec et sans deux-points (journalctl peut produire les deux).
+@pytest.mark.parametrize("iso_prefix", [
+    "2026-01-15T07:25:00+01:00",
+    "2026-06-01T07:25:00+02:00",
+    "2026-07-01T00:31:02+02:00",
+    "2026-07-01T00:31:02+0200",   # offset sans deux-points
+    "2026-09-30T23:59:00+02:00",
+    "2026-12-25T12:00:00+01:00",
+])
+def test_bar_pattern_matches_iso_any_month(watchdog, iso_prefix):
+    """`BarAggregator Résumé` doit matcher quel que soit le mois (ISO)."""
+    m = watchdog.BAR_PATTERN.match(_iso_bar_line(iso_prefix))
+    assert m is not None, f"BAR_PATTERN ne matche pas ISO={iso_prefix!r}"
+    assert m.group(1) == iso_prefix
 
-    Le code interprète ``juin 01 HH:MM:SS`` comme heure locale du host
-    (cf. ``_last_bar_age_seconds`` ligne 226). On construit donc le `now`
-    en local, on ajoute 60s, puis on repasse en UTC pour appeler le helper.
-    """
+
+def test_last_bar_age_parses_iso_lines(watchdog):
+    """Régression : 1 ligne ISO récente → âge cohérent, peu importe le mois."""
     wd = watchdog
-    bar_local = dt.datetime(2026, 6, 1, 7, 25, 0).astimezone()  # tz local
-    now_local = bar_local + dt.timedelta(seconds=60)
-    fake_now_utc = now_local.astimezone(dt.timezone.utc)
+    bar_ts = dt.datetime(2026, 7, 1, 0, 31, 2, tzinfo=dt.timezone(dt.timedelta(hours=2)))
+    fake_now_utc = bar_ts.astimezone(dt.timezone.utc) + dt.timedelta(seconds=60)
+    journal_output = _iso_bar_line("2026-07-01T00:31:02+02:00") + "\n"
 
+    def fake_run(*args, **kwargs):
+        r = MagicMock()
+        r.stdout = journal_output
+        r.returncode = 0
+        return r
+
+    with patch.object(wd.subprocess, "run", fake_run):
+        age = wd._last_bar_age_seconds(fake_now_utc)
+
+    assert age is not None, "_last_bar_age_seconds doit parser une ligne ISO"
+    assert 50 <= age <= 70, f"âge attendu ~60s, obtenu {age}s"
+
+
+def test_last_bar_age_takes_latest_across_month_boundary(watchdog):
+    """Plusieurs lignes ISO chevauchant un changement de mois → la plus récente."""
+    wd = watchdog
+    fake_now_utc = dt.datetime(2026, 7, 1, 0, 0, 30, tzinfo=dt.timezone.utc)
     journal_output = (
-        "juin 01 07:25:00 host python[123]: "
-        "2026-06-01 07:25:00 [INFO] arabesque.live.bar_aggregator: "
-        "[BarAggregator] ✅ Résumé: 4 barre(s) fermée(s), 0 signal(s) émis\n"
+        _iso_bar_line("2026-06-30T23:58:00+00:00") + "\n"
+        + _iso_bar_line("2026-07-01T00:00:00+00:00") + "\n"
     )
 
     def fake_run(*args, **kwargs):
@@ -96,7 +98,22 @@ def test_last_bar_age_parses_juin_lines(watchdog):
     with patch.object(wd.subprocess, "run", fake_run):
         age = wd._last_bar_age_seconds(fake_now_utc)
 
-    assert age is not None, (
-        "_last_bar_age_seconds doit parser 'juin ...' (regression 2026-06-01)"
-    )
-    assert 50 <= age <= 70, f"âge attendu ~60s, obtenu {age}s"
+    assert age == 30, f"doit prendre la barre 00:00 (la plus récente), âge={age}s"
+
+
+def test_journalctl_invoked_with_short_iso(watchdog):
+    """Le fix repose sur `-o short-iso` : vérifier qu'il est bien passé."""
+    wd = watchdog
+    captured = {}
+
+    def fake_run(args, *a, **kw):
+        captured["args"] = args
+        r = MagicMock()
+        r.stdout = ""
+        r.returncode = 0
+        return r
+
+    with patch.object(wd.subprocess, "run", fake_run):
+        wd._last_bar_age_seconds(dt.datetime.now(dt.timezone.utc))
+
+    assert "short-iso" in captured["args"], "journalctl doit être appelé en -o short-iso"

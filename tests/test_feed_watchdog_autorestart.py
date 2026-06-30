@@ -540,10 +540,10 @@ def test_trading_channel_issue_parser_ignores_errors_before_ready(watchdog):
         tzinfo=dt.timezone(dt.timedelta(hours=2)),
     )
     log = "\n".join([
-        "Jun 03 03:20:00 host python[1]: 2026-06-03 03:20:00 [ERROR] "
+        "2026-06-03T03:20:00+02:00 host python[1]: 2026-06-03 03:20:00 [ERROR] "
         "arabesque.live.position_monitor: [Monitor] 🚨 reconcile broker "
         "ftmo_challenge : 18 timeouts consécutifs — canal trading probablement mort",
-        "Jun 03 03:28:38 host python[2]: 2026-06-03 03:28:38 [INFO] "
+        "2026-06-03T03:28:38+02:00 host python[2]: 2026-06-03 03:28:38 [INFO] "
         "arabesque.live.engine: [Engine] ✅ Moteur prêt — ticks → barres",
     ])
 
@@ -562,9 +562,9 @@ def test_trading_channel_issue_parser_detects_errors_after_ready(watchdog):
         tzinfo=dt.timezone(dt.timedelta(hours=2)),
     )
     log = "\n".join([
-        "Jun 03 03:28:38 host python[2]: 2026-06-03 03:28:38 [INFO] "
+        "2026-06-03T03:28:38+02:00 host python[2]: 2026-06-03 03:28:38 [INFO] "
         "arabesque.live.engine: [Engine] ✅ Moteur prêt — ticks → barres",
-        "Jun 03 03:33:16 host python[2]: 2026-06-03 03:33:16 [ERROR] "
+        "2026-06-03T03:33:16+02:00 host python[2]: 2026-06-03 03:33:16 [ERROR] "
         "arabesque.live.position_monitor: [Monitor] 🚨 reconcile broker "
         "ftmo_challenge : 4 timeouts consécutifs — canal trading probablement mort",
     ])
@@ -586,7 +586,7 @@ def _risk_invalid_line(ts: str) -> str:
     # Signature exacte de l'incident 2026-06-08 (canal trading zombie après
     # force-reconnect du feed) : feed vivant mais trading bloqué fail-closed.
     return (
-        f"Jun 03 {ts} host python[2]: 2026-06-03 {ts} [WARNING] "
+        f"2026-06-03T{ts}+02:00 host python[2]: 2026-06-03 {ts} [WARNING] "
         "arabesque.live.engine: [Engine] ftmo_challenge: positions "
         "indisponibles - etat risque invalide (cTrader not connected while "
         "reading pending orders)"
@@ -600,7 +600,7 @@ def test_trading_channel_not_connected_detected_after_threshold(watchdog):
         tzinfo=dt.timezone(dt.timedelta(hours=2)),
     )
     log = "\n".join([
-        "Jun 03 03:28:38 host python[2]: 2026-06-03 03:28:38 [INFO] "
+        "2026-06-03T03:28:38+02:00 host python[2]: 2026-06-03 03:28:38 [INFO] "
         "arabesque.live.engine: [Engine] ✅ Moteur prêt — ticks → barres",
         _risk_invalid_line("03:30:00"),
         _risk_invalid_line("03:32:00"),
@@ -626,7 +626,7 @@ def test_trading_channel_not_connected_below_threshold_is_none(watchdog):
         tzinfo=dt.timezone(dt.timedelta(hours=2)),
     )
     log = "\n".join([
-        "Jun 03 03:28:38 host python[2]: 2026-06-03 03:28:38 [INFO] "
+        "2026-06-03T03:28:38+02:00 host python[2]: 2026-06-03 03:28:38 [INFO] "
         "arabesque.live.engine: [Engine] ✅ Moteur prêt — ticks → barres",
         _risk_invalid_line("03:30:00"),
         _risk_invalid_line("03:32:00"),
@@ -680,8 +680,8 @@ def test_pricefeed_summary_parser_extracts_latest(watchdog):
     class Result:
         returncode = 0
         stdout = "\n".join([
-            "mai 19 12:01:00 host app[1]: [PriceFeed] 📊 31/31 actifs, 0 dormants, 0 stale majeurs, 0 jamais reçus — 10 ticks total",
-            "mai 19 12:05:00 host app[1]: [PriceFeed] 📊 30/31 actifs, 0 dormants, 1 stale majeurs, 0 jamais reçus — 20 ticks total",
+            "2026-05-19T12:01:00+02:00 host app[1]: [PriceFeed] 📊 31/31 actifs, 0 dormants, 0 stale majeurs, 0 jamais reçus — 10 ticks total",
+            "2026-05-19T12:05:00+02:00 host app[1]: [PriceFeed] 📊 30/31 actifs, 0 dormants, 1 stale majeurs, 0 jamais reçus — 20 ticks total",
         ])
 
     with patch.object(wd.subprocess, "run", lambda *a, **kw: Result()):
@@ -700,7 +700,7 @@ def test_pricefeed_summary_parser_marks_weekend(watchdog):
     class Result:
         returncode = 0
         stdout = (
-            "mai 31 18:05:00 host app[1]: [PriceFeed] 📊 27/31 actifs, "
+            "2026-05-31T18:05:00+02:00 host app[1]: [PriceFeed] 📊 27/31 actifs, "
             "3 dormants, 1 stale majeurs, 0 jamais reçus — 20 ticks total 🌙 WEEKEND"
         )
 
@@ -718,7 +718,7 @@ def test_pricefeed_summary_parser_ignores_stale_summary(watchdog):
     class Result:
         returncode = 0
         stdout = (
-            "mai 19 12:05:00 host app[1]: [PriceFeed] 📊 30/31 actifs, "
+            "2026-05-19T12:05:00+02:00 host app[1]: [PriceFeed] 📊 30/31 actifs, "
             "0 dormants, 1 stale majeurs, 0 jamais reçus — 20 ticks total"
         )
 
