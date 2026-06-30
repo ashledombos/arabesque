@@ -36,8 +36,8 @@ STATE = ROOT / "logs" / "maintenance_state.jsonl"
 WATCHDOG_STATE = ROOT / "logs" / "feed_watchdog_state.json"
 SECRETS = ROOT / "config" / "secrets.yaml"
 
-REMIND_COOLDOWN_H = 3.0
-ESCALATE_COOLDOWN_H = 1.0
+REMIND_COOLDOWN_H = 12.0  # rappel /suivi en retard : « de temps en temps, pas trop » (préférence user 2026-06-29, ex-3h)
+ESCALATE_COOLDOWN_H = 1.0  # escalade URGENT (feed mort, etc.) : reste rapide, ne pas allonger
 ESCALATE_PERSIST_MIN = 30
 
 
@@ -177,7 +177,7 @@ def main() -> int:
     if not state:
         return 0
     last_ts = dt.datetime.fromisoformat(state["ts"])
-    next_h = state.get("next_expected_in_hours") or 24
+    next_h = state.get("next_expected_in_hours") or 48
     due = last_ts + dt.timedelta(hours=next_h)
     overdue_h = (now - due).total_seconds() / 3600.0
     if overdue_h < 0:

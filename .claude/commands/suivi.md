@@ -97,7 +97,32 @@ Scan `HANDOFF.md` section "Immédiat" pour les items `[ ]` :
 
 ### 6. Notification résumé (Telegram + ntfy)
 
-**Par défaut (sauf mode `silent`)** : envoie un résumé humain via apprise (les channels de `config/secrets.yaml → notifications.channels` couvrent **Telegram ET ntfy**).
+**Politique de notification (préférence user 2026-06-27 — réduire le bruit)** :
+L'utilisateur est facilement noyé sous les notifs Telegram. **Ne PAS notifier à chaque passage.**
+Deux niveaux :
+
+- 🚨 **Urgence (toujours, immédiat)** : engine down/instable, feed mort (`feed_stale`), protection
+  ≠ NORMAL qui s'aggrave, `dd_proximity` qui franchit un nouveau palier, invariants `critique`,
+  phantom/orphan frais, tout trigger watchlist **actionnable**. → notif **systématique**.
+- 📋 **Routine (« tout va bien »)** : **silence par défaut.** On notifie un point de routine
+  **uniquement si** `delay_h_since_last_NOTIF > 48` (pour confirmer que le système est vivant).
+  Si < 48h depuis la dernière notif **et** rien d'actionnable → **PAS de notif** (juste le state log §8).
+
+Concrètement : calcule s'il y a au moins un trigger actionnable. **Si oui** → notif (niveau urgence/action).
+**Si non** → notifie seulement quand > 48h se sont écoulées depuis la dernière notif effective
+(champ `notification_sent: true` du dernier state log) ; sinon, run silencieux.
+
+Les modes `silent` (jamais) et `notify` (force) restent prioritaires sur cette règle.
+
+**Langage des notifs (préférence user 2026-06-27)** : écrire **comme à quelqu'un de non-technique**.
+Phrases simples, et **réexpliquer chaque terme technique** entre parenthèses ou en note de bas :
+« feed » = flux de prix en direct ; « DD/drawdown » = perte cumulée depuis le départ ;
+« edge » = avantage statistique de la stratégie ; « R » = unité de risque (1R = la perte d'un trade raté) ;
+« BE/breakeven » = on a remonté le stop pour ne plus pouvoir perdre ; « rodage » = mode prudent à risque réduit.
+Toujours finir par **ce que l'utilisateur doit faire** (souvent : « rien »). Éviter le caractère `<`
+(rejet HTML Telegram, cf. [[feedback_telegram_html_pitfall]]) ou forcer `body_format=TEXT`.
+
+**Envoi** (quand une notif est due) via apprise (les channels de `config/secrets.yaml → notifications.channels` couvrent **Telegram ET ntfy**).
 
 ```python
 import asyncio, yaml, apprise
@@ -111,19 +136,19 @@ if channels:
     asyncio.run(ap.async_notify(body=résumé, title="Arabesque /suivi"))
 ```
 
-**Format du body** (≤ 12 lignes, lisible par un humain qui regarde son tél) :
+**Format du body** (≤ 10 lignes, **langage simple, termes réexpliqués**) :
 ```
-📋 Suivi YYYY-MM-DD HH:MM UTC
-🟢/🛠️/🚨 État global
-• Engine : active (Xh uptime)
-• FTMO -X.X% / GFT -Y.Y% — protection NORMAL
-• Edge replay J-30 : Cabriole +0.02R/31t · Extension -0.10R/19t · Glissade +0.23R/4t
-• Edge decomp : be_missed=N% · résiduel régime=M%   (si ΔExp < -0.20)
-• Phase 4 : N/50 trades · verdict=…              (si Phase 4 active)
-• Watchlist : N triggers (liste si > 0)
-• Reco : … (action lisible si trigger : « passe Extension en strategies_ultra », « investigue be_missed », « rien »)
-Prochain suivi : YYYY-MM-DD HH:MM UTC
+📋 Point Arabesque — YYYY-MM-DD
+🟢/🛠️/🚨 [phrase d'état en clair, ex: « Tout va bien » ou « Un point à surveiller »]
+Le robot tourne normalement et reçoit bien les prix.
+Compte FTMO : -X % (limite à ne pas dépasser : -10 %, donc il reste de la marge). [stable/en hausse/…]
+Compte GFT : -Y %, rien à signaler.
+[Si quelque chose : 1-2 phrases simples expliquant quoi + le terme technique entre parenthèses.]
+👉 Ce que tu dois faire : [rien / l'action concrète].
+Prochain point : dans ~Nj, ou avant si quelque chose cloche.
 ```
+Les détails chiffrés techniques (Exp, ΔR, decomp, n/50…) vont dans le **journal** et la **sortie console**,
+**pas** dans la notif. La notif est pour un humain qui regarde son tél, pas pour un analyste.
 
 **Recommandations actionnables** : quand un trigger se déclenche, la ligne `Reco` doit dire **quoi faire concrètement**, pas juste signaler le problème :
 - `replay_drift_live_vs_theory < -0.20R sur stratégie X` → « `Reco: ajoute X à rodage.strategies_ultra dans config/settings.yaml puis restart engine` »
@@ -135,7 +160,8 @@ Prochain suivi : YYYY-MM-DD HH:MM UTC
 Modes :
 - `silent` → pas de notif
 - `notify` → force la notif même si tout va bien (utile pour test ponctuel)
-- défaut → notif courte mais systématique pour avoir un fil d'Ariane lisible
+- défaut → **silencieux** sauf (a) trigger actionnable, ou (b) > 48h depuis la dernière notif effective.
+  Réécriture en langage simple obligatoire (cf. politique ci-dessus).
 
 ### 7. Planifier le prochain passage
 
@@ -143,7 +169,7 @@ Calcule `next_expected_in_hours` selon le contexte :
 
 | Contexte | Délai |
 |---|---|
-| Tout vert, marché calme, pas de fenêtre bilan proche | 24h |
+| Tout vert, marché calme, pas de fenêtre bilan proche | 48h (préférence user 2026-06-27) |
 | Au moins 1 trigger watchlist actif (DD proximity, drift) | 6h |
 | Protection ≠ NORMAL OU phantom récent OU engine instable | 2h |
 | Vendredi soir UTC après clôture | 48h (rien jusqu'à dimanche soir) |
@@ -231,7 +257,7 @@ Notif Telegram envoyée : ✅
 - Script : `scripts/suivi_reminder.py` (lit `logs/maintenance_state.jsonl`, ping si retard > 0)
 - Service : `~/.config/systemd/user/arabesque-suivi-reminder.service`
 - Timer : `~/.config/systemd/user/arabesque-suivi-reminder.timer` — `OnCalendar=hourly`, `Persistent=true` (rattrape les passages manqués au reboot)
-- Cooldown : 1 rappel toutes les 3h max (anti-spam)
+- Cooldown : 1 rappel toutes les **12h** max (anti-spam ; préférence user 2026-06-29 « de temps en temps, pas trop », ex-3h). L'escalade URGENT (feed mort) garde son cooldown 1h.
 - Channels : ceux de `config/secrets.yaml → notifications.channels` (Telegram + ntfy)
 
 ## Hygiène de contexte (à lire avant de lancer)
