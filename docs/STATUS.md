@@ -5,7 +5,15 @@
 > ce fichier est la référence rapide pour savoir ce qui tourne, sur quel compte, avec quel paramétrage.
 > **Mettre à jour à chaque changement de compte ou de configuration live.**
 
-Derniere mise a jour : 2026-07-03 (gate signal découplé par compte, commit `199f617` — voir note ci-dessous)
+Derniere mise a jour : 2026-07-03 après-midi (CONCENTRATION Étape 4 : le live ne trade plus que Glissade-XAUUSD)
+
+> **🎯 2026-07-03 — CONCENTRATION (Décision 2026-07-03 ter, go opérateur « rentabilité d'abord »)** :
+> suite au banc d'essai (Étapes 1-3.5 : Extension sans edge net nulle part en régime récent,
+> Glissade-BTCUSD tuée par les coûts, élargissement Glissade = échec, l'edge est spécifique à l'or),
+> **le live ne trade plus que Glissade-XAUUSD** (~+0.24R net, seul survivant). Extension + Fouetté
+> sont **exclues du dispatch sur les 2 brokers** (signaux toujours générés = mesure théorique
+> continue, 0 ordre). Cabriole désactivée depuis mai. Coûts : GFT 3× moins cher que FTMO en
+> forex/métaux (spread médian 0.015R vs 0.049R) → GFT = meilleure venue pour l'or.
 
 > **⚠️ 2026-07-03 — Découplage du gate signal (Décision 2026-07-03 dans DECISIONS.md)** :
 > FTMO est à **DD total -7,0 % = seuil de pause guard** → son gate per-broker

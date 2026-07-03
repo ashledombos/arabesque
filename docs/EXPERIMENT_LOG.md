@@ -617,3 +617,45 @@ Contexte : angle mort de l'Étape 1 (crypto only). Hypothèse à tester : les co
 **Conséquence pour le pivot (Étape 4 — décision opérateur)** : le pivot « hors crypto vers forex » perd sa jambe Extension. Survivant unique du banc d'essai : **Glissade XAUUSD (~+0.24R net, n=16 — échantillon mince)**. Options à trancher : (a) concentration totale sur Glissade XAUUSD + élargir sa validation (XAGUSD ? autres instruments à divergence RSI) pour donner de la masse au seul edge net ; (b) mise en veille d'Extension (rodage ultra ou exclusion) ; (c) R&D nouvelle stratégie. AUCUN changement live appliqué (zone décision opérateur).
 
 Logs bruts : `/tmp/wf_ext_forex_h1.log`, `/tmp/wf_ext_forex_4h.log` (volatils).
+
+
+## 2026-07-03 — Étape 4 exécutée + élargissement Glissade + étagère sous filtre dur
+
+**Concentration appliquée en live** (go opérateur) : Extension + Fouetté exclues du dispatch
+(2 brokers, signaux toujours générés), Glissade réduite à XAUUSD. Le live ne trade plus que
+Glissade-XAUUSD. Détail : DECISIONS.md 2026-07-03 ter.
+
+**Élargissement Glissade — WF H1 2025→mi-2026, 24 forex/métaux** : ÉCHEC, l'edge est
+spécifique à l'or. XAUUSD reconfirmé au chiffre près (+0.273R, WR 100 %, n=16, stable =
+contrôle de cohérence du pipeline). XAGUSD +0.011R (n=22) : sous le filtre dur (edge ≥ 3×
+coût ≈ 0.09R). Tout le reste négatif ou small-n (AUDCAD +0.715R n=3 = bruit). Total hors
+or : -14.6R / 96 trades.
+
+**Révérence — WF 4H (is 1095/oos 365), 18 forex/métaux** : ÉCHEC. -6.8R / 69 trades.
+Positifs = 100 % sorties BE à n=1-5 ; actifs négatifs ; XAUUSD -0.125R (n=16), XAGUSD
+-0.099R (n=11). Pas d'edge, TUER (déjà non-live).
+
+**Coûts par broker (snapshot spread_at_entry en R, 69 entrées)** : FTMO crypto 0.014R /
+forex-métaux 0.049R (médians) ; GFT crypto 0.068R (5× FTMO → hypothèse « crypto viable
+chez GFT » réfutée) / forex-métaux 0.015R (3× moins cher que FTMO → **GFT = meilleure venue
+pour Glissade-XAUUSD**). Découverte méthodo : les Δ-paires FTMO/GFT sur `result_r` ou
+`pnl_cash` sont aveugles (45 paires à Δ=0.000 pile — sorties quantifiées -1R/+0.2R/paliers,
+cash dérivé) ; seul `net_pnl_cash` (depuis 06-07) porte le coût réel → rapport P1.
+À réconcilier dans P1 : coût BTCUSD Étape 3 (~0.12R) vs commission+spread mesurés
+(~0.04-0.06R).
+
+**Renversé — WF H1, 18 forex/métaux** : en cours (résultat ci-dessous).
+**Renversé — WF H1, 18 forex/métaux (résultat)** : forex ≈ 0 (bruit), **MÉTAUX POSITIFS =
+candidat réel**. XAGUSD : +0.262R, n=21, WR 81 %, PF 2.38, fenêtres OOS -0.002/+0.646/
++0.343/+0.200 (3/4 positives, aucune négative — le flag Stable=No reflète la variance
+d'amplitude, pas un retournement), dégradation IS→OOS -0.041R. XAUUSD : +0.130R, n=9,
+stable, 3/4 fenêtres positives. Cumulé métaux : ~30 trades OOS, ~+0.22R brut, coûts métaux
+0.03-0.05R → **net estimé ~+0.17R** — passe le filtre dur (≥ 3× coût). **CANDIDAT, pas
+validé** : pipeline complet requis avant live (Wilson CI, overlap avec Glissade-XAUUSD à
+vérifier — même famille retournement sur or —, dry-run parquet 3 mois, shadow). Venue
+cible : GFT (spread métaux 3× moins cher que FTMO).
+
+**Bilan étagère sous filtre dur** : Révérence TUER · Renversé-forex bruit ·
+**Renversé-métaux = 2e candidat net-positif aux côtés de Glissade-XAUUSD** — les deux sur
+métaux, cohérent avec la structure de coûts (le seul segment où un edge fin survit).
+Fouetté M1 : différé (parqué, crypto M1 rédhibitoire en coûts).

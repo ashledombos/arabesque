@@ -3798,3 +3798,37 @@ bloquée par la garde min-lot (`max_executed_risk_ratio: 1.25`) — visible en l
 gft pause -7,0 %. Engine redémarré flat (0 position), brokers reconnectés.
 
 Commit : `8e58d9f`.
+
+## Décision 2026-07-03 (ter) — Étape 4 : CONCENTRATION appliquée (go opérateur « rentabilité d'abord »)
+
+**Go opérateur (verbatim)** : « planifie tout ça et agis, je n'avais pas compris que certaines
+stratégies étaient réfutées, ce qui m'intéresse c'est que ça soit rentable. »
+
+**Appliqué en live** (commit config, restart flat vérifié, exclusions confirmées au boot) :
+- `strategy_broker_exclusions` : **extension** et **fouette** exclues des DEUX brokers.
+  La génération de signaux continue (mesure théorique via replay/audits), AUCUN ordre.
+- `strategy_assignments.glissade.instruments` : **BTCUSD retiré** (Étape 2 : +0.03R brut
+  < 0.12R coûts crypto cTrader ; live -0.21R/15 trades). **Glissade = XAUUSD seul.**
+- Cabriole : déjà désactivée depuis 2026-05-16 (bloc commenté) — rien à faire.
+
+**État live résultant : le système ne trade plus que Glissade-XAUUSD** (seul edge net
+positif du banc d'essai, ~+0.24R net, n=16 WF), sur les deux brokers, rodage ×0.25.
+Réactivation d'une branche = WF récent net-de-coûts positif + validation opérateur.
+
+**Élargissement Glissade testé le même jour (WF 24 forex/métaux 2025→mi-2026)** : ÉCHEC —
+l'edge est spécifique à l'or. XAUUSD reconfirmé (+0.273R, WR 100 %, n=16, stable — contrôle
+de cohérence OK) ; XAGUSD +0.011R (n=22, sous le filtre dur) ; le reste négatif ou small-n.
+
+**Coûts GFT (snapshot spread_at_entry, n=69 entrées journalisées)** :
+- GFT **crypto** : spread médian **0.068R** ≈ 5× FTMO (0.014R) → l'hypothèse « crypto viable
+  chez GFT » est **réfutée**. Le crypto reste mort sur les deux venues.
+- GFT **forex/métaux** : spread médian **0.015R** ≈ 3× moins cher que FTMO (0.049R) →
+  **GFT est la meilleure venue pour Glissade-XAUUSD** et tout futur edge forex.
+- Méthode Δ-paires FTMO/GFT : **aveugle par construction** (45 paires, Δ=0.000 pile — les
+  sorties sont quantifiées sur l'échelle -1R/+0.2R/paliers, le cash journalisé en dérive).
+  Le coût réel ne se lit que dans `net_pnl_cash` (dispo depuis 06-07) → rapport P1.
+- **À réconcilier dans P1** : coût BTCUSD Étape 3 (~0.12R) vs mesure directe commission+spread
+  (~0.04-0.06R) — probable contamination outliers swap/slippage. Ne change pas le verdict
+  Extension (edge brut ≈ 0 en régime récent).
+
+Commits : config `<voir git log 2026-07-03>`. Renversé/Révérence sous filtre dur : en cours.
