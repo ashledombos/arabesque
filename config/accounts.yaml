@@ -35,7 +35,12 @@ accounts:
     risk_per_trade_pct: 0.45      # conservatif (compte en DD -5%, validation d'abord)
     # → Passer à 0.80% une fois stabilisé
     max_daily_dd_pct: 3.0         # FTMO = 5%, garde interne 3%
-    max_total_dd_pct: 8.0         # FTMO = 10%, garde interne 8%
+    max_total_dd_pct: 9.0         # FTMO = 10%, garde interne 9% (pause à -8%)
+    # 2026-07-03 : relevé 8.0 → 9.0 (go opérateur, compte à risque accepté).
+    # Le compte était figé à -7.0% = ancienne pause → deadlock (0 trade = DD
+    # jamais résorbé). Fenêtre rouverte -7→-8 sous CAUTION ×0.50 + DD-scaling
+    # ~×0.21 + rodage ×0.25 (~11$/trade). Filets conservés : DANGER -8,
+    # EMERGENCY -9, vraie limite FTMO -10. Cf DECISIONS.md 2026-07-03.
     leverage: 30                  # 1:30 swing
     overnight_allowed: true
     news_trading_allowed: true
