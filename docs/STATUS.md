@@ -12,10 +12,12 @@ Derniere mise a jour : 2026-07-03 (gate signal découplé par compte, commit `19
 > (`check_account_limits`) bloque toute nouvelle entrée FTMO, et sa balance figée
 > (92 999,27) ne peut plus résorber le DD sans décision opérateur. Depuis le commit
 > `199f617`, ce blocage **ne gèle plus GFT** : `receive_signal` évalue les guards par
-> compte et accepte si au moins un passe. **État effectif : GFT trade seul ; FTMO en
-> pause locale permanente** (attente décision : relâcher `dd_safety_margin` ou laisser
-> le challenge expirer). Balances au 2026-07-03 : FTMO $92 999 (-7,0 %, CAUTION),
-> GFT $141 962 (-5,36 %, NORMAL).
+> compte et accepte si au moins un passe. **Puis (même jour, go opérateur — Décision
+> 2026-07-03 bis) : garde interne DD FTMO relevée 8 % → 9 %** (`8e58d9f`), pause FTMO
+> à **-8,0 %** → les DEUX comptes retradent. FTMO opère dans la fenêtre -7 → -8 à
+> sizing minuscule (~11 $/trade : CAUTION ×0.50 × DD-scaling ~0.21 × rodage ×0.25) ;
+> filets conservés : DANGER -8, EMERGENCY -9, limite réelle FTMO -10. Balances au
+> 2026-07-03 : FTMO $92 999 (-7,0 %, CAUTION), GFT $141 962 (-5,36 %, NORMAL).
 
 ---
 

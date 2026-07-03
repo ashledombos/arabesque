@@ -3769,3 +3769,32 @@ deviennent visibles per-broker au dispatch (`⛔ ftmo_challenge: guard compte bl
 -10 % ; le DD ne peut plus se résorber sans trades) — décision opérateur séparée.
 
 Commit : `199f617`.
+
+## Décision 2026-07-03 (bis) — Garde interne DD FTMO relevée 8 % → 9 % (sortie du deadlock)
+
+**Contexte** : après le découplage du gate signal (décision précédente), FTMO restait
+figé à -7,0 % = son seuil de pause → 0 trade FTMO possible, DD irrécupérable (deadlock).
+
+**Go opérateur (verbatim)** : « bloquer complètement, c'est contre-productif » ; le compte
+challenge (600 €) est à risque accepté — en cas d'échec, rachat d'un challenge moins cher.
+L'objectif prioritaire est le RETOUR (edge/exécution/coûts en conditions réelles), pas la
+préservation à tout prix d'un compte déjà figé.
+
+**Décision** : `config/accounts.yaml → ftmo_challenge.max_total_dd_pct: 8.0 → 9.0`
+(une ligne, réversible). Pause guard : -7,0 % → **-8,0 %**.
+
+**Fenêtre réelle chiffrée (-7 → -8)** : protections empilées conservées — ladder CAUTION
+×0.50 (dès -7), DD-scaling linéaire ≈ ×0.21 à -7 %, rodage ×0.25 → **risque effectif
+≈ 11 $/trade (0,012 % du compte)**. 20 pertes consécutives = -0,24 % ; gap corrélé -3R
+≈ -0,04 %. Filets sous la nouvelle pause : DANGER -8 (×0.25), EMERGENCY -9 (×0.10),
+limite réelle FTMO -10. Aucun scénario plausible de breach.
+
+**Limites assumées** : (a) à ce sizing, résorber 1 point de DD ≈ 85R nets — la valeur est
+le retour de données, pas le sauvetage du challenge ; (b) une partie des ordres sera
+bloquée par la garde min-lot (`max_executed_risk_ratio: 1.25`) — visible en logs
+(`risk overshoot`), sans danger ; (c) GFT non touché (marge 1,64 point avant sa pause).
+
+**Vérifié post-restart** : PropConfig chargé via `_make_dispatcher` → ftmo pause -8,0 %,
+gft pause -7,0 %. Engine redémarré flat (0 position), brokers reconnectés.
+
+Commit : `8e58d9f`.
