@@ -29,6 +29,14 @@ scie avec quelques trades à +10R ne passe pas, même si le P&L total est bon.
 
 Si un changement de code contredit cette boussole, c'est le changement qui a tort.
 
+**La boussole protège le PROFIL de trading, pas une stratégie donnée.**
+L'objectif du projet est la **rentabilité du système** (décision opérateur
+2026-07-03 : ≥ 1,5R net/mois sous contraintes prop firm) — toute stratégie est
+un moyen jetable. Tout candidat passe le **filtre dur** avant live : edge brut
+≥ 3× le coût mesuré du marché visé, stabilité en walk-forward sur régime
+récent, débit ≥ ~2 trades/mois, puis pipeline dry-run → shadow → go opérateur.
+Source d'autorité : `docs/VALIDATION_CONTRACT.md` (phase `portefeuille`).
+
 ## Paramètres de la stratégie Extension (validés sur 20 mois, 1998 trades)
 
 Ces valeurs ont été calibrées par simulation exhaustive et validées en production.

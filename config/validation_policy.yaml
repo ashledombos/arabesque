@@ -2,17 +2,38 @@
 # Ce fichier est normatif pour les decisions d'agent, mais n'est pas encore
 # consomme automatiquement par un runner de validation.
 phase:
-  name: phase4_bis
-  since_utc: "2026-05-16T08:44:00Z"
+  name: portefeuille          # remplace phase4_bis (close 2026-07-03, concentration)
+  since_utc: "2026-07-03T12:00:00Z"
+  # Live actif (seul scope de verdict performance)
   verdict_strategies:
+    - glissade                # XAUUSD uniquement (cf strategy_assignments)
+  # Candidats en instruction (pipeline avant live)
+  candidate_strategies:
+    - renverse                # metaux (XAG/XAU), net estime ~+0.17R
+  # Exclues du dispatch, signaux toujours generes (mesure passive)
+  shadow_strategies:
     - extension
-    - glissade
+    - fouette
   informational_only_strategies:
     - cabriole
     - trend
   brokers:
-    - ftmo_challenge
-    - gft_compte1
+    - ftmo_challenge          # micro-taille (fenetre DD -7/-8), venue de mesure
+    - gft_compte1             # venue principale metaux (spread 3x moins cher)
+
+# Objectif systeme (decision operateur 2026-07-03) — cf VALIDATION_CONTRACT.md
+system_objective:
+  target_r_net_per_month: 1.5
+  milestone_r_net_per_month: 0.8
+  new_prop_account_gate_r_per_month: 1.5   # pas de nouveau compte avant
+
+# Filtre dur d'acceptation d'un candidat (avant pipeline)
+candidate_hard_filter:
+  min_gross_edge_vs_cost_ratio: 3.0        # edge brut >= 3x cout du marche vise
+  walkforward_recent_months: 18
+  min_trades_per_month: 2.0
+  require_prop_firm_profile: true          # WR haut, pertes bornees
+  cost_study_before_code: true             # lecon Extension
 
 risk_increase_gate:
   minimum_clean_exits_for_review: 30
