@@ -116,11 +116,13 @@ strategy_assignments:
   #  instruments: []  # vide = tous les instruments followed (comportement actuel)
 
   # Glissade RSI divergence H1 — WF PASS 3/3
+  # 2026-07-03 : BTCUSD retiré (banc d'essai Étape 2 : +0.03R brut < 0.12R
+  # coûts crypto cTrader, live -0.21R/15 tr → TUER). XAUUSD = seul edge net
+  # positif du banc d'essai (~+0.24R net). Cf DECISIONS.md 2026-07-03 ter.
   glissade:
     timeframe: "H1"
     instruments:
       - XAUUSD
-      - BTCUSD
 
   # Fouetté ORB M1 — WF PASS 4/4 (rodage ×0.50)
   fouette:
@@ -171,6 +173,19 @@ price_feed:
 strategy_broker_exclusions:
   cabriole:
     - gft_compte1              # 0/10 WR vs 77% attendu — block jusqu'à preuve d'edge FTMO
+  # 2026-07-03 — Étape 4 banc d'essai (go opérateur « rentabilité d'abord ») :
+  # Extension et Fouetté exclues des DEUX brokers. La génération de signaux
+  # continue (mesure théorique via replay/audits), AUCUN ordre n'est placé.
+  # Extension : aucun edge net en régime récent (crypto +0.05R brut < 0.11R
+  # coûts ; forex/métaux négatif BRUT H1 -0.031R / 4H -0.082R — Étape 3.5).
+  # Fouetté : parqué (jamais mesurable en live, crypto M1 = pire profil coûts).
+  # Réactivation = WF récent net-de-coûts positif + validation opérateur.
+  extension:
+    - ftmo_challenge
+    - gft_compte1
+  fouette:
+    - ftmo_challenge
+    - gft_compte1
 
 # -----------------------------------------------------------------------------
 # WEEKEND CRYPTO GUARD — Empêche les nouvelles positions crypto sur cTrader
