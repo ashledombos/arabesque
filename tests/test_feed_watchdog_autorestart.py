@@ -494,7 +494,9 @@ def test_restart_failure_logs_and_notifies(watchdog):
 # 11. Flux partiel : BarAggregator OK mais PriceFeed incomplet → notif simple
 # ---------------------------------------------------------------------------
 
-def test_pricefeed_partial_warns_without_restart(watchdog):
+def test_pricefeed_partial_first_pass_is_gated_but_measured(watchdog):
+    """Un flux partiel transitoire (1er passage) ne notifie PAS (préférence
+    user 2026-07-03 — anti faux positifs) mais la mesure uptime continue."""
     wd = watchdog
     now = _no_weekend_now()
     sent = []
@@ -520,17 +522,107 @@ def test_pricefeed_partial_warns_without_restart(watchdog):
         wd.main()
 
     assert restart_calls == []
-    assert len(sent) == 1
-    title, urgent, body = sent[0]
-    assert urgent is False
-    assert "flux partiel" in title.lower()
-    assert "30/31 actifs" in body
+    assert sent == []
     state = json.loads(wd.STATE.read_text())
     assert state["last_status"].startswith("pricefeed_partial:30/31")
+    assert "persistence_gate" in state["last_status"]
+    assert state["pricefeed_partial_since_ts"] == now.isoformat()
     uptime = json.loads(wd.UPTIME_EVENTS.read_text().splitlines()[0])
     assert uptime["event"] == "uptime_sample"
     assert uptime["cause"] == "partial_feed"
     assert uptime["pricefeed"]["active"] == 30
+
+
+def test_pricefeed_partial_minor_notifies_after_long_persistence(watchdog):
+    """Cas mineur (1 stale, 0 jamais reçu, ≥90% actifs) : notif seulement
+    après PARTIAL_MINOR_NOTIFY_MIN de persistance."""
+    wd = watchdog
+    now = _no_weekend_now()
+    sent = []
+    partial = {
+        "ts": now.isoformat(),
+        "age_seconds": 60,
+        "active": 30,
+        "total": 31,
+        "dormant": 0,
+        "stale_major": 1,
+        "no_tick": 0,
+    }
+    since = now - dt.timedelta(minutes=wd.PARTIAL_MINOR_NOTIFY_MIN + 5)
+    wd.STATE.write_text(json.dumps(
+        {"pricefeed_partial_since_ts": since.isoformat()}))
+
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: 60), \
+         patch.object(wd, "_last_pricefeed_summary", lambda _now: partial), \
+         patch.object(wd, "_send_alert",
+                      lambda body, title, urgent=False: sent.append((title, urgent, body)) or True), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(now)):
+        wd.main()
+
+    assert len(sent) == 1
+    title, urgent, body = sent[0]
+    assert urgent is False
+    assert "persistant" in title.lower()
+    assert "30/31 actifs" in body
+    assert "Rien a faire" in body
+
+
+def test_pricefeed_partial_major_uses_short_persistence(watchdog):
+    """Cas majeur (no_tick > 0) : seuil court PARTIAL_NOTIFY_MIN suffit."""
+    wd = watchdog
+    now = _no_weekend_now()
+    sent = []
+    partial = {
+        "ts": now.isoformat(),
+        "age_seconds": 60,
+        "active": 25,
+        "total": 31,
+        "dormant": 0,
+        "stale_major": 3,
+        "no_tick": 3,
+    }
+    since = now - dt.timedelta(minutes=wd.PARTIAL_NOTIFY_MIN + 5)
+    wd.STATE.write_text(json.dumps(
+        {"pricefeed_partial_since_ts": since.isoformat()}))
+
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: 60), \
+         patch.object(wd, "_last_pricefeed_summary", lambda _now: partial), \
+         patch.object(wd, "_send_alert",
+                      lambda body, title, urgent=False: sent.append((title, urgent, body)) or True), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(now)):
+        wd.main()
+
+    assert len(sent) == 1
+
+
+def test_pricefeed_partial_since_cleared_on_ok(watchdog):
+    """Retour à la normale → la clé de persistance est purgée (pas de
+    fausse persistance au prochain épisode)."""
+    wd = watchdog
+    now = _no_weekend_now()
+    wd.STATE.write_text(json.dumps(
+        {"pricefeed_partial_since_ts": now.isoformat()}))
+    healthy = {
+        "ts": now.isoformat(),
+        "age_seconds": 60,
+        "active": 31,
+        "total": 31,
+        "dormant": 0,
+        "stale_major": 0,
+        "no_tick": 0,
+    }
+
+    with patch.object(wd, "_engine_active", _engine_active_true(wd)), \
+         patch.object(wd, "_last_bar_age_seconds", lambda _now: 60), \
+         patch.object(wd, "_last_pricefeed_summary", lambda _now: healthy), \
+         patch.object(wd.dt, "datetime", _FixedDatetime(now)):
+        wd.main()
+
+    state = json.loads(wd.STATE.read_text())
+    assert state["last_status"].startswith("ok:")
+    assert "pricefeed_partial_since_ts" not in state
 
 
 def test_trading_channel_issue_parser_ignores_errors_before_ready(watchdog):

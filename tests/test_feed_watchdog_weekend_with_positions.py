@@ -178,6 +178,7 @@ def test_weekend_with_one_position_runs_normal_checks(watchdog):
 
     with patch.object(wd, "_engine_active", lambda: True), \
          patch.object(wd, "_last_bar_age_seconds", _spy_bar), \
+         patch.object(wd, "_last_pricefeed_summary", lambda _now: None), \
          patch.object(wd, "_send_alert", lambda b, t, urgent=False: True), \
          patch.object(wd.dt, "datetime", _FixedDatetime(sat)):
         wd.main()
@@ -267,6 +268,7 @@ def test_position_closing_during_weekend_reverts_to_skip(watchdog):
     ])
     with patch.object(wd, "_engine_active", lambda: True), \
          patch.object(wd, "_last_bar_age_seconds", lambda _now: 3 * 60), \
+         patch.object(wd, "_last_pricefeed_summary", lambda _now: None), \
          patch.object(wd, "_send_alert", lambda b, t, urgent=False: True), \
          patch.object(wd.dt, "datetime", _FixedDatetime(sat)):
         wd.main()

@@ -59,6 +59,8 @@ PRICEFEED_SUMMARY_MAX_AGE_S = 600
 
 # Étages 3+4 — auto-restart + anti-boucle
 RESTART_PERSISTENCE_MIN = 30          # feed_stale doit persister > 30 min
+PARTIAL_NOTIFY_MIN = 30               # flux partiel : notif seulement si persistant > 30 min
+PARTIAL_MINOR_NOTIFY_MIN = 120        # cas mineur (1 stale, 0 jamais reçu, ≥90% actifs) : > 2h
 RESTART_MAX_PER_HOUR = 2              # 3e tentative dans l'heure → escalade
 RESTART_STOP_SLEEP_S = 60             # stop+sleep pour libérer session cTrader
 AUTO_RESTART_REQUIRES_FLAT = True     # feed_stale ordinaire seulement ; trading_channel_dead outrepasse
@@ -1037,20 +1039,51 @@ def main() -> int:
                         f"stale_major={stale_major} no_tick={no_tick}"
                     )
                     state.pop("feed_stale_since_ts", None)
+                    state.pop("pricefeed_partial_since_ts", None)
                     _write_state(state)
                     return 0
                 state["last_status"] = (
                     f"pricefeed_partial:{active}/{total} "
                     f"stale_major={stale_major} no_tick={no_tick}"
                 )
+                # Persistance obligatoire avant notif (préférence user
+                # 2026-07-03, leçon 2026-05-23 : un seuil sans persistance
+                # produit des faux positifs structurels — ex. 1 symbole calme
+                # en fin de semaine). La MESURE (uptime_sample partial_feed)
+                # continue à chaque passage ; seule la NOTIF est retenue.
+                minor = (
+                    stale_major <= 1 and no_tick == 0
+                    and total > 0 and active / total >= 0.90
+                )
+                threshold_min = (
+                    PARTIAL_MINOR_NOTIFY_MIN if minor else PARTIAL_NOTIFY_MIN
+                )
+                since = state.get("pricefeed_partial_since_ts")
+                if not since:
+                    state["pricefeed_partial_since_ts"] = now.isoformat()
+                    persistence_min = 0.0
+                else:
+                    persistence_min = (
+                        now - dt.datetime.fromisoformat(since)
+                    ).total_seconds() / 60
+                if persistence_min < threshold_min:
+                    state["last_status"] += (
+                        f"+persistence_gate({persistence_min:.0f}m"
+                        f"<{threshold_min}m)"
+                    )
+                    _write_state(state)
+                    return 0
                 body = (
                     f"BarAggregator vivant (derniere barre age={age_s}s), "
-                    f"mais PriceFeed partiel: {active}/{total} actifs, "
+                    f"mais PriceFeed partiel depuis "
+                    f"{int(persistence_min)}min: {active}/{total} actifs, "
                     f"{stale_major} stale majeurs, {no_tick} jamais recus.\n"
-                    f"Aucune action automatique. Surveiller si cela persiste "
-                    f"ou touche un instrument tradable actif."
+                    f"Les barres continuent de se fermer: le trading n'est "
+                    f"pas bloque.\n"
+                    f"👉 Rien a faire — le watchdog escalade en URGENT de "
+                    f"lui-meme si le feed meurt vraiment (0 barre fermee)."
                 )
-                title = "Feed Arabesque — flux partiel"
+                title = "Feed Arabesque — flux partiel (persistant)"
                 if not _can_alert(state, now):
                     state["last_status"] += "+cooldown"
                     _write_state(state)
@@ -1071,6 +1104,7 @@ def main() -> int:
         else:
             state["last_status"] = f"ok:age={age_s}s"
         state.pop("feed_stale_since_ts", None)
+        state.pop("pricefeed_partial_since_ts", None)
         _write_state(state)
         return 0
 
