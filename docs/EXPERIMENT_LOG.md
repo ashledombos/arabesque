@@ -659,3 +659,18 @@ cible : GFT (spread métaux 3× moins cher que FTMO).
 **Renversé-métaux = 2e candidat net-positif aux côtés de Glissade-XAUUSD** — les deux sur
 métaux, cohérent avec la structure de coûts (le seul segment où un edge fin survit).
 Fouetté M1 : différé (parqué, crypto M1 rédhibitoire en coûts).
+
+
+## 2026-07-03 — Phase A du plan « portefeuille » : overlap + rapport coûts P1
+
+**Overlap Renversé vs Glissade sur XAUUSD (tmp/overlap_renverse_glissade.py)** :
+**0 %** — 43 signaux Renversé vs 46 Glissade sur 18 mois H1, aucun à ±2 NI ±6 barres.
+Les deux edges sont réellement indépendants → la valeur portefeuille du candidat
+Renversé-métaux est intacte. Wilson CI95 du WR métaux : [62.7 %, 90.5 %] (n=30, proxy).
+
+**Rapport coûts P1** : `docs/audit/couts_reels_2026-07-03.md` (n=25, caveat seuil 30).
+Table de référence par marché×venue (entrée n°1 du filtre dur) ; réconciliation du
+0.12R crypto Étape 3 (= moyenne contaminée par les illiquides : BTC réel 0.045R,
+GRT 0.24R) ; découverte chiffrée : **distorsion min-lot GFT** (P&L réel amplifié
+1,4-1,7× vs théorique sur micro-trades) → juger l'edge sur result_r, les coûts sur
+net_pnl_cash, jamais l'inverse. Trou restant : swap GFT non capté (prérequis Pas de Deux).
