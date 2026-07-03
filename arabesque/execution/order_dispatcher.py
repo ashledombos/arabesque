@@ -446,21 +446,43 @@ class OrderDispatcher:
         else:
             bid, ask = tick.bid, tick.ask
 
-        # Guards
-        ok, decision = self.guards.check_all(
-            signal=signal,
-            account=self._account_state,
-            broker_bid=bid,
-            broker_ask=ask,
-        )
+        # Guards — évalués compte par compte : le signal vit s'il passe sur AU
+        # MOINS un broker. Rejeter sur le seul état du primaire couplait les
+        # comptes : FTMO au seuil de pause DD (-7%) gelait aussi GFT sain
+        # (incident 2026-06-29→07-03, 0 trade sur les 2 comptes). Le rempart
+        # final par compte reste check_account_limits() dans _place_on_broker
+        # (fail-closed si état absent).
+        states = self._account_states_by_broker or {"": self._account_state}
+        passing: list[str] = []
+        rejects: dict[str, str] = {}
+        for broker_id, account in states.items():
+            broker_guards = self._guards_by_broker.get(broker_id, self.guards)
+            ok, decision = broker_guards.check_all(
+                signal=signal,
+                account=account,
+                broker_bid=bid,
+                broker_ask=ask,
+            )
+            if ok:
+                passing.append(broker_id)
+            else:
+                rejects[broker_id or "compte"] = decision.reason
 
-        if not ok:
+        if not passing:
             self._stats["signals_rejected"] += 1
+            detail = "; ".join(f"{b}: {r}" for b, r in rejects.items())
             logger.info(
                 f"[Dispatcher] ❌ Signal rejeté {signal.instrument} {signal.side.value}: "
-                f"{decision.reason}"
+                f"{detail}"
             )
             return False
+        if rejects:
+            detail = "; ".join(f"{b}: {r}" for b, r in rejects.items())
+            logger.info(
+                f"[Dispatcher] ⚠️ Signal {signal.instrument} {signal.side.value} accepté "
+                f"pour {sorted(passing)} — rejeté au gate signal pour {detail} "
+                f"(re-vérifié par compte au dispatch)"
+            )
 
         # Marquer immédiatement l'instrument comme "en cours" pour bloquer
         # les doublons avant que l'ordre ne soit effectivement placé

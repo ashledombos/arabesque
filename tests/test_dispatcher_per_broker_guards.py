@@ -413,6 +413,92 @@ def test_execution_quarantine_blocks_new_order_without_touching_broker():
     assert broker.placed == []
 
 
+def _paused_ftmo_state() -> AccountState:
+    # -7.0% total DD = pause threshold exact (max=8.0, margin=1.0, <= inclusif)
+    return AccountState(
+        balance=93_000.0,
+        equity=93_000.0,
+        start_balance=100_000.0,
+        daily_start_balance=93_000.0,
+    )
+
+
+def _healthy_gft_state() -> AccountState:
+    return AccountState(
+        balance=142_110.0,
+        equity=142_110.0,
+        start_balance=150_000.0,
+        daily_start_balance=142_110.0,
+    )
+
+
+def test_signal_accepted_when_primary_paused_but_secondary_passes():
+    """Incident 2026-06-29→07-03: FTMO au seuil de pause DD gelait aussi GFT."""
+    dispatcher = _dispatcher(
+        PropConfig(
+            risk_per_trade_pct=0.30,
+            max_daily_dd_pct=2.5,
+            max_total_dd_pct=8.0,
+        )
+    )
+    dispatcher.update_account_state(_paused_ftmo_state(), broker_id="ftmo_challenge")
+    dispatcher.update_account_state(_healthy_gft_state(), broker_id="gft_compte1")
+
+    accepted = asyncio.run(dispatcher.receive_signal(_signal()))
+
+    assert accepted is True
+
+
+def test_signal_rejected_when_every_account_is_paused():
+    dispatcher = _dispatcher(
+        PropConfig(
+            risk_per_trade_pct=0.30,
+            max_daily_dd_pct=2.5,
+            max_total_dd_pct=8.0,
+        )
+    )
+    dispatcher.update_account_state(_paused_ftmo_state(), broker_id="ftmo_challenge")
+    gft_paused = AccountState(
+        balance=138_900.0,
+        equity=138_900.0,
+        start_balance=150_000.0,
+        daily_start_balance=138_900.0,
+    )
+    dispatcher.update_account_state(gft_paused, broker_id="gft_compte1")
+
+    accepted = asyncio.run(dispatcher.receive_signal(_signal()))
+
+    assert accepted is False
+
+
+def test_paused_primary_is_still_blocked_at_dispatch():
+    """Le gate per-broker doit refuser l'ordre FTMO même si le signal a été
+    accepté grâce à GFT."""
+    dispatcher = OrderDispatcher(
+        brokers={"ftmo_challenge": _Broker(), "gft_compte1": _Broker()},
+        instruments_cfg={"XAUUSD": {"pip_size": 0.01, "pip_value_per_lot": 1.0}},
+        prop_config=PropConfig(),
+        prop_configs_by_broker={
+            "ftmo_challenge": PropConfig(),
+            "gft_compte1": PropConfig(),
+        },
+        dry_run=True,
+    )
+    dispatcher.update_account_state(_paused_ftmo_state(), broker_id="ftmo_challenge")
+
+    result = asyncio.run(
+        dispatcher._place_on_broker(
+            "ftmo_challenge",
+            dispatcher.brokers["ftmo_challenge"],
+            _pending(_signal()),
+            PriceTick("XAUUSD", 4500.0, 4500.1),
+        )
+    )
+
+    assert result.success is False
+    assert "DD total" in result.message
+
+
 def test_signal_is_blocked_when_primary_risk_state_has_been_invalidated():
     dispatcher = _dispatcher(PropConfig())
     dispatcher.update_account_state(
