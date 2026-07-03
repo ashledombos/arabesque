@@ -3738,3 +3738,34 @@ part ; (b) Glissade/Fouetté (XAU/BTC) inchangés.
 (hors quirk cosmétique TradeLocker). FTMO restait en CAUTION (non bloquant, la restriction réduit le
 risque). **Réversible** : reflip `follow:true` + restart.
 Réf : [[project_liquidity_segmentation_edge]], reproductible via `run --interval 4h --from/--to`.
+
+## Décision 2026-07-03 — Gate signal du dispatcher évalué par compte (fin du couplage FTMO→GFT)
+
+**Contexte** : depuis 2026-06-29, FTMO était à DD total -7,0 % pile = seuil de pause
+(`guards.py` : `pause_threshold = -(max_total_dd - dd_safety_margin)`, comparaison `<=`
+inclusive). `receive_signal()` évaluait `check_all()` uniquement sur l'état du **broker
+primaire** (FTMO) avant le gate per-broker → chaque signal partagé était rejeté
+(`DD total -7.0% <= pause -7.0%`) pour TOUS les brokers. Conséquences : 16 signaux
+ignorés en 7 jours (tous classés `source` par replay_signals_vs_live — signature
+trompeuse de panne), GFT sain (-5,36 %) gelé par ricochet, collecte Phase 4 bis à
+l'arrêt, et **deadlock** : 0 position + 0 entrée = balance FTMO figée = pause permanente.
+
+**Décision (opérateur 2026-07-03 : « rester bloqué ne sert à rien, sinon on n'a pas de
+retour, je te laisse choisir le plus adapté »)** : découpler le gate signal —
+`receive_signal()` évalue désormais `check_all()` **par broker** (guards + état propres à
+chaque compte via `_guards_by_broker`) et accepte le signal si **au moins un compte
+passe**. Options écartées : rester en pause totale (aucun retour de données) ; relâcher la
+marge DD FTMO (augmente le risque de breach du challenge sans validation dédiée).
+
+**Sécurité inchangée** : le rempart final par compte reste `check_account_limits()` dans
+`_place_on_broker()` (re-vérifie daily DD, total DD, positions, daily trades,
+worst_case_budget avec le PropConfig du compte ; fail-closed si état absent). FTMO reste
+donc en pause tant que son DD est ≤ -7 % — seul GFT reprend le trading. 3 tests de
+régression ajoutés (`tests/test_dispatcher_per_broker_guards.py`), suite 425 verte.
+
+**Effet attendu** : GFT reprend la collecte (retour live Phase 4) ; les rejets FTMO
+deviennent visibles per-broker au dispatch (`⛔ ftmo_challenge: guard compte bloque …`).
+**Reste ouvert** : statuer sur le compte FTMO lui-même (figé à -7 % ; limite fatale
+-10 % ; le DD ne peut plus se résorber sans trades) — décision opérateur séparée.
+
+Commit : `199f617`.

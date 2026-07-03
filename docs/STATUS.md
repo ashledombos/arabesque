@@ -5,7 +5,17 @@
 > ce fichier est la référence rapide pour savoir ce qui tourne, sur quel compte, avec quel paramétrage.
 > **Mettre à jour à chaque changement de compte ou de configuration live.**
 
-Derniere mise a jour : 2026-05-27 23:25 CEST (protection GFT chargee et restart controle verifie)
+Derniere mise a jour : 2026-07-03 (gate signal découplé par compte, commit `199f617` — voir note ci-dessous)
+
+> **⚠️ 2026-07-03 — Découplage du gate signal (Décision 2026-07-03 dans DECISIONS.md)** :
+> FTMO est à **DD total -7,0 % = seuil de pause guard** → son gate per-broker
+> (`check_account_limits`) bloque toute nouvelle entrée FTMO, et sa balance figée
+> (92 999,27) ne peut plus résorber le DD sans décision opérateur. Depuis le commit
+> `199f617`, ce blocage **ne gèle plus GFT** : `receive_signal` évalue les guards par
+> compte et accepte si au moins un passe. **État effectif : GFT trade seul ; FTMO en
+> pause locale permanente** (attente décision : relâcher `dd_safety_margin` ou laisser
+> le challenge expirer). Balances au 2026-07-03 : FTMO $92 999 (-7,0 %, CAUTION),
+> GFT $141 962 (-5,36 %, NORMAL).
 
 ---
 
