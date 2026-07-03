@@ -552,3 +552,68 @@ Replay offline sur les `exit` events du `trade_journal.jsonl` depuis 2026-03-22 
 **Décision** : ne PAS implémenter TP partiel. La distribution bimodale du système (cf §9) est incompatible avec un TP partiel à seuil fixe. Le bénéfice cosmétique en phase défavorable (+1pp WR) ne justifie pas la complexité système ni le coût en phase normale.
 
 **Item connexe à surveiller** : la distribution MFE live actuelle (44.3% sous 0.3R) confirme la phase défavorable identifiée par edge_audit. Quand la distribution reviendra normale (~25% sous 0.3R), revérifier que le système retrouve l'Exp baseline (+0.130R).
+
+
+## 2026-07-01 — Étape 1 « banc d essai » : re-validation OOS sur régime récent (walk-forward 2025→mi-2026)
+
+Contexte : revue stratégique (mode préservation, read-only). Question : les edges validés jadis (autres régimes/modèles) tiennent-ils MAINTENANT ?
+
+**Extension crypto H1 (724 trades OOS, 15 instruments)** : univers complet NET NÉGATIF -13.2R (Exp -0.018R).
+Gradient de liquidité net : liquides positifs (LTC +0.090, NEAR +0.062, DOGE +0.052, AVAX +0.046, BTC +0.043, AAVE +0.005 ; ~+15.6R) vs illiquides/mid négatifs (BNB -0.128, UNI -0.110, SOL -0.074, XRP -0.073, ADA -0.072, DOT -0.039, LINK -0.037, ETH -0.027 ; ~-28.7R). Confirme project_liquidity_segmentation_edge. MAIS gagnants fins + instables (aucun Stable) → nets de coûts (~0.078R) marginaux → Étape 3 décisive.
+
+**Glissade H1** : XAUUSD +0.273R WR100% STABLE (n=16) = seul edge franc/stable. BTCUSD +0.029R oscillant (W: +0.20/-0.40/+0.05/-0.20/+0.13) = bruit, verdict MARGINAL. → Glissade = XAUUSD, retirer BTCUSD.
+
+**Cabriole 4h** (is-bars 2500/oos 600) : backtest OOS ~breakeven (BTCUSD -0.066, DOGEUSD +0.013, LINKUSD +0.019 ; total -1.4R, WR 73-74%). Mais LIVE WR 26% Exp -0.70R -30R. Écart WR 48pp = exécution/coûts annihilent un edge déjà trop fin. → KILL.
+
+**Fouetté** : non testé (ne tire pas en forex live, dormant).
+
+**Verdict Étape 1** : 2 vrais edges fins (Glissade-XAUUSD franc/stable ; Extension-crypto-liquide fin/fragile). Tout le reste (Cabriole, Extension illiquide, Glissade BTCUSD, Fouetté) = bruit ou destructeur. Les -72R live = 2 edges dilués par ~10 sources de perte, pas 2 edges qui échouent. Suite : Étape 2 (procès garder/tuer) → Étape 3 (edge net de coûts) → Étape 4 (concentration).
+
+
+## 2026-07-01 — Étapes 2+3 « banc d essai » : coûts réels + net-de-coûts + procès garder/tuer
+
+**Étape 3 — coût réel/trade mesuré (14-25 trades FTMO ; GFT non journalisé = trou)** :
+BTCUSD +0.124R, BARUSD +0.085R, CHFJPY/AUDJPY ~0.030R, alts (GRT/FET/ADA/NER) ~0.020-0.030R.
+=> CRYPTO cTrader ~0.10-0.12R/trade (spread large) ; FOREX/MÉTAUX ~0.03R (3-4x moins cher).
+
+**Croisement edge brut (WF Étape 1) − coût réel** :
+- Glissade XAUUSD : +0.27R − ~0.03R = **~+0.24R net** ✅ (seul survivant clair)
+- Extension crypto liquide : +0.05R − ~0.11R = **~-0.06R net** ❌ (edge brut < spread)
+- Glissade BTCUSD : +0.03R − 0.12R = -0.09R ❌
+- Extension crypto illiquide : très négatif ❌
+
+**DÉCOUVERTE CLÉ** : le book crypto est structurellement net-négatif sur cTrader/FTMO car le spread crypto (~0.11R) dépasse l edge crypto brut (~0.05R). Le crypto finance le broker, pas l équité. Explique la saignée live malgré une exécution propre.
+
+**Étape 2 — procès garder/tuer** :
+- Cabriole : TUER (breakeven backtest + live WR 74→26 + overlap Extension).
+- Tout crypto (Extension + Glissade BTC) sur cTrader : TUER (net < 0 structurel).
+- Fouetté : PARQUER (dormant).
+- Glissade XAUUSD : GARDER (seul edge net positif).
+
+**Conclusion stratégique** : pivot hors crypto (piège à coûts) vers XAUUSD + forex/métaux (coûts 3-4x plus faibles). Sortie du rouge = concentration, pas attente.
+
+**Réserves** : (1) données coûts minces, GFT trou noir ; (2) ANGLE MORT — Extension sur forex/métaux NON re-validé en régime récent (Étape 1 = crypto only). Or coûts forex faibles => s il y a un edge forex il survivrait. À TESTER avant de conclure le plan (Étape 3.5).
+
+
+## 2026-07-03 — Étape 3.5 « banc d essai » : Extension forex/métaux re-validée en régime récent → PAS D'EDGE
+
+Contexte : angle mort de l'Étape 1 (crypto only). Hypothèse à tester : les coûts forex étant 3-4× plus faibles (~0.03R vs ~0.11R crypto), un edge Extension forex même fin survivrait net-de-coûts.
+
+**Méthodologie** (identique Étape 1, périmètre comparable) : `python -m arabesque walkforward --strategy extension --from 2025-01-01 --to 2026-07-01` sur 24 instruments (7 majors + 15 crosses + XAUUSD/XAGUSD). H1 = fenêtres défaut (IS 4380 / OOS 1460) ; 4H = fenêtres à l'échelle (IS 1095 / OOS 365, mêmes proportions 6m→2m ; les défauts H1 échouent en 4H, « données insuffisantes »). Données Dukascopy fraîches au 2026-06-30.
+
+**Résultats H1 (166 trades OOS, 24 instruments)** : total **-5.2R brut**, Exp ≈ **-0.031R**. Aucun edge exploitable : les lignes positives sont à n=2-7 avec Exp +0.200R pile (= 100 % sorties BE+, zéro vrai gagnant — bruit de béquille breakeven, pas de l'edge) ; GBPUSD +0.214R n=7 (small-n) ; XAUUSD le plus actif (n=31) : +0.045R mais **Stable=No** ; XAGUSD n=34 : -0.017R, Stable=No. Actifs négatifs : NZDJPY -0.323R (n=12), CADJPY/GBPAUD/GBPCHF -0.400R.
+
+**Résultats 4H (44 trades OOS)** : total **-3.6R brut**, Exp ≈ **-0.082R**. Même structure : positifs = n=1-2 tout-BE, actifs négatifs (GBPCAD -0.600R n=3, USDCAD -0.606R n=2), XAUUSD/XAGUSD ≈ 0 (+0.014/+0.007R, n=7).
+
+**Famine de signaux confirmée des deux côtés** : ~0.9 trade/mois/instrument OOS en H1 (cohérent avec le live : ~1.1 sur les forex du périmètre live), ~0.2 en 4H. Même « gagnant », le volume ne porterait pas un challenge.
+
+**Verdict Étape 3.5 : l'hypothèse est réfutée.** Extension forex/métaux est négative BRUTE en régime récent (H1 et 4H) — les coûts faibles ne sauvent rien puisqu'il n'y a pas d'edge brut à préserver. Le tableau Extension complet net-de-coûts en régime récent :
+- crypto liquide : +0.05R brut − 0.11R coûts = **négatif net**
+- crypto illiquide : **négatif brut**
+- forex/métaux H1 : **-0.03R brut**
+- forex/métaux 4H : **-0.08R brut**
+→ **La famille Extension ne porte d'edge net nulle part en régime 2025→mi-2026.** (Nuance : validée jadis sur 20 mois à +0.13R — verdict = « plus d'edge au présent », régime-dépendant, pas « n'a jamais marché ».)
+
+**Conséquence pour le pivot (Étape 4 — décision opérateur)** : le pivot « hors crypto vers forex » perd sa jambe Extension. Survivant unique du banc d'essai : **Glissade XAUUSD (~+0.24R net, n=16 — échantillon mince)**. Options à trancher : (a) concentration totale sur Glissade XAUUSD + élargir sa validation (XAGUSD ? autres instruments à divergence RSI) pour donner de la masse au seul edge net ; (b) mise en veille d'Extension (rodage ultra ou exclusion) ; (c) R&D nouvelle stratégie. AUCUN changement live appliqué (zone décision opérateur).
+
+Logs bruts : `/tmp/wf_ext_forex_h1.log`, `/tmp/wf_ext_forex_4h.log` (volatils).

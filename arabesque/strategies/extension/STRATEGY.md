@@ -123,6 +123,7 @@ L'edge de cette stratégie repose sur **deux mécanismes indépendants** :
 | Live dry-run cTrader | ✅ Terminé |
 | Live FTMO (cTrader) | ✅ **Actif** — H1 forex + H4 crypto |
 | Live GFT (TradeLocker) | ✅ **Actif** — dispatch multi-broker |
+| **Re-validation régime récent (2025→mi-2026)** | ⚠️ **PAS d'edge net** — banc d'essai 2026-07-01/03 : crypto liquide +0.05R brut < coûts 0.11R ; crypto illiquide négatif ; forex/métaux négatif BRUT (H1 -0.031R/166 tr, 4H -0.082R/44 tr, Étape 3.5). Edge historique (20 mois, +0.13R) non reproduit au présent. **Décision de concentration en attente (opérateur)** — cf. `docs/EXPERIMENT_LOG.md` 2026-07-03 + HANDOFF |
 
 ---
 
