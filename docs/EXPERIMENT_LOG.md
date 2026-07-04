@@ -687,3 +687,27 @@ a fait son travail (l'intuition d'origine de l'opérateur sur le hedging était 
 Verdict contextuel : réutilisable hors prop firm. Rapport :
 `docs/audit/pas_de_deux_compliance_2026-07-04.md`. Conséquence : la R&D décorrélation
 se rabat sur session-métaux / fade-forex / carry (Phase C).
+
+## 2026-07-04 — Phase C candidat 1 : « session-métaux » (hold overnight Asie) — PASS provisoire XAU, KILL XAG
+
+**Méthode** (anti-fouille) : hypothèses fixées depuis la littérature AVANT les données —
+H1 « l'or monte en Asie » (documenté 30+ ans), H2 « baisse au fixing PM Londres ».
+Aucun scan libre, design de simulation pré-déclaré, zéro tuning.
+
+**Résultats** (Dukascopy 2024-01→2026-07, 650 sessions, détail
+`docs/audit/session_metaux_2026-07-04.md`, script `tmp/etude_session_metaux.py`) :
+- **H2 RÉFUTÉE** sur nos données (-0,6 bps, instable) → enterrée.
+- **H1 CONFIRMÉE** : dérive Asie XAU +7,8 bps/j (t=+2.0, 5/5 sous-périodes),
+  XAG +15,5 (t=+2.1), concentrée sur les 2 h post-réouverture (t=+3.7/+4.6).
+- Simulation min1 pertes-bornées (SL -1R, R=1σ causal, time-exit 8h Londres) :
+  **XAUUSD Exp +0.071R net, ~+1,5R/mois, ~21 trades/mois, 5/5 sous-périodes > 0** ;
+  XAGUSD -0.022R → **KILL** (coûts 4,4 bps, edge concentré sur 1 sous-période).
+- **Enseignement structurel : l'overlay BE maison (0.3R/0.2R) TUE cet edge**
+  (Exp -0.001R) — le bruit overnight hache la dérive. Un edge de session exige
+  un time-exit pur, PAS la machinerie BE/trailing d'Extension/Glissade.
+
+**Filtre dur XAU : 3/4** — ratio edge/coût ~3,3× ✓ (limite), stabilité ✓, débit ✓✓,
+**profil WR 58,6 % < cible 70 % ⚠️** → décision opérateur requise sur la lettre du filtre.
+**Réserves à lever avant pipeline** (1 semaine, passif) : spread 22h-24h UTC non
+mesuré (pile la fenêtre de l'edge), swap métaux non mesuré (trou P1). Implémentation
+éventuelle : time-exit = mécanisme absent de l'engine (position_manager, zone Opus).
