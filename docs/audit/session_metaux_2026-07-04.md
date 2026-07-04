@@ -68,8 +68,13 @@ PAS la machinerie BE/trailing existante.
 1. **Spread 22h-24h UTC non mesuré** → étendre l'échantillonnage snapshots aux
    métaux sur cette fenêtre pendant ~1 semaine (read-only). Si le spread réel à
    la réouverture fait ×3, le ratio edge/coût tombe sous 3×.
-2. **Swap GFT/FTMO non mesuré** → action déjà ouverte (trou P1). Sensibilité :
-   swap à -3 bps/nuit → Exp ≈ +0.05R (survit) ; -5 bps → marginal.
+2. **Swap GFT/FTMO non mesuré** → ✅ **FTMO CAPTÉ 2026-07-05** (`scripts/capture_swap_rates.py`,
+   `logs/swap_rates.jsonl`) : XAUUSD long **-0.019 bps/nuit** (quasi nul, vs -1,4 estimé
+   ici) → coût total ≈ spread seul, ratio edge/coût monte vers ~5-7× côté FTMO.
+   Caveats : unité proto (pips) à valider empiriquement au 1er hold overnight
+   (swap_cash à l'exit) ; GFT toujours inconnu (aucune route API TradeLocker,
+   accrual empirique seulement). Sensibilité initiale conservée : swap à -3 bps/nuit
+   → Exp ≈ +0.05R (survit) ; -5 bps → marginal.
 3. **Profil WR 58,6 %** : en contradiction avec le filtre écrit (WR ≥ 70 %).
    Points pour : pertes bornées -1R, trades petits et nombreux → courbe
    d'équité régulière par agrégation (l'esprit de la boussole). Points contre :

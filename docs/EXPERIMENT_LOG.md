@@ -728,3 +728,24 @@ script `tmp/etude_fade_forex.py`) :
 stable). Famille ENTERRÉE (réhabilitation = règle standard, WF récent net positif).
 Prochaine famille Phase C : carry/swap positif — prérequis = capture swap (trou P1,
 même prérequis que le sondeur métaux en cours).
+
+## 2026-07-05 — Chantier capture des swaps : FTMO capté par API, GFT = empirique seulement
+
+**Livrable** : `scripts/capture_swap_rates.py` (sonde read-only re-lançable, ~monthly) →
+`logs/swap_rates.jsonl`. Découverte structurelle : le proto cTrader (`ProtoOASymbolByIdReq`)
+expose swapLong/swapShort/type/rollover par symbole ; **TradeLocker n'expose RIEN**
+(toutes les routes vérifiées 07-04) → le swap GFT ne se mesurera qu'en accrual sur
+holds overnight (déjà journalisé à l'exit via swap_cash depuis 06-07, 0 hold métaux à date).
+
+**Taux FTMO capturés 07-05 (bps/nuit, unité proto = pips, À VALIDER empiriquement
+au 1er hold overnight)** : XAUUSD long **-0.019** (quasi nul — vs -1,4 estimé au dossier
+session-métaux → **réserve n°2 quasi levée**, ratio edge/coût monte vers ~5-7×) ;
+XAGUSD ≈ 0 ; majors long -0,4/-1,0 ; **JPY-crosses long +0.17-0.18** (carry positif
+minuscule ≈ +0,6 %/an, le broker écrème le différentiel) ; crypto -8.2 bps/nuit
+(-30 %/an, type PERCENTAGE) des deux côtés. Triple swap mercredi, pas de swap weekend,
+rollover 20:59 UTC.
+
+**Pré-verdict famille carry (Phase C n°3)** : sur venue FTMO, edge brut ~+0.18 bps/nuit
+vs vol 60-100 bps/jour → signal/bruit dérisoire, la famille ne passera pas le filtre dur
+sur cette venue. Reste ouvert : taux GFT (inconnus, empirique only). Ne pas instruire
+carry avant d'avoir un taux GFT observé.
