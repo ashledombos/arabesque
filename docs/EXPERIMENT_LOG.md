@@ -711,3 +711,20 @@ Aucun scan libre, design de simulation pré-déclaré, zéro tuning.
 **Réserves à lever avant pipeline** (1 semaine, passif) : spread 22h-24h UTC non
 mesuré (pile la fenêtre de l'edge), swap métaux non mesuré (trou P1). Implémentation
 éventuelle : time-exit = mécanisme absent de l'engine (position_manager, zone Opus).
+
+## 2026-07-04 — Phase C candidat 2 : « fade forex » — KILL sur dossier (une soirée, zéro code)
+
+2 hypothèses pré-déclarées (littérature faible — lore de praticiens surtout, seule la
+réversion court-horizon est documentée académiquement), testées en étude d'événements
+sur 4 majors à coût minimal (EURUSD/GBPUSD/USDJPY/EURGBP, 2024-01→2026-07,
+script `tmp/etude_fade_forex.py`) :
+- **H1 faux-break du range asiatique (fade à Londres, exit +4h)** : mort partout —
+  +0,25/+0,36 bps (t≈0.2-0.4), EURGBP négatif (-0,96, t=-1.7). Sous les coûts.
+- **H2 réversion après barre H1 ≥2,5σ (exit +4h)** : EURUSD +2,53 bps (t=+2.57)
+  MAIS sous-période récente négative (-0,8), USDJPY négatif (-1,05), GBPUSD/EURGBP
+  faibles/instables. ET les barres extrêmes = annonces macro → spread réel au moment
+  de l'événement ≫ spread médian (l'edge vit exactement où les coûts explosent).
+**Verdict filtre dur : AUCUN candidat ne passe** (ratio 3× intenable en régime récent
+stable). Famille ENTERRÉE (réhabilitation = règle standard, WF récent net positif).
+Prochaine famille Phase C : carry/swap positif — prérequis = capture swap (trou P1,
+même prérequis que le sondeur métaux en cours).
