@@ -213,6 +213,7 @@ Toujours mettre à jour (si applicable) :
 
 ## Documents de référence
 
+- `docs/GUIDE_OPERATEUR.md` — **guide de compréhension pour l'humain** (langage simple : stratégies, paris, concepts, route). Le tenir à jour quand une stratégie change de statut ou qu'un jalon est franchi
 - `docs/STATUS.md` — **état live courant** (compte actif, stratégies, monitoring, que faire quand le compte expire)
 - `HANDOFF.md` — pour reprendre le dev (résultats de référence, config active, prochaines étapes)
 - `docs/DECISIONS.md` — historique des décisions et pourquoi
