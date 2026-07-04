@@ -9,7 +9,10 @@ phase:
     - glissade                # XAUUSD uniquement (cf strategy_assignments)
   # Candidats en instruction (pipeline avant live)
   candidate_strategies:
-    - renverse                # metaux (XAG/XAU), net estime ~+0.17R
+    - renverse                # metaux (XAG/XAU) — EN OMBRE depuis 2026-07-04
+                              # (assignments + exclusion 2 brokers, 0 ordre).
+                              # Backtest 3 mois recents: +0.305R n=16.
+                              # Promotion = ~2-4 sem / >=15 signaux + go operateur.
   # Exclues du dispatch, signaux toujours generes (mesure passive)
   shadow_strategies:
     - extension

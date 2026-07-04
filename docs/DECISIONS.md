@@ -3832,3 +3832,22 @@ de cohérence OK) ; XAGUSD +0.011R (n=22, sous le filtre dur) ; le reste négati
   Extension (edge brut ≈ 0 en régime récent).
 
 Commits : config `<voir git log 2026-07-03>`. Renversé/Révérence sous filtre dur : en cours.
+
+## Décision 2026-07-04 — Renversé-métaux : pipeline adapté, MODE OMBRE live démarré
+
+**Étape pipeline du candidat** (plan portefeuille, cf. Décision 2026-07-03 ter). Le contrat
+prévoyait « dry-run parquet 3 mois » ; constat technique : le chemin `--source parquet` du
+live engine ne supporte qu'Extension (`_run_parquet_replay` raise pour toute autre
+stratégie). L'étendre = chantier sur un chemin peu fidèle à la chaîne réelle. **Adaptation
+(équivalent plus sûr)** :
+1. **Edge récent** : backtest 3 mois (2026-04→07) XAUUSD+XAGUSD = 16 trades, WR 75 %,
+   **+0.305R**, robuste au slippage (3× → +0.158R). Régime actuel favorable.
+2. **Chaîne réelle** : **mode ombre live** — `renverse` câblé dans le BarAggregator
+   (+ tests de câblage anti-fallback silencieux), assignments H1 XAUUSD+XAGUSD,
+   exclusion des 2 brokers → signaux calculés et journalisés sur la vraie chaîne
+   (feed réel, barres réelles), AUCUN ordre. XAGUSD passé `follow: true` (feed 18 symboles).
+3. Vérifié au boot (restart flat 14:55 UTC) : assignment + exclusions chargés.
+
+**Critère de promotion live** : ~2-4 semaines d'ombre OU ≥15 signaux, cohérence avec le
+WF (WR, fréquence), puis **go opérateur** — venue principale GFT (spread métaux 0.015R).
+Suivi : watchlist `/suivi` item `candidate_pipeline`.
