@@ -674,3 +674,16 @@ Table de référence par marché×venue (entrée n°1 du filtre dur) ; réconcil
 GRT 0.24R) ; découverte chiffrée : **distorsion min-lot GFT** (P&L réel amplifié
 1,4-1,7× vs théorique sur micro-trades) → juger l'edge sur result_r, les coûts sur
 net_pnl_cash, jamais l'inverse. Trou restant : swap GFT non capté (prérequis Pas de Deux).
+
+
+## 2026-07-04 — Pas de Deux : KILL compliance à l'étape (a) du pipeline (30 min, zéro code)
+
+FTMO interdit textuellement « hedging or holding opposing positions on the same or
+**highly correlated instruments** » ; GFT interdit « **hedging across correlated
+instruments** » (y compris dans le même compte). Le cœur du pairs trading est le
+pattern nommé par les deux interdictions → risque de refus de payout. **Aucune infra
+multi-jambes construite, aucun backtest lancé** — le pipeline compliance/coût-d'abord
+a fait son travail (l'intuition d'origine de l'opérateur sur le hedging était juste).
+Verdict contextuel : réutilisable hors prop firm. Rapport :
+`docs/audit/pas_de_deux_compliance_2026-07-04.md`. Conséquence : la R&D décorrélation
+se rabat sur session-métaux / fade-forex / carry (Phase C).
