@@ -416,6 +416,9 @@ class BarAggregator:
         elif strategy == "fouette":
             from arabesque.strategies.fouette.signal import FouetteSignalGenerator, FouetteConfig
             return FouetteSignalGenerator(FouetteConfig())
+        elif strategy == "renverse":
+            from arabesque.strategies.renverse.signal import RenverseSignalGenerator, RenverseConfig
+            return RenverseSignalGenerator(RenverseConfig())
         else:
             logger.warning(f"[BarAggregator] Stratégie inconnue: {strategy}, fallback extension")
             from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig

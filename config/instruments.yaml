@@ -408,7 +408,7 @@ XAGUSD:
   ftmo_swing_test: "XAGUSD"
   ftmo_challenge: "XAGUSD"
   gft_compte1: "XAGUSD.X"
-  follow: false  # pas validé en WF
+  follow: true  # 2026-07-04 : candidat Renversé-métaux (WF +0.262R n=21) en mode ombre
   pip_size: 0.001
   pip_value_per_lot: 5
   contract_size: 5000

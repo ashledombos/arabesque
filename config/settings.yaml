@@ -124,6 +124,17 @@ strategy_assignments:
     instruments:
       - XAUUSD
 
+  # Renversé — liquidity sweep + retournement H1, MÉTAUX — MODE OMBRE (2026-07-04)
+  # Candidat pipeline (WF: XAG +0.262R n=21, XAU +0.130R n=9 ; backtest 3 mois
+  # récents: +0.305R n=16 ; 0% overlap avec Glissade). Signaux générés et
+  # journalisés, AUCUN ordre (exclusion des 2 brokers ci-dessous). Promotion
+  # live = fin d'observation ombre (~2-4 sem / ≥15 signaux) + go opérateur.
+  renverse:
+    timeframe: "H1"
+    instruments:
+      - XAUUSD
+      - XAGUSD
+
   # Fouetté ORB M1 — WF PASS 4/4 (rodage ×0.50)
   fouette:
     timeframe: "M1"
@@ -184,6 +195,12 @@ strategy_broker_exclusions:
     - ftmo_challenge
     - gft_compte1
   fouette:
+    - ftmo_challenge
+    - gft_compte1
+  # 2026-07-04 — Renversé en MODE OMBRE (candidat pipeline) : signaux calculés
+  # et journalisés sur la vraie chaîne live, zéro ordre tant que l'observation
+  # n'est pas conclue + go opérateur. Cf DECISIONS.md 2026-07-04.
+  renverse:
     - ftmo_challenge
     - gft_compte1
 
