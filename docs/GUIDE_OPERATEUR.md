@@ -110,15 +110,17 @@ sont calculés en conditions 100 % réelles mais aucun ordre ne part. Après 2-4
 semaines (~15 signaux), si l'ombre colle aux tests, décision de passage en
 réel (la tienne), en priorité chez GFT (frais 3× plus bas sur les métaux).
 
-### 🔵 Pas de Deux — À L'ÉTUDE (dossier avant code)
+### ⚫ Pas de Deux — ÉCARTÉE (2026-07-04, interdite par les prop firms)
 **Le pari** : deux instruments statistiquement liés (cointégrés) « dansent »
-autour d'un équilibre. Quand l'écart devient anormal (z-score ≥ 2 = plus de
-2 écarts-types), on parie sur le retour à l'équilibre : on vend le cher, on
-achète le pas-cher. **Neutre au marché** : peu importe que ça monte ou
-descende, seul l'écart compte — c'est le diversifiant idéal puisque nos deux
-autres moteurs dépendent tous deux de l'or.
-**Avant d'écrire du code** : vérifier que les prop firms l'autorisent
-(hedging), et chiffrer les frais de nuit (positions multi-jours).
+autour d'un équilibre. Quand l'écart devient anormal, on vend le cher et on
+achète le pas-cher — neutre au marché, le diversifiant idéal sur le papier.
+**Pourquoi écartée** : ton intuition d'époque était la bonne. FTMO interdit
+textuellement les « positions opposées sur instruments fortement corrélés »,
+GFT interdit le « hedging entre instruments corrélés » même dans un seul
+compte — c'est la définition même du pairs trading. Risque : refus de payout.
+Verdict rendu en 30 minutes de lecture des règlements, **avant** d'écrire la
+moindre ligne de code (le pipeline « compliance d'abord » a fait son travail).
+Reste valable un jour sur un compte personnel, hors prop firm.
 
 ### ⚫ Extension — ENTERRÉE (2026-07-03) — l'ancienne stratégie principale
 **Le pari** : quand la volatilité se comprime (bandes de Bollinger serrées),
