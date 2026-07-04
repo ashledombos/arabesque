@@ -104,8 +104,11 @@ du retournement. C'est de la chasse au piège à stops.
 **Chiffres** : argent (XAGUSD) +0.26R sur 21 trades, or +0.13R sur 9 — soit
 ~+0.17R net estimé, ~3-4 trades/mois. **Vérifié : 0 % de trades en commun avec
 Glissade** → c'est un deuxième moteur, pas le même compté deux fois.
-**Avant tout argent réel** : test à blanc 3 mois sur données historiques, puis
-observation « fantôme » en conditions réelles 2-4 semaines.
+**Où il en est (2026-07-04)** : test sur les 3 derniers mois réussi (+0.30R,
+robuste aux frais) → **en observation « ombre » depuis le 04/07** : ses signaux
+sont calculés en conditions 100 % réelles mais aucun ordre ne part. Après 2-4
+semaines (~15 signaux), si l'ombre colle aux tests, décision de passage en
+réel (la tienne), en priorité chez GFT (frais 3× plus bas sur les métaux).
 
 ### 🔵 Pas de Deux — À L'ÉTUDE (dossier avant code)
 **Le pari** : deux instruments statistiquement liés (cointégrés) « dansent »
