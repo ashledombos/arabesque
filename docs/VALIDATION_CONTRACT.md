@@ -14,6 +14,26 @@ conditions prop firm (daily DD, total DD, courbe reguliere). Jalon
 intermediaire : >= 0,8R/mois (Glissade-XAUUSD + Renverse-metaux valides).
 Metrique tracee a chaque `/bilan` : R net/mois du portefeuille valide.
 
+## Regimes de risque — 3 modes explicites (2026-07-07, decision operateur)
+
+Le R/mois mesure la QUALITE du moteur ; le %/trade est l'ACCELERATEUR.
+Gain mensuel = R/mois x %risque. Trois regimes graves :
+
+1. **VALIDATION** (courant) : base 0,45 % x rodage x0.25 (+ protection DD).
+   On paie pour de la donnee, pas pour du gain. Sortie par les gates de ramp.
+2. **ATTAQUE CHALLENGE** : des que le **portefeuille valide >= 2R net/mois**
+   (live+ombre cumules, gates de ramp satisfaits), le risque sur le compte
+   challenge passe a **0,80 %/trade plein** (sans rodage ; protection DD et
+   garde -8 % conservees — 8 pertes consecutives = -6,4 %, marge avant garde).
+   La perte du compte challenge est un cout de R&D accepte (80-600 EUR) ;
+   l'actif reel est le systeme valide. A ~3R/mois : challenge en ~4 mois.
+3. **CROISIERE** (compte finance, post-challenge) : redescendre a 0,45-0,60 %.
+   La consistance paie (payouts recompensent la regularite), pas la vitesse.
+
+Chaque bascule de regime = go operateur documente dans DECISIONS.md.
+La cible de moteur pour l'attaque reste ~3R/mois (4-6 edges) ; 2R/mois est
+le seuil MINIMAL de declenchement, pas la cible.
+
 ## Perimetre courant
 
 - Phase en cours : `portefeuille` (remplace `phase4_bis`, close 2026-07-03

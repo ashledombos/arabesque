@@ -3851,3 +3851,22 @@ stratégie). L'étendre = chantier sur un chemin peu fidèle à la chaîne réel
 **Critère de promotion live** : ~2-4 semaines d'ombre OU ≥15 signaux, cohérence avec le
 WF (WR, fréquence), puis **go opérateur** — venue principale GFT (spread métaux 0.015R).
 Suivi : watchlist `/suivi` item `candidate_pipeline`.
+
+## Décision 2026-07-07 — Trois régimes de risque explicites (opérateur)
+
+**Contexte** : à 1,5R/mois et 0,45 % de risque, un challenge (+10 %) prendrait ~15 mois
+— trop long (opérateur : « 20 mois pour passer un challenge, c'est un petit peu long »).
+Distinction actée : le R/mois = qualité du moteur, le %/trade = accélérateur.
+
+**Décision** (AskUserQuestion, 2 choix opérateur) :
+1. **VALIDATION** (courant, inchangé) : 0,45 % × rodage ×0,25 + protection DD.
+2. **ATTAQUE CHALLENGE** : déclenchement au **portefeuille validé ≥ 2R net/mois**
+   (seuil minimal ; cible moteur ~3R/mois) → **0,80 %/trade plein** sur le compte
+   challenge, gardes DD conservées (8 pertes = -6,4 %, sous la garde -8 %).
+   Perte du compte challenge = coût de R&D accepté. À 3R/mois : challenge ~4 mois.
+3. **CROISIÈRE** (compte financé) : 0,45-0,60 %, la consistance prime.
+
+**Gravé dans** : `docs/VALIDATION_CONTRACT.md` (section Régimes de risque) +
+`config/validation_policy.yaml` (`risk_regimes`). Aucun changement live immédiat
+(on reste en VALIDATION). Chaque bascule = go opérateur documenté ici.
+Question 1-step vs 2-step challenge : explicitement reportée par l'opérateur.

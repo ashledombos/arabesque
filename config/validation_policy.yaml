@@ -30,6 +30,20 @@ system_objective:
   milestone_r_net_per_month: 0.8
   new_prop_account_gate_r_per_month: 1.5   # pas de nouveau compte avant
 
+# Regimes de risque (decision operateur 2026-07-07) — cf VALIDATION_CONTRACT.md
+# Le %/trade est l'accelerateur ; bascules = go operateur documente.
+risk_regimes:
+  validation:                  # regime COURANT
+    base_risk_percent: 0.45
+    rodage_multiplier: 0.25
+  attack_challenge:            # compte challenge, systeme prouve
+    trigger_portfolio_r_net_per_month: 2.0   # seuil MINIMAL (cible moteur ~3)
+    risk_percent: 0.80                       # plein, sans rodage
+    keep_dd_protection: true                 # garde -8 % + DD-scaling conserves
+    account_loss_accepted: true              # cout R&D borne (80-600 EUR)
+  cruise:                      # compte finance, post-challenge
+    risk_percent_range: [0.45, 0.60]
+
 # Filtre dur d'acceptation d'un candidat (avant pipeline)
 candidate_hard_filter:
   min_gross_edge_vs_cost_ratio: 3.0        # edge brut >= 3x cout du marche vise
