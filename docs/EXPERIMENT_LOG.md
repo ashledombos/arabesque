@@ -749,3 +749,16 @@ rollover 20:59 UTC.
 vs vol 60-100 bps/jour → signal/bruit dérisoire, la famille ne passera pas le filtre dur
 sur cette venue. Reste ouvert : taux GFT (inconnus, empirique only). Ne pas instruire
 carry avant d'avoir un taux GFT observé.
+
+## 2026-07-07 — Phase C candidat 3 : Fouetté-or-Londres — KILL au filtre dur sur dossier (zéro backtest)
+
+Dernier candidat de l'étagère (tâche #5, WF 4/4 PASS historique : XAUUSD London 63 tr,
+WR 76 %, Exp +0.086R BRUT, ~3,3 tr/mois — débit OK). **Le filtre dur le tue à l'étape
+coûts** : range d'ouverture Londres 30 min médian **20,5 bps** (25,5 sur 12 mois) →
+SL ≈ 21-27 bps → coût aller-retour 1,3 bps (spread GFT 0,8-1,0 mesuré + slippage M1)
+= **0,05-0,06R/trade** → ratio edge/coût **1,4-1,9× < 3×**. Même edge doublé = ~2,9×,
+toujours sous le seuil. Apport net théorique ≈ +0,09R/mois (négligeable). Structurel :
+en M1 le stop est trop serré pour le spread — même piège que le forex M1 (déjà
+documenté dans STRATEGY.md), l'or n'y échappe pas avec un edge fin. Mesure :
+`tmp` inline (range par jour, 651 jours). **L'étagère est VIDE** : Phase C = sourcer
+de nouvelles familles (effets d'annonces or, turn-of-month, vol implicite…).
