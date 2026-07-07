@@ -31,7 +31,8 @@ sys.path.insert(0, str(ROOT))
 
 BROKER_ID = "ftmo_challenge"
 TARGETS = ["XAUUSD", "XAGUSD", "EURUSD", "GBPUSD", "USDJPY", "AUDJPY",
-           "CHFJPY", "GBPJPY", "EURGBP", "BTCUSD", "ETHUSD"]
+           "CHFJPY", "GBPJPY", "EURGBP", "BTCUSD", "ETHUSD",
+           "US100.cash", "US500.cash", "US30.cash"]
 OUT = ROOT / "logs" / "swap_rates.jsonl"
 
 

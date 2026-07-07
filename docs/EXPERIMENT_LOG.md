@@ -762,3 +762,17 @@ en M1 le stop est trop serré pour le spread — même piège que le forex M1 (d
 documenté dans STRATEGY.md), l'or n'y échappe pas avec un edge fin. Mesure :
 `tmp` inline (range par jour, 651 jours). **L'étagère est VIDE** : Phase C = sourcer
 de nouvelles familles (effets d'annonces or, turn-of-month, vol implicite…).
+
+## 2026-07-07 — Sourcing de nouvelles familles Phase C (go opérateur) — 1 candidat fort, 2 kills chiffrés
+
+Dossier complet : `docs/audit/sourcing_familles_2026-07-07.md`. Résumé de la file :
+1. **Fouetté-US100-NY = prochain candidat** (réhabilitation ciblée) : range NY 53 bps
+   → ratio edge/coût **4,3-10,6×** (vs 1,4-1,9× qui a tué la variante or), ~7 tr/mois,
+   WF 4/4 historique (+0.190R). Réserves : WR 44 % (décision opérateur), spread
+   US100.cash réel, WF récent à refaire. Symbole FTMO confirmé.
+2. Annonces macro (FOMC/NFP/CPI) : littérature solide, prérequis = dataset calendrier.
+3. Turn-of-month or : +19,1 vs +8,2 bps/j — réel mais corrélé session-or → réserve
+   (amplificateur potentiel de session-métaux, pas famille autonome).
+4. ❌ Prime overnight indices : +4,5 bps/nuit réel MAIS financement CFD -2,2 bps/nuit
+   mesuré (sonde swap étendue aux indices) → ratio 1,7× → quasi-kill (broker écrème).
+5. ❌ Momentum intrajournalier or (Gao et al.) : mort sur nos données (t=-1.08).
