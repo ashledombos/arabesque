@@ -8,7 +8,14 @@ nos données (2024-01→2026-07) quand trivial. Zéro tuning, hypothèses fixée
 
 ## File priorisée
 
-### 1. 🥇 Fouetté-US100-NY — réhabilitation ciblée (PRÊT À INSTRUIRE)
+### 1. ~~🥇 Fouetté-US100-NY~~ — ❌ KILL au WF récent (instruit le soir même, go opérateur)
+**Post-scriptum 07-07 soir** : spread réel mesuré 0,56 bps (coût ✓), débit ✓, profil ✓,
+MAIS **WF récent 3×6 mois : +0.004/-0.072/-0.047R ; 18 mois : 260 tr, Exp -0.004R,
+PF 0.98** → l'edge historique +0.190R (2024) est mort en régime récent, comme Extension.
+KILL filtre dur critère stabilité. Détail EXPERIMENT_LOG 07-07. Fiche d'origine conservée
+ci-dessous pour référence :
+
+### (archivé) Fouetté-US100-NY — réhabilitation ciblée
 - Historique : WF 4/4 PASS, **147 trades, Exp +0.190R brut, ~7 tr/mois** (EXPERIMENT_LOG §4).
 - **Coûts (mesuré 07-07)** : range 30 min ouverture NY US100 médian **53,3 bps**
   (56,8 sur 12 mois) → SL ≈ 56 bps → coût 1,0-2,5 bps → 0,018-0,045R/trade →

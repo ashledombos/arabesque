@@ -776,3 +776,16 @@ Dossier complet : `docs/audit/sourcing_familles_2026-07-07.md`. Résumé de la f
 4. ❌ Prime overnight indices : +4,5 bps/nuit réel MAIS financement CFD -2,2 bps/nuit
    mesuré (sonde swap étendue aux indices) → ratio 1,7× → quasi-kill (broker écrème).
 5. ❌ Momentum intrajournalier or (Gao et al.) : mort sur nos données (t=-1.08).
+
+## 2026-07-07 — Phase C candidat 4 : Fouetté-US100-NY — KILL au WF récent (edge mort en régime 2025-26)
+
+Instruction complète (go opérateur) : (1) **spread réel US100.cash FTMO mesuré en direct
+= 0,56 bps médian** (90 s de ticks, encore mieux que le dossier) → coût ~0,02R/trade,
+jamais le problème ; (2) **WF 3 fenêtres 6 mois 2025-01→2026-07** (config validée figée,
+`--session ny`, slippage 1×) : **+0.004R / -0.072R / -0.047R** → 0/3 fenêtre
+significativement positive ; (3) fenêtre pleine 18 mois : **260 trades, WR 73,1 %,
+Exp -0.004R, PF 0.98, ΣR -1.1R**. L'edge historique +0.190R (validation 2024) n'existe
+plus en régime récent — même destin qu'Extension. Coûts ✓, débit ✓ (14 tr/mois),
+profil ✓ (BE/trailing), **edge ✗** → KILL filtre dur critère 2 (stabilité régime récent).
+Réhabilitation = règle standard (re-WF trimestriel). File Phase C restante :
+annonces macro (prérequis calendrier), turn-of-month (réserve/amplificateur).
