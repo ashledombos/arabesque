@@ -210,6 +210,20 @@ d'un candidat instruit par quinzaine.
 montée en taille par crans → ≥1,5R/mois → achat d'un nouveau challenge
 (décision : pas avant ce seuil).
 
+**Les 3 régimes de risque (décision 2026-07-07)** — le R/mois dit si le moteur
+est bon ; le % risqué par trade dit à quelle vitesse on roule. Gain mensuel =
+l'un × l'autre :
+- **Validation** (maintenant) : ~0,11 % par trade (0,45 % × frein de rodage).
+  On roule au pas parce qu'on vérifie encore le moteur — on paie pour de
+  l'information, pas pour du gain.
+- **Attaque challenge** : dès que le portefeuille validé produit **≥ 2R/mois**,
+  on passe à **0,8 % par trade** sur le compte challenge. À 3R/mois, le
+  challenge (+10 %) se passe en ~4 mois au lieu de ~15. Si une mauvaise série
+  fait perdre le compte, c'est un coût accepté (80-600 €) : le vrai capital,
+  c'est le système prouvé, pas le compte.
+- **Croisière** (une fois financé) : on redescend à 0,45-0,6 % — là, c'est la
+  régularité qui paie (c'est elle que les prop firms rémunèrent), pas la vitesse.
+
 **Ton rôle** : lancer `/suivi` quand le rappel arrive (2-3 min), un `/bilan`
 par semaine (auto-déclenché), répondre aux demandes de décision (questions
 fermées avec recommandation). Les urgences te trouvent d'elles-mêmes — toute
