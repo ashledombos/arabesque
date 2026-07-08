@@ -818,3 +818,13 @@ données/faisabilité uniquement. Scripts : `tmp/probe_hyperliquid.py`,
   backtestant sur les 20 mois Binance déjà en cache + modèle de coûts Hyperliquid
   (9 bps aller-retour + 2 bps/jour), verdict au filtre dur habituel (edge ≥ 3×
   coûts, WF régime récent). Aucun changement de code pipeline, aucun connecteur.
+- **Note opérateur (2026-07-08)** : la mean-reversion, abandonnée sur CFD
+  (4 replays négatifs, cf. § stratégies alternatives), reste une **hypothèse
+  légitime pour le DEX** — structure de coûts différente (funding peut payer le
+  côté MR, pas de swap CFD). Le code historique est récupérable intégralement :
+  `git show 0c15991^:arabesque/backtest/signal_gen.py` (238 l., BB excess) et
+  `signal_gen_combined.py` (116 l.). Toute résurrection = **nouvelle stratégie**
+  `arabesque/strategies/<nom>/signal.py` conforme à la convention, re-testée au
+  filtre dur avec coûts Hyperliquid — pas une réactivation du legacy. Le
+  nettoyage des pointeurs cassés (`analysis/pipeline.py` défaut `combined`,
+  `scripts/backtest.py`) ne détruit donc rien.
