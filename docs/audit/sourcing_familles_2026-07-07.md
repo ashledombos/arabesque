@@ -38,6 +38,15 @@ ci-dessous pour référence :
   (contrairement au fade forex, tué pour cette raison exacte).
 - **Prérequis bloquant : dataset calendrier macro historique** (dates/heures
   FOMC/NFP/CPI 2024-2026) — à sourcer avant toute étude.
+- **⚠️ COMPLIANCE (vérifiée 2026-07-08, flag opérateur)** : FTMO interdit
+  d'ouvrir/fermer un trade sur l'instrument ciblé dans la fenêtre ±2 min autour
+  des annonces sélectionnées — **UNIQUEMENT sur compte FINANCÉ standard**
+  (challenge/vérification : libre ; compte financé **Swing** : exempté ; un
+  SL/TP déclenché dans la fenêtre = breach, même position ouverte avant).
+  → Design imposé : sortie complète > 2 min avant l'annonce (fragile : un SL
+  touché à J-2min via gap = breach) OU cibler un compte Swing pour la phase
+  financée. Règles GFT à vérifier avant instruction. Source :
+  ftmo.com/en/faq/can-i-trade-news + forbidden-trading-practices.
 
 ### 3. 🥉 Turn-of-month or — EN RÉSERVE (corrélé à session-or)
 - Écrémage 07-07 : J-2..J+3 = **+19,1 bps/j (t=+1.63)** vs +8,2 hors fenêtre —
