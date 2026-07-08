@@ -789,3 +789,32 @@ plus en régime récent — même destin qu'Extension. Coûts ✓, débit ✓ (1
 profil ✓ (BE/trailing), **edge ✗** → KILL filtre dur critère 2 (stabilité régime récent).
 Réhabilitation = règle standard (re-WF trimestriel). File Phase C restante :
 annonces macro (prérequis calendrier), turn-of-month (réserve/amplificateur).
+
+## 2026-07-08 — Exploration Hyperliquid étape 1 : données + comparaison Binance + coûts (read-only, zéro impact live)
+
+**Contexte** : décision opérateur d'explorer Hyperliquid (DEX perps, petites sommes)
+comme venue candidate, intégrée dans Arabesque (pas de projet séparé). Étape 1 =
+données/faisabilité uniquement. Scripts : `tmp/probe_hyperliquid.py`,
+`tmp/compare_hyperliquid_binance.py` (caches parquet dans `tmp/`).
+
+- **CCXT 4.5.43 supporte Hyperliquid nativement** (231 perps USDC). Piège : bug
+  ccxt sur le mapping des marchés *spot* → toujours instancier avec
+  `options={"fetchMarkets": {"types": ["swap"]}}`.
+- **Contrainte dure : l'API ne sert que ~5000 bougies par timeframe** →
+  1m = 3,5 jours, 5m = 17 j, 1h = ~7 mois, 4h = ~27 mois, 1d = complet.
+  **Impossible de rejouer 20 mois en minute** → le pipeline min1 d'Arabesque ne
+  peut pas se remplir depuis Hyperliquid (sauf accumulation forward-only).
+- **Binance = proxy de prix VALIDE** (4 775 bougies 1h communes, BTC/ETH/SOL/DOGE,
+  2025-12→2026-07) : corrélation des retours 1h ≥ 0,998 partout ; basis perp−spot
+  médian ~-4,5 bps (stable, un niveau, pas un bruit) ; ratio range H/L médian
+  0,96-1,01, p95 1,04-1,09 (BTC légèrement plus méchu → garder marge pessimiste
+  sur les TSL, famille [[project_backtest_bias]]).
+- **Coûts Hyperliquid mesurés** : taker 4,5 bps / maker 1,5 bps par côté
+  (aller-retour taker = 9 bps de notionnel) ; **funding horaire**, 12 mois
+  d'historique paginable : coût moyen d'un LONG ≈ +2,0 bps/jour (BTC/ETH/DOGE),
+  +0,5 (SOL). Un hold de 2 jours taker-taker ≈ 13 bps de notionnel, à convertir
+  en R selon la distance de stop réelle (étape 2).
+- **Conclusion étape 1** : faisabilité OK, l'étude d'edge (étape 2) se fera en
+  backtestant sur les 20 mois Binance déjà en cache + modèle de coûts Hyperliquid
+  (9 bps aller-retour + 2 bps/jour), verdict au filtre dur habituel (edge ≥ 3×
+  coûts, WF régime récent). Aucun changement de code pipeline, aucun connecteur.
