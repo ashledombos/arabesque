@@ -2779,9 +2779,9 @@ Le backtest de référence couvre **exactement la même fenêtre** que le live (
 
 **Décision** : commenter le bloc `strategy_assignments.cabriole` dans `config/settings.yaml`. Plus aucun nouveau signal Cabriole n'est dispatché à partir du restart. Les positions Cabriole déjà ouvertes seront monitorées normalement jusqu'à exit (vérifié : 0 ouverte au moment de la modif).
 
-**Pourquoi maintenant** : l'ultra-rodage ×0.10 du 2026-05-13 (entrée précédente) n'a pas suffi à expliquer ni résorber le drift. La checklist `docs/PHASE4_BIS_CHECKLIST_2026-05-16.md` exige un noyau **Extension + Glissade** propre sur 50 à 100 exits avant toute remontée de risque. Garder Cabriole active mélangerait l'échantillon de mesure avec une stratégie dont l'edge n'est plus défendable sur la période actuelle (ΔExp -0.345R BT, encore -0.32R sous BT en live, creux hors p10 baseline 20 mois).
+**Pourquoi maintenant** : l'ultra-rodage ×0.10 du 2026-05-13 (entrée précédente) n'a pas suffi à expliquer ni résorber le drift. La checklist `docs/audit/PHASE4_BIS_CHECKLIST_2026-05-16.md` exige un noyau **Extension + Glissade** propre sur 50 à 100 exits avant toute remontée de risque. Garder Cabriole active mélangerait l'échantillon de mesure avec une stratégie dont l'edge n'est plus défendable sur la période actuelle (ΔExp -0.345R BT, encore -0.32R sous BT en live, creux hors p10 baseline 20 mois).
 
-**Audits sources** : `docs/AUDIT_PROP_FIRM_REPLAY_2026-05-15.md`, `docs/BACKTEST_LIVE_PARQUET_REVIEW_2026-05-15.md`, `docs/REVIEW_HISTORIQUE_TRADING_2026-05-15.md`.
+**Audits sources** : `docs/audit/AUDIT_PROP_FIRM_REPLAY_2026-05-15.md`, `docs/audit/BACKTEST_LIVE_PARQUET_REVIEW_2026-05-15.md`, `docs/audit/REVIEW_HISTORIQUE_TRADING_2026-05-15.md`.
 
 **Choix minimal volontaire** :
 - Bloc `strategy_assignments.cabriole` commenté (pas supprimé) → réactivation = décommenter.
@@ -2927,7 +2927,7 @@ Le **noyau actif** depuis 2026-05-16 est Extension + Glissade. C'est lui qu'on d
 - Pas de healthcheck proactif côté trading (étage 2, différé).
 - Pas de modification du patch token P1+P2 (commit `79007cf`) — orthogonal.
 
-**Suivi vivant** : doc dossier `docs/INCIDENT_DASHUSD_RESILIENCE_BROKER_2026-05-21.md` mis à jour au fur et à mesure (état post-restart, premier incident éventuel, décision finale étages 2/3/4). À relire au prochain `/suivi`.
+**Suivi vivant** : doc dossier `docs/audit/INCIDENT_DASHUSD_RESILIENCE_BROKER_2026-05-21.md` mis à jour au fur et à mesure (état post-restart, premier incident éventuel, décision finale étages 2/3/4). À relire au prochain `/suivi`.
 
 ---
 
@@ -2982,7 +2982,7 @@ utilise des identifiants d'ordre et de position distincts.
 `-0.201R`. XAUUSD restaure depuis historique broker : `+1.178R`,
 `MFE=1.79R`, marque comme sortie operationnelle due au bug.
 
-**Dossier** : `docs/INCIDENT_GFT_POSITION_STATE_2026-05-26.md`.
+**Dossier** : `docs/audit/INCIDENT_GFT_POSITION_STATE_2026-05-26.md`.
 ## Decision 2026-05-26 - health_report multibroker coherent avec le risque applique
 
 - **Constat live** : apres le redemarrage de securisation GFT, `health_report`
@@ -3078,7 +3078,7 @@ utilise des identifiants d'ordre et de position distincts.
   0 pending`.
 - **Audit watchdog consolide** : les mentions des 18/21/22 mai qui differaient
   l'auto-restart sont historiques. La decision ulterieure documentee dans
-  `docs/HOT_PATH_MODE_2026-05-23.md` l'a volontairement active sur
+  `docs/audit/HOT_PATH_MODE_2026-05-23.md` l'a volontairement active sur
   `feed_stale` persistant, avec anti-boucle et backoff weekend lorsque des
   positions sont suivies. Raison : si une position reste ouverte alors que le
   feed/monitoring est mort, restaurer le canal est plus protecteur que laisser
@@ -3157,7 +3157,7 @@ utilise des identifiants d'ordre et de position distincts.
 
 ## Decision 2026-05-27 - guard de sur-risque impose par minimum volume
 
-- **Audit livre** : `docs/SIZING_DISTORTION_AUDIT_2026-05-27.md` et
+- **Audit livre** : `docs/audit/SIZING_DISTORTION_AUDIT_2026-05-27.md` et
   `scripts/audit_sizing_distortion.py`. Sur `7` entries Phase 4 bis,
   `6` restent dans `0.98x..1.16x` du budget cible. Une entry est
   materiellement faussee : GFT Glissade XAUUSD du 19/05, `4.82$` demandes
@@ -3415,7 +3415,7 @@ utilise des identifiants d'ordre et de position distincts.
 
 ## Decision 2026-05-31 - pivot Task #39 : restart manuel Telegram, plus d'auto-restart canal trading
 
-- **Contexte** : la note de scope `docs/SCOPE_TASK_39_HOT_PATH_5_2026-05-24.md`
+- **Contexte** : la note de scope `docs/audit/SCOPE_TASK_39_HOT_PATH_5_2026-05-24.md`
   proposait un auto-restart `arabesque-live.service` quand le canal trading
   cTrader meurt (`recent_reconnect_failures_count(window_s=300) >= 2` ET >=1
   position ouverte), via un heartbeat disque consomme par
@@ -3454,7 +3454,7 @@ utilise des identifiants d'ordre et de position distincts.
 - **Hors scope** : aucun changement signal, sizing, ordre, broker, ni
   modification du contenu de `feed_watchdog.py` au-dela de la garde
   `AUTO_RESTART_REQUIRES_FLAT` deja en place. Le scope doc
-  `docs/SCOPE_TASK_39_HOT_PATH_5_2026-05-24.md` reste archive pour
+  `docs/audit/SCOPE_TASK_39_HOT_PATH_5_2026-05-24.md` reste archive pour
   reference historique mais n'est plus a implementer en l'etat.
 
 ## Decision 2026-06-01 - weekend gap guard FX/metals explicite
@@ -3499,7 +3499,7 @@ utilise des identifiants d'ordre et de position distincts.
   Rejeu elargi le 2026-06-02 : Extension + Glissade sur
   AUDJPY/GBPJPY/CHFJPY/**USDJPY**/XAUUSD, 20 mois (2024-04-01 -> 2026-06-01),
   split IS/OOS au 2025-08-01, 4 cutoffs (15h/18h/20h/21h) + flat-friday
-  20h/21h. Dossier : `docs/AUDIT_WEEKEND_GAP_BT_2026-06-02.md`, donnees brutes
+  20h/21h. Dossier : `docs/audit/AUDIT_WEEKEND_GAP_BT_2026-06-02.md`, donnees brutes
   `tmp/weekend_gap_fx_audit.json`.
 - **Resultats agreges** (n=311 BT, n=33 live) :
   - baseline BT +9.96R, 0 perte >1R (BT pessimiste = SL strict, ne modelise
@@ -3527,7 +3527,7 @@ utilise des identifiants d'ordre et de position distincts.
 - **Critere de reouverture** : reetudier l'arbitrage flat-friday si **>=2
   nouveaux exits live post-`7c7809e`** ont `crosses_weekend=True` ET
   `result_r < -1.0`. Sinon, statu quo.
-- **Tracabilite** : dossier d'audit complet `docs/AUDIT_WEEKEND_GAP_BT_2026-06-02.md`
+- **Tracabilite** : dossier d'audit complet `docs/audit/AUDIT_WEEKEND_GAP_BT_2026-06-02.md`
   (tableaux par strategie x instrument, IS/OOS, scenarios chiffres, liste des
   6 pertes >1R live avec gap_excess_r). Aucun changement de code livre par
   cette decision.

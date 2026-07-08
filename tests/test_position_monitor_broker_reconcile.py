@@ -4,7 +4,7 @@ position absente broker (task #35).
 Incident fondateur : 2026-05-20→22, position DASHUSD #53110148 fermée
 broker-side (SL touché à -1R) **sans que l'engine le sache** pendant ~16h.
 Le canal #3 « état broker » était complètement aveugle en régime normal.
-Cf. ``docs/HOT_PATH_MODE_2026-05-23.md`` §1 et §5.
+Cf. ``docs/audit/HOT_PATH_MODE_2026-05-23.md`` §1 et §5.
 
 Invariants verrouillés :
   1. Polling **inactif** quand ``_tracked_positions`` est vide

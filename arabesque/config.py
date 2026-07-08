@@ -232,7 +232,7 @@ def load_broker_tokens(
     (``ACCESS_DENIED`` sur l'endpoint OAuth) alors qu'un processus externe
     (autre commande CLI, rotation manuelle) a écrit des tokens frais sur disque.
     Incident fondateur : 2026-05-21T22:59 → 2026-05-22T18:55 UTC (19h54
-    de feed FTMO mort, fix par restart). Cf ``docs/INCIDENT_DASHUSD_RESILIENCE_BROKER_2026-05-21.md``.
+    de feed FTMO mort, fix par restart). Cf ``docs/audit/INCIDENT_DASHUSD_RESILIENCE_BROKER_2026-05-21.md``.
 
     Retourne ``(access_token, refresh_token)`` ou ``None`` si fichier absent,
     illisible, ou tokens introuvables pour le ``broker_id`` demandé.

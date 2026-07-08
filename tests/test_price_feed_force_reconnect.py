@@ -1,6 +1,6 @@
 """Option 1 (2026-05-18) — bypass `existing_broker._connected` quand feed stale.
 
-Root cause (cf. docs/REVIEW_BTCUSD_STALE_EXISTING_BROKER_2026-05-18.md) :
+Root cause (cf. docs/audit/REVIEW_BTCUSD_STALE_EXISTING_BROKER_2026-05-18.md) :
 ``_watch_connection`` lève ``ConnectionError`` quand le feed est stale, mais
 ``_broker._connected`` reste ``True`` côté Python. À la retry suivante,
 ``_connect_and_subscribe`` tombe dans la branche « Réutilisation du broker

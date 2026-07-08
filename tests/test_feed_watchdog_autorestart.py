@@ -3,7 +3,7 @@
 Incident fondateur : 2026-05-21T22:59 → 2026-05-22T18:55 UTC (19h54 de feed
 FTMO mort, refresh_token in-memory désynchro disque). Le watchdog v1 alertait
 toutes les 30 min mais ne faisait rien — l'utilisateur portait seul la charge
-de surveillance pendant 19h54. Cf docs/INCIDENT_DASHUSD_RESILIENCE_BROKER_2026-05-21.md.
+de surveillance pendant 19h54. Cf docs/audit/INCIDENT_DASHUSD_RESILIENCE_BROKER_2026-05-21.md.
 
 Étages livrés (task #31 + task #33) :
   - Étage 3 : auto-restart systemctl --user stop+sleep+start si feed_stale

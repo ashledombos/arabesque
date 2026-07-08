@@ -4,7 +4,7 @@ Détecte un engine `active` mais figé (aucune barre fermée depuis > N minutes)
 Les observations ordinaires partent sur Telegram ; ntfy est reserve aux
 escalades qui exigent une intervention humaine rapide.
 
-Étages résilience (cf docs/INCIDENT_DASHUSD_RESILIENCE_BROKER_2026-05-21.md
+Étages résilience (cf docs/audit/INCIDENT_DASHUSD_RESILIENCE_BROKER_2026-05-21.md
 sections 3+7) :
   - Étage 1 (1ère alerte) : notif normale, recommandation `systemctl restart`
     manuel. Cooldown 30 min entre 2 notifs.

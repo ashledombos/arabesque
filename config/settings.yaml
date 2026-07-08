@@ -65,7 +65,7 @@ live:
   # silence trading channel). 3 cycles d'absence consécutifs → alerte URGENT
   # Telegram+ntfy + retrait du tracking. Polling stoppe automatiquement
   # quand `_positions` redevient vide (pas de coût en régime idle).
-  # Voir docs/HOT_PATH_MODE_2026-05-23.md pour le plan complet (4 étapes).
+  # Voir docs/audit/HOT_PATH_MODE_2026-05-23.md pour le plan complet (4 étapes).
   # Activé 2026-05-23 après validation 178/178 tests + lecture de l'audit
   # cTrader FTMO Challenge. Rollback simple : repasser à false + restart engine.
   # Effet immédiat à la prochaine ouverture de position cTrader.
@@ -146,7 +146,7 @@ strategy_assignments:
   # Drift live persistant (creux BT hors distribution baseline 20 mois, ΔExp
   # additionnel -0.32R sous BT déjà recalibré pessimiste). Ultra-rodage ×0.10
   # depuis 2026-05-13 jugé insuffisant : on sort du noyau Phase 4 bis tant que
-  # le drift n'est pas réexpliqué. Cf docs/PHASE4_BIS_CHECKLIST_2026-05-16.md
+  # le drift n'est pas réexpliqué. Cf docs/audit/PHASE4_BIS_CHECKLIST_2026-05-16.md
   # et docs/DECISIONS.md (2026-05-16).
   # Entrées rodage.strategies/strategies_ultra et strategy_broker_exclusions
   # conservées comme trace historique — réactivation = décommenter ce bloc.

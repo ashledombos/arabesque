@@ -15,9 +15,9 @@ Stratégies suivies:
 - `cabriole`: à exclure de la Phase 4 bis tant que le drift live n'est pas réexpliqué.
 
 Référence d'audit:
-- `docs/AUDIT_PROP_FIRM_REPLAY_2026-05-15.md`
-- `docs/BACKTEST_LIVE_PARQUET_REVIEW_2026-05-15.md`
-- `docs/REVIEW_HISTORIQUE_TRADING_2026-05-15.md`
+- `docs/audit/AUDIT_PROP_FIRM_REPLAY_2026-05-15.md`
+- `docs/audit/BACKTEST_LIVE_PARQUET_REVIEW_2026-05-15.md`
+- `docs/audit/REVIEW_HISTORIQUE_TRADING_2026-05-15.md`
 
 ## Préconditions
 

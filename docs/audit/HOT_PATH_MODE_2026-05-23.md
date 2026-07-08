@@ -2,7 +2,7 @@
 
 **Date d'ouverture** : 2026-05-23
 **Statut global** : 🛠️ en cours (étape 1 démarrée)
-**Motivation** : incident DASHUSD #53110148 du 2026-05-20→22 (cf. `docs/INCIDENT_DASHUSD_RESILIENCE_BROKER_2026-05-21.md`). Une position ouverte a été fermée broker-side sans que l'engine le sache pendant ~16h, après 19h54 de feed mort cumulées sur la période. Le MFE +1.82R n'a pas pu être protégé (BE non armable, mais surtout silence total côté assistant).
+**Motivation** : incident DASHUSD #53110148 du 2026-05-20→22 (cf. `docs/audit/INCIDENT_DASHUSD_RESILIENCE_BROKER_2026-05-21.md`). Une position ouverte a été fermée broker-side sans que l'engine le sache pendant ~16h, après 19h54 de feed mort cumulées sur la période. Le MFE +1.82R n'a pas pu être protégé (BE non armable, mais surtout silence total côté assistant).
 
 Ce document trace la conception, l'implémentation et la validation du **Hot Path Mode** : un mode de surveillance intensive activé dès qu'au moins une position est ouverte. Il complète mais ne remplace pas les patches déjà en place (étages 0+1 du dossier DASHUSD, tasks #32/#33).
 

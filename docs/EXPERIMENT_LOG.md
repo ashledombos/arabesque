@@ -249,7 +249,7 @@ Sur période Oct 2025 → Jan 2026 :
 - **Trades manqués** : 0 attribuable à la panne (les 2 positions cabriole/glissade ouvertes ont été closes côté broker, exits récupérés au restart propre). 2 signaux Fouetté M1 le 2026-05-13 (XAUUSD 17:44, BTCUSD 14:35 UTC) non tirés mais engine actif à ce moment → cause distincte, à investiguer.
 
 ### 2026-05-15 — Audit pipeline validation (appliqué)
-- **Source** : `docs/AUDIT_VALIDATION_PIPELINE_2026-05-15.md` (4 findings critiques + 7 recos).
+- **Source** : `docs/audit/AUDIT_VALIDATION_PIPELINE_2026-05-15.md` (4 findings critiques + 7 recos).
 - **Appliqué (🟢, faible risque) :**
   - **#1 Timeframe unifié** dans `scripts/replay_signals_vs_live.py` (l.~84) et `scripts/replay_live_vs_theory.py` (`resolve_tf`) : lit `timeframe` (clé live), accepte `tf` comme alias legacy. Sans ce fix, Extension crypto (`timeframe: H4` dans instruments.yaml) était rejouée en H1 → diagnostics ΔR faux.
   - **#2 _CCXT_MAP étendu** dans `arabesque/data/store.py` : 9 aliases cTrader 6-char ajoutés (AAVUSD→AAVEUSDT, ALGUSD→ALGOUSDT, AVAUSD→AVAXUSDT, MANUSD→MANAUSDT, NERUSD→NEARUSDT, SANUSD→SANDUSDT, VECUSD→VETUSDT, GALUSD→GALUSDT, XTZUSD→XTZUSDT). Vérification : 8/9 résolvent parquet (GALUSD a parquet mais stale post-2026-04-14, à ré-ingérer).

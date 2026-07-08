@@ -111,7 +111,7 @@ class PriceFeedManager:
         # (cleanup + reset) au lieu de retomber sur la branche "Réutilisation",
         # qui boucle indéfiniment quand le canal TCP est zombi mais que
         # ``broker._connected`` reste à True.
-        # Cf. docs/REVIEW_BTCUSD_STALE_EXISTING_BROKER_2026-05-18.md (Option 1).
+        # Cf. docs/audit/REVIEW_BTCUSD_STALE_EXISTING_BROKER_2026-05-18.md (Option 1).
         self._force_reconnect = False
 
     # ------------------------------------------------------------------
@@ -354,7 +354,7 @@ class PriceFeedManager:
                 # que le flag reste True. Armer _force_reconnect pour que le
                 # prochain _connect_and_subscribe bypasse la branche
                 # "Réutilisation" et recrée un broker neuf
-                # (cf. docs/REVIEW_BTCUSD_STALE_EXISTING_BROKER_2026-05-18.md).
+                # (cf. docs/audit/REVIEW_BTCUSD_STALE_EXISTING_BROKER_2026-05-18.md).
                 self._force_reconnect = True
 
             if not self._running:

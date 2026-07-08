@@ -9,7 +9,7 @@ Garantit que :
 - tous les instruments de `strategy_assignments` (settings.yaml) résolvent un
   parquet au timeframe de la stratégie.
 
-Référence : `docs/AUDIT_VALIDATION_PIPELINE_2026-05-15.md` finding #1.
+Référence : `docs/audit/AUDIT_VALIDATION_PIPELINE_2026-05-15.md` finding #1.
 Incident fondateur : Extension crypto déclarée `timeframe: H4` était rejouée
 en H1 par les scripts d'audit car ils lisaient `tf` au lieu de `timeframe`.
 """

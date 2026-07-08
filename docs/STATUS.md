@@ -62,7 +62,7 @@ Derniere mise a jour : 2026-07-03 après-midi (CONCENTRATION Étape 4 : le live 
 | **Cabriole** (Donchian) | H4 | — | — | 🛑 **Désactivée** (Phase 4 bis — drift `drift_modere` répété, à réexpliquer) |
 | **Fouetté** (ORB M1) | M1 | — | Observation paper seulement | 🟡 0 trade live (bug cache OR bar_aggregator, cf HANDOFF) |
 
-Noyau Phase 4 bis : **Extension + Glissade uniquement** (cf `docs/PHASE4_BIS_CHECKLIST_2026-05-16.md`).
+Noyau Phase 4 bis : **Extension + Glissade uniquement** (cf `docs/audit/PHASE4_BIS_CHECKLIST_2026-05-16.md`).
 La reprise est active sous barriere sizing. Le guard de pertes compte les
 séries par broker et non les exécutions miroir : FTMO est `NORMAL`, mais GFT est
 réellement
@@ -249,7 +249,7 @@ notifications:
 
 **Statut 2026-03-27** : ntfy ✅, Telegram ✅ (token corrigé — manquait le préfixe numérique du bot ID).
 **Statut 2026-05-03** : **bot Telegram interactif phase 1** ✅ (`arabesque-telegram-bot.service`, lecture seule). Commandes : `/status` `/positions` `/edge` `/journal`. Auth whitelist `chat_id`.
-**Statut 2026-05-16** : services `arabesque-report-daily` + `arabesque-suivi-reminder` repassés `success` (cf `docs/INFRA_SERVICES_FIX_2026-05-16.md` — `health_check --warn-only` exit 0, fallback `_load_apprise()`).
+**Statut 2026-05-16** : services `arabesque-report-daily` + `arabesque-suivi-reminder` repassés `success` (cf `docs/audit/INFRA_SERVICES_FIX_2026-05-16.md` — `health_check --warn-only` exit 0, fallback `_load_apprise()`).
 
 ### Tester les notifications
 ```bash

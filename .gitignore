@@ -49,3 +49,6 @@ Thumbs.db
 barres_au_sol/dukascopy/
 barres_au_sol/ccxt/
 !barres_au_sol/README.md
+
+# Worktrees locaux des agents Claude Code
+.claude/worktrees/
