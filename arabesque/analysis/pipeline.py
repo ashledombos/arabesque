@@ -1,13 +1,15 @@
 """
-Arabesque v2 — Pipeline de screening multi-instrument (v2).
-
-Placement : arabesque/backtest/pipeline.py
+Arabesque — Pipeline de screening multi-instrument.
 
 Sortie compacte par défaut. Auto-export JSONL horodaté.
 Alertes pour données manquantes. Groupement par catégorie.
 
+Screening Extension uniquement (la mean-reversion a été abandonnée et son
+code supprimé — récupérable via `git show 0c15991^`, cf. EXPERIMENT_LOG).
+Pour les autres stratégies : `python -m arabesque run` / `walkforward`.
+
 Usage :
-    from arabesque.backtest.pipeline import Pipeline, PipelineConfig
+    from arabesque.analysis.pipeline import Pipeline, PipelineConfig
     result = Pipeline().run()  # Tous les instruments FTMO avec Parquet dispo
 """
 
@@ -41,7 +43,7 @@ class PipelineConfig:
 
     # Data
     period: str = "730d"
-    strategy: str = "combined"
+    strategy: str = "extension"
     data_root: str | None = None   # Parquet root (auto-détecté si None)
 
     # Output
@@ -204,8 +206,7 @@ class Pipeline:
         t0 = time.time()
         try:
             from arabesque.data.store import load_ohlc, get_last_source_info
-            from arabesque.backtest.signal_gen_combined import CombinedSignalGenerator
-            from arabesque.backtest.signal_gen import BacktestSignalGenerator, SignalGenConfig
+            from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
 
             df = load_ohlc(instrument, period=self.cfg.period, data_root=self.cfg.data_root)
             src = get_last_source_info()
@@ -216,10 +217,7 @@ class Pipeline:
                     reason=f"INSUFFICIENT_DATA ({len(df)} bars < {self.cfg.min_bars})",
                     duration_s=time.time()-t0, data_source=data_source)
 
-            if self.cfg.strategy == "combined":
-                sig_gen = CombinedSignalGenerator()
-            else:
-                sig_gen = BacktestSignalGenerator(SignalGenConfig())
+            sig_gen = ExtensionSignalGenerator(ExtensionConfig())
 
             df_prepared = sig_gen.prepare(df)
             signals = sig_gen.generate_signals(df_prepared, instrument)
@@ -244,18 +242,14 @@ class Pipeline:
         try:
             from arabesque.execution.backtest import BacktestRunner, BacktestConfig
             from arabesque.data.store import load_ohlc, split_in_out_sample, get_last_source_info
-            from arabesque.backtest.signal_gen import BacktestSignalGenerator, SignalGenConfig
-            from arabesque.backtest.signal_gen_combined import CombinedSignalGenerator
+            from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
 
             bt_cfg = BacktestConfig(verbose=False)
             df = load_ohlc(instrument, period=self.cfg.period, data_root=self.cfg.data_root)
             src = get_last_source_info()
             data_source = src.source if src else "unknown"
 
-            if self.cfg.strategy == "combined":
-                sig_gen = CombinedSignalGenerator()
-            else:
-                sig_gen = BacktestSignalGenerator(SignalGenConfig())
+            sig_gen = ExtensionSignalGenerator(ExtensionConfig())
 
             df_prepared = sig_gen.prepare(df)
             df_in, _ = split_in_out_sample(df_prepared, self.cfg.split_pct)

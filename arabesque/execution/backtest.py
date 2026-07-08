@@ -585,7 +585,7 @@ def run_backtest(
     signal_config: SignalGenConfig | None = None,
     split_pct: float = 0.70,
     verbose: bool = True,
-    strategy: str = "mean_reversion",
+    strategy: str = "extension",
     data_root: str | None = None,
 ) -> tuple[BacktestResult, BacktestResult]:
     cfg = bt_config or BacktestConfig(verbose=verbose)
@@ -605,13 +605,10 @@ def run_backtest(
     df = load_ohlc(symbol, period=period, start=start, end=end, instrument=instrument, data_root=data_root)
     print(f"  Loaded {len(df)} bars from {df.index[0]} to {df.index[-1]}")
 
-    if strategy == "trend":
-        from arabesque.strategies.extension.signal import ExtensionSignalGenerator as TrendSignalGenerator, ExtensionConfig as TrendSignalConfig
-        sig_gen = TrendSignalGenerator(TrendSignalConfig())
-    else:
-        # NB : "combined"/mean-reversion abandonné (module signal_gen_combined
-        # supprimé) — retiré pour éviter un NameError latent (cf. audit 2026-06-23).
-        sig_gen = BacktestSignalGenerator(signal_config)
+    # Extension quelle que soit la valeur de `strategy` : les anciennes branches
+    # "trend"/défaut donnaient déjà toutes ExtensionSignalGenerator
+    # (mean-reversion supprimée, code récupérable via `git show 0c15991^`).
+    sig_gen = BacktestSignalGenerator(signal_config)
 
     df_prepared = sig_gen.prepare(df)
     print("  Indicators computed")

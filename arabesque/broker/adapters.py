@@ -1,11 +1,10 @@
 """
-Arabesque — Broker Adapters.
+Arabesque — Broker Adapters (interface simplifiée + dry-run).
 
-Interface de base + implémentations cTrader (FTMO) et TradeLocker (GFT).
-
-Le code de connexion réel est dans envolees-auto. Ce module fournit
-l'interface que le webhook attend, à brancher sur les implémentations
-existantes.
+Contient l'interface `BrokerAdapter` (consommée par execution/orchestrator.py)
+et `DryRunAdapter` (mode dry-run de live.py). Les connecteurs réels vivent
+dans `ctrader.py` / `tradelocker.py` (interface complète `broker/base.py`) —
+tout nouveau broker (ex. Hyperliquid) suit ce modèle-là, pas celui-ci.
 """
 
 from __future__ import annotations
@@ -113,115 +112,6 @@ class BrokerAdapter(ABC):
         qui ont besoin de tracker l'equity localement (ex: DryRunAdapter).
         """
         pass
-
-
-class CTraderAdapter(BrokerAdapter):
-    """Adapter pour cTrader (FTMO).
-    
-    À brancher sur le code existant d'envolees-auto/brokers/ctrader.py.
-    Le code cTrader utilise l'Open API async avec protobuf.
-    """
-    
-    def __init__(self, config: dict):
-        self.config = config
-        self.name = config.get("name", "ctrader")
-        self._connected = False
-        # TODO: importer et initialiser le client cTrader depuis envolees-auto
-        # from envolees_auto.brokers.ctrader import CTraderClient
-        # self.client = CTraderClient(config)
-    
-    def connect(self) -> bool:
-        logger.info(f"[{self.name}] Connecting to cTrader...")
-        # TODO: self.client.connect()
-        self._connected = True
-        return True
-    
-    def get_quote(self, symbol: str) -> dict:
-        # TODO: self.client.get_symbol_quote(symbol)
-        return {"bid": 0, "ask": 0, "spread": 0}
-    
-    def get_account_info(self) -> dict:
-        # TODO: self.client.get_account()
-        return {"balance": 0, "equity": 0, "margin_used": 0}
-    
-    def compute_volume(self, symbol: str, risk_cash: float, risk_distance: float) -> float:
-        # cTrader volume en unités (100_000 = 1 lot standard)
-        # pip_value dépend du symbole
-        # TODO: Récupérer pip_value du symbole via self.client
-        # volume_units = risk_cash / (risk_distance / pip_size * pip_value)
-        # return round_to_step(volume_units, step_volume)
-        return 0.0
-    
-    def place_order(self, signal: dict, sizing: dict) -> dict:
-        side = signal.get("side", "buy")
-        symbol = signal.get("symbol", "")
-        sl = signal.get("sl", 0)
-        
-        volume = self.compute_volume(
-            symbol,
-            sizing.get("risk_cash", 0),
-            sizing.get("risk_distance", 0),
-        )
-        
-        logger.info(f"[{self.name}] Placing MARKET {side.upper()} {symbol} "
-                     f"vol={volume:.2f} SL={sl}")
-        
-        # TODO: self.client.place_market_order(symbol, side, volume, sl)
-        return {"success": False, "message": "cTrader adapter not connected", "volume": volume}
-    
-    def close_position(self, position_id: str, symbol: str) -> dict:
-        # TODO: self.client.close_position(position_id)
-        return {"success": False, "message": "not implemented"}
-    
-    def modify_sl(self, position_id: str, symbol: str, new_sl: float) -> dict:
-        # TODO: self.client.modify_sl(position_id, new_sl)
-        return {"success": False, "message": "not implemented"}
-
-
-class TradeLockerAdapter(BrokerAdapter):
-    """Adapter pour TradeLocker (Goat Funded Trader).
-    
-    À brancher sur envolees-auto/brokers/tradelocker.py.
-    TradeLocker utilise une REST API + lib Python.
-    """
-    
-    def __init__(self, config: dict):
-        self.config = config
-        self.name = config.get("name", "tradelocker")
-        self._connected = False
-        # TODO: from tradelocker import TLAPI
-        # self.tl = TLAPI(...)
-    
-    def connect(self) -> bool:
-        logger.info(f"[{self.name}] Connecting to TradeLocker...")
-        # TODO: self.tl.authenticate()
-        self._connected = True
-        return True
-    
-    def get_quote(self, symbol: str) -> dict:
-        return {"bid": 0, "ask": 0, "spread": 0}
-    
-    def get_account_info(self) -> dict:
-        return {"balance": 0, "equity": 0, "margin_used": 0}
-    
-    def compute_volume(self, symbol: str, risk_cash: float, risk_distance: float) -> float:
-        return 0.0
-    
-    def place_order(self, signal: dict, sizing: dict) -> dict:
-        side = signal.get("side", "buy")
-        symbol = signal.get("symbol", "")
-        sl = signal.get("sl", 0)
-        
-        logger.info(f"[{self.name}] Placing MARKET {side.upper()} {symbol} SL={sl}")
-        
-        # TODO: self.tl.create_order(...)
-        return {"success": False, "message": "TradeLocker adapter not connected"}
-    
-    def close_position(self, position_id: str, symbol: str) -> dict:
-        return {"success": False, "message": "not implemented"}
-    
-    def modify_sl(self, position_id: str, symbol: str, new_sl: float) -> dict:
-        return {"success": False, "message": "not implemented"}
 
 
 class DryRunAdapter(BrokerAdapter):

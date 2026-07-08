@@ -51,7 +51,7 @@ def main():
     parser.add_argument("--mode", choices=["default", "strict", "wide"],
                         default="default")
     parser.add_argument("--period", default="730d")
-    parser.add_argument("--strategy", default="combined")
+    parser.add_argument("--strategy", default="extension")
     parser.add_argument("--data-root", default=None,
                         help="Chemin vers barres_au_sol/data")
     parser.add_argument("-v", "--verbose", action="store_true")

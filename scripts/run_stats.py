@@ -31,7 +31,7 @@ def main():
     parser.add_argument("--balance", type=float, default=100_000, help="Capital initial (défaut: 100000)")
     parser.add_argument("--sims", type=int, default=10_000, help="Simulations Monte Carlo (défaut: 10000)")
     parser.add_argument("--split", type=float, default=0.70, help="Split IS/OOS (défaut: 0.70)")
-    parser.add_argument("--strategy", default="combined", help="Stratégie (défaut: combined)")
+    parser.add_argument("--strategy", default="extension", help="Stratégie (défaut: extension)")
     parser.add_argument("--quiet", action="store_true", help="Pas de logs de backtest")
     args = parser.parse_args()
 

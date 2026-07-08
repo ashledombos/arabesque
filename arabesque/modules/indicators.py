@@ -2,7 +2,8 @@
 Arabesque — Indicateurs techniques partagés.
 
 Toutes les fonctions sont pures (DataFrame in → Series out), sans side-effects.
-Utilisées par BacktestSignalGenerator, TrendSignalGenerator, CombinedSignalGenerator.
+Utilisées par les générateurs de signaux (arabesque/strategies/*/signal.py) —
+jamais réimplémentées ailleurs.
 
 Conventions :
 - Colonnes OHLCV : « High », « Low », « Close », « Volume » (avec majuscule — format pandas standard)

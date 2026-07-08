@@ -1,7 +1,5 @@
 """
-Arabesque v2 — Analyse statistique avancée.
-
-Placement : arabesque/backtest/stats.py
+Arabesque — Analyse statistique avancée.
 
 Trois outils complémentaires :
 1. Wilson Score Interval — IC sur le win rate (mieux que binomial pour n < 100)
@@ -9,7 +7,7 @@ Trois outils complémentaires :
 3. Monte Carlo Equity Curve — Distribution du max drawdown (séquences aléatoires)
 
 Usage :
-    from arabesque.backtest.stats import full_statistical_analysis
+    from arabesque.analysis.stats import full_statistical_analysis
     report = full_statistical_analysis(results_r, risk_per_trade_pct=0.5)
     print(report)
 """
