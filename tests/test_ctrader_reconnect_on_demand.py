@@ -32,11 +32,10 @@ from __future__ import annotations
 
 import asyncio
 import time
-from unittest.mock import patch
 
 import pytest
 
-from arabesque.broker.base import OrderRequest, OrderResult, OrderSide, OrderType
+from arabesque.broker.base import OrderRequest, OrderSide, OrderType
 from arabesque.broker.ctrader import CTraderBroker
 
 

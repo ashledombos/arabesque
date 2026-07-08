@@ -121,7 +121,6 @@ def classify_exit(ev: dict) -> tuple[str, list[str]]:
     mfe = _f(ev.get("mfe_r"))
     exit_reason = ev.get("exit_reason") or ""
     eps = ev.get("exit_price_source")
-    be_set = bool(ev.get("be_set"))
     be_source = ev.get("be_source")
     result_r = _f(ev.get("result_r"))
     spread_x = ev.get("spread_at_exit")

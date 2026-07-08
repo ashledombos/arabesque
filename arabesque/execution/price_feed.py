@@ -34,8 +34,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from datetime import datetime, timezone, timedelta
-from typing import Callable, Dict, List, Optional, Set
+from datetime import datetime, timezone
+from typing import Callable, Dict, List, Optional
 
 from arabesque.notifications import select_notification_channels
 
@@ -490,7 +490,7 @@ class PriceFeedManager:
                     )
 
         self._connected = True
-        logger.info(f"[PriceFeed] ✅ Connecté — chargement des symboles...")
+        logger.info("[PriceFeed] ✅ Connecté — chargement des symboles...")
 
         # Charger les symboles pour que le mapping symbolId soit disponible
         await self._broker.get_symbols()

@@ -21,7 +21,6 @@ import json
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 
@@ -192,11 +191,6 @@ class AuditAnalyzer:
         for cf in self.counterfactuals:
             by_verdict[cf.get("verdict", "?")].append(cf)
 
-        # Par raison de rejet (chercher dans les decisions)
-        rejection_cfs = [cf for cf in self.counterfactuals
-                         if "reject" in cf.get("verdict", "").lower()
-                         or cf.get("verdict", "").startswith("good_")
-                         or cf.get("verdict", "").startswith("missed_")]
 
         lines = [
             "=" * 60,

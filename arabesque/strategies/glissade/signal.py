@@ -20,7 +20,6 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-import numpy as np
 import pandas as pd
 
 from arabesque.core.models import Side, Signal
@@ -122,7 +121,6 @@ class GlissadeSignalGenerator:
 
         # Normaliser les noms (tolérer Open/open)
         _had_caps = "Close" in df.columns
-        col_map = {c: c.lower() for c in df.columns}
         df.columns = [c.lower() for c in df.columns]
 
         # ── M1 indicators ──

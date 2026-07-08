@@ -9,7 +9,6 @@ un downtime (incident 2026-05-07). Trois sources possibles :
 from __future__ import annotations
 
 import asyncio
-import datetime as dt
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pandas as pd

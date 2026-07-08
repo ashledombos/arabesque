@@ -20,7 +20,6 @@ import os
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Optional
 
 
 @dataclass
@@ -90,7 +89,7 @@ class Pipeline:
         qui ont des données Parquet disponibles.
         """
         from arabesque.data.store import (
-            list_available_parquet, list_all_ftmo_instruments, _categorize,
+            list_available_parquet, _categorize,
         )
 
         result = PipelineResult()
@@ -135,7 +134,7 @@ class Pipeline:
         for cat in sorted(categories.keys()):
             insts = categories[cat]
             preview = ', '.join(insts[:5])
-            suffix = f'...' if len(insts) > 5 else ''
+            suffix = '...' if len(insts) > 5 else ''
             print(f"    {cat:12s}: {len(insts):2d} ({preview}{suffix})")
         print()
 
@@ -179,7 +178,7 @@ class Pipeline:
 
         # ── Stage 3 : Full IS+OOS+Stats ──
         if s2_survivors:
-            print(f"\n  Stage 3 (OOS + stats) :")
+            print("\n  Stage 3 (OOS + stats) :")
         for inst in s2_survivors:
             sr = self._stage3(inst)
             sr.category = _categorize(inst)
@@ -400,14 +399,14 @@ class Pipeline:
                 cat = sr.category if sr else "other"
                 by_cat.setdefault(cat, []).append(inst)
 
-            print(f"  VIABLES :")
+            print("  VIABLES :")
             for cat in sorted(by_cat.keys()):
                 print(f"    {cat:12s}: {', '.join(by_cat[cat])}")
         else:
-            print(f"  AUCUN INSTRUMENT VIABLE")
+            print("  AUCUN INSTRUMENT VIABLE")
 
         if r.alerts:
-            print(f"\n  ALERTES :")
+            print("\n  ALERTES :")
             for alert in r.alerts:
                 print(f"    ! {alert}")
 

@@ -36,12 +36,11 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional
 
 import pandas as pd
 
-from arabesque.core.models import Signal
 
 logger = logging.getLogger("arabesque.live.bar_aggregator")
 

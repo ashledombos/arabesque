@@ -361,7 +361,7 @@ class LiveEngine:
 
     def _make_dispatcher(self):
         from arabesque.execution.order_dispatcher import OrderDispatcher
-        from arabesque.core.guards import PropConfig, ExecConfig
+        from arabesque.core.guards import PropConfig
 
         filters = self.settings.get("filters", {})
         general = self.settings.get("general", {})
@@ -2452,7 +2452,7 @@ class LiveEngine:
             # doit être journalisée et monitorée ; l'alerte/quarantaine traite
             # les nouvelles entrées sans perdre celle qui existe déjà.
             slip = abs(entry - signal.close)
-            slip_in_r = await self._flag_extreme_fill_if_needed(
+            await self._flag_extreme_fill_if_needed(
                 broker_id, signal, str(result.order_id), entry
             )
             effective_sl, effective_tp = await self._confirm_post_fill_protection(
@@ -2659,7 +2659,6 @@ def _run_parquet_replay(args) -> None:
     """Lance un replay complet sur données Parquet — aucune connexion réseau."""
     import logging
     from arabesque.broker.adapters import DryRunAdapter
-    from arabesque.core.guards import PropConfig, ExecConfig, AccountState
     from arabesque.execution.dryrun import ParquetClock
     from arabesque.execution.orchestrator import Orchestrator
     from arabesque.config import ArabesqueConfig

@@ -127,7 +127,6 @@ class Orchestrator:
 
             sizing = self.guards.compute_sizing(signal, self.account)
             risk_cash = sizing["risk_cash"]
-            risk_distance = sizing["risk_distance"]
 
             if risk_cash <= 0:
                 return {"status": "rejected", "reason": "sizing=0"}

@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -245,7 +244,7 @@ class RenverseSignalGenerator:
                     completed.append(setup)
                     continue
 
-                advanced = self._advance_setup(
+                self._advance_setup(
                     df, i, setup, atr_val, instrument, signals
                 )
                 if setup.state == "done":

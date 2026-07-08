@@ -9,18 +9,16 @@ import asyncio
 import time
 import requests
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any, Callable
+from typing import Optional, List, Dict, Callable
 from concurrent.futures import Future
 import threading
 
 from .base import (
-    BaseBroker, OrderRequest, OrderResult, OrderSide, OrderType, OrderStatus,
-    Position, PendingOrder, AccountInfo, SymbolInfo, PriceTick, FreshQuote,
+    BaseBroker, OrderRequest, OrderResult, OrderSide, OrderType, Position, PendingOrder, AccountInfo, SymbolInfo, PriceTick, FreshQuote,
 )
 
 try:
-    from twisted.internet import reactor, threads
-    from twisted.internet.defer import Deferred
+    from twisted.internet import reactor  # noqa: F401 — sonde de dispo + init reactor (ré-importé aux points d'usage)
     from ctrader_open_api import Client, TcpProtocol, EndPoints, Protobuf
     from ctrader_open_api.messages.OpenApiMessages_pb2 import (
         ProtoOAApplicationAuthReq,
@@ -34,12 +32,10 @@ try:
         ProtoOAReconcileReq,
         ProtoOATraderReq,
         ProtoOAErrorRes,
-        ProtoOAAssetListReq,
         ProtoOASubscribeSpotsReq,
         ProtoOAUnsubscribeSpotsReq,
         ProtoOAGetTrendbarsReq,
         ProtoOAGetTickDataReq,
-        ProtoOAGetTickDataRes,
         ProtoOADealListReq,
     )
     CTRADER_AVAILABLE = True
@@ -287,7 +283,7 @@ class CTraderBroker(BaseBroker):
                         CTraderBroker._shared_tokens[self.client_id] = (
                             self.access_token, self.refresh_token
                         )
-                        print(f"[cTrader] ✅ Token refreshed successfully")
+                        print("[cTrader] ✅ Token refreshed successfully")
                         self._save_tokens_to_config()
                         return True
                     err = data.get("errorCode", "")
@@ -326,7 +322,7 @@ class CTraderBroker(BaseBroker):
             return False
         disk_access, disk_refresh = disk
         if disk_refresh == self.refresh_token:
-            print(f"[cTrader] ⚠️  Disk token fallback : refresh_token identique (rien à adopter)")
+            print("[cTrader] ⚠️  Disk token fallback : refresh_token identique (rien à adopter)")
             return False
         print(
             f"[cTrader] 🔄 ACCESS_DENIED — refresh_token disque diffère, "
@@ -345,7 +341,7 @@ class CTraderBroker(BaseBroker):
                 access_token=self.access_token,
                 refresh_token=self.refresh_token
             )
-            print(f"[cTrader] 💾 Tokens saved to config")
+            print("[cTrader] 💾 Tokens saved to config")
         except Exception as e:
             print(f"[cTrader] ⚠️  Could not save tokens: {e}")
 
@@ -865,8 +861,6 @@ class CTraderBroker(BaseBroker):
             print(f"[cTrader] get_history: symbole '{symbol}' non trouvé")
             return []
 
-        # Diviseur de prix cTrader (fixe, indépendant de digits/pipPosition)
-        divisor = self._get_divisor(symbol_id)
 
         # Résolution du timeframe
         tf_upper = timeframe.upper()
@@ -897,7 +891,6 @@ class CTraderBroker(BaseBroker):
         req.fromTimestamp = now_ms - span_ms
         req.toTimestamp = now_ms
 
-        from twisted.internet import reactor
         self._send_via_reactor(req)
 
         try:
@@ -918,7 +911,6 @@ class CTraderBroker(BaseBroker):
         Résout la Future correspondante via la clé history_{symbolId}_{period}.
         """
         symbol_id = payload.symbolId
-        period = payload.period
 
         # Chercher la clé correspondante dans les requêtes en attente
         # (on cherche par préfixe + symbolId)
@@ -932,7 +924,6 @@ class CTraderBroker(BaseBroker):
             # Réponse non attendue, ignorer
             return
 
-        sym_info = self._symbols.get(symbol_id)
         divisor = self._get_divisor(symbol_id)
 
         bars = [
@@ -1753,7 +1744,6 @@ class CTraderBroker(BaseBroker):
         self._pending_requests["account_info"] = future
         req = ProtoOATraderReq()
         req.ctidTraderAccountId = self.account_id
-        from twisted.internet import reactor
         self._send_via_reactor(req)
         try:
             return await asyncio.wait_for(future, timeout=10)
@@ -1777,10 +1767,9 @@ class CTraderBroker(BaseBroker):
             self._pending_requests["symbols"] = future
             req = ProtoOASymbolsListReq()
             req.ctidTraderAccountId = self.account_id
-            from twisted.internet import reactor
             self._send_via_reactor(req)
             try:
-                result = await asyncio.wait_for(future, timeout=15)
+                await asyncio.wait_for(future, timeout=15)
             except asyncio.TimeoutError:
                 self._pending_requests.pop("symbols", None)
                 return []
@@ -1909,7 +1898,6 @@ class CTraderBroker(BaseBroker):
                       + (f" SL={req.stopLoss} TP={req.takeProfit}" if order.stop_loss else "")
                       + (f" [min={sym_info.min_volume:.4f}L digits={sym_info.digits} "
                          f"lotSize={lot_cents}]" if sym_info else ""))
-                from twisted.internet import reactor
                 self._send_via_reactor(req)
                 result = await asyncio.wait_for(future, timeout=30)
                 # Enregistrer le mapping positionId → symbolId pour amend/close
@@ -1932,7 +1920,6 @@ class CTraderBroker(BaseBroker):
             req = ProtoOACancelOrderReq()
             req.ctidTraderAccountId = self.account_id
             req.orderId = int(order_id)
-            from twisted.internet import reactor
             self._send_via_reactor(req)
             try:
                 return await asyncio.wait_for(future, timeout=15)
@@ -1952,7 +1939,6 @@ class CTraderBroker(BaseBroker):
             self._pending_requests["reconcile"] = future
             req = ProtoOAReconcileReq()
             req.ctidTraderAccountId = self.account_id
-            from twisted.internet import reactor
             self._send_via_reactor(req)
             try:
                 await asyncio.wait_for(future, timeout=15)
@@ -2121,7 +2107,6 @@ class CTraderBroker(BaseBroker):
         req.toTimestamp = now_ms
         req.maxRows = 100
 
-        from twisted.internet import reactor
         self._send_via_reactor(req)
 
         try:

@@ -38,7 +38,7 @@ import pandas as pd
 # Ajouter le repo au path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from arabesque.data.store import load_ohlc, _categorize
+from arabesque.data.store import load_ohlc
 from arabesque.execution.backtest import BacktestRunner, BacktestConfig, manager_config_for
 from arabesque.notifications import select_notification_channels
 
@@ -384,7 +384,7 @@ def main():
             agg_cf[reason]["would_lose"] += g["would_lose"]
             agg_cf[reason]["sum_r"] += g["avg_r"] * g["count"]
     if agg_cf:
-        print(f"\n  🛡️ Guard counterfactuals :")
+        print("\n  🛡️ Guard counterfactuals :")
         for reason in sorted(agg_cf.keys()):
             g = agg_cf[reason]
             avg_r = g["sum_r"] / g["count"] if g["count"] > 0 else 0
@@ -459,7 +459,9 @@ def main():
             print("(Pas de dérive — notification non envoyée)")
         else:
             try:
-                import asyncio, yaml, apprise
+                import asyncio
+                import yaml
+                import apprise
                 secrets_path = Path(__file__).resolve().parent.parent / "config" / "secrets.yaml"
                 secrets = yaml.safe_load(secrets_path.read_text()) or {}
                 channels = select_notification_channels(

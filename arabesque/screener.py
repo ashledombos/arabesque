@@ -143,14 +143,14 @@ class SignalScreener:
 
         for j, (ts, bar) in enumerate(future_bars.iterrows()):
             h = bar["High"]
-            l = bar["Low"]
+            lo = bar["Low"]
 
             if side == "LONG":
                 if h > max_high:
                     max_high = h
                     mfe_bar = j + 1
-                if l < min_low:
-                    min_low = l
+                if lo < min_low:
+                    min_low = lo
                     mae_bar = j + 1
 
                 # Check targets
@@ -200,29 +200,29 @@ class SignalScreener:
             f"SIGNAL SCREENER — {instrument or 'All'}",
             f"{'=' * 50}",
             f"  Signaux trouvés : {n}",
-            f"",
-            f"  MFE (max favorable) :",
+            "",
+            "  MFE (max favorable) :",
             f"    Médiane : {np.median(mfes):.2f} ATR",
             f"    Moyenne : {np.mean(mfes):.2f} ATR",
             f"    P25/P75 : {np.percentile(mfes, 25):.2f} / {np.percentile(mfes, 75):.2f} ATR",
-            f"",
-            f"  MAE (max adverse) :",
+            "",
+            "  MAE (max adverse) :",
             f"    Médiane : {np.median(maes):.2f} ATR",
             f"    Moyenne : {np.mean(maes):.2f} ATR",
             f"    P25/P75 : {np.percentile(maes, 25):.2f} / {np.percentile(maes, 75):.2f} ATR",
-            f"",
-            f"  Taux d'atteinte des targets :",
+            "",
+            "  Taux d'atteinte des targets :",
             f"    +0.5 ATR : {reach_05:.0%}  (médiane {np.median(bars_to_05):.0f} barres)" if bars_to_05 else f"    +0.5 ATR : {reach_05:.0%}",
             f"    +1.0 ATR : {reach_1:.0%}  (médiane {np.median(bars_to_1):.0f} barres)" if bars_to_1 else f"    +1.0 ATR : {reach_1:.0%}",
             f"    +1.5 ATR : {reach_15:.0%}",
             f"    +2.0 ATR : {reach_2:.0%}",
-            f"",
+            "",
             f"  Ratio MFE/MAE médian : {abs(np.median(mfes) / np.median(maes)):.2f}" if np.median(maes) != 0 else "",
         ]
 
         # Distribution MFE
-        lines.append(f"")
-        lines.append(f"  Distribution MFE (histogramme) :")
+        lines.append("")
+        lines.append("  Distribution MFE (histogramme) :")
         bins = [0, 0.25, 0.5, 1.0, 1.5, 2.0, 3.0, 5.0, float('inf')]
         for i in range(len(bins) - 1):
             count = sum(1 for m in mfes if bins[i] <= m < bins[i+1])

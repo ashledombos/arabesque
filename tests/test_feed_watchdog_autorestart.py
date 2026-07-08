@@ -29,7 +29,6 @@ from __future__ import annotations
 import datetime as dt
 import importlib
 import json
-from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -261,7 +260,7 @@ def test_trading_channel_loop_guard_blocks_third_repair(watchdog):
     assert urgent is True
     assert "anti-boucle canal trading" in title
     assert "auto-repair bloquee" in body
-    history = [json.loads(l) for l in wd.RESTART_HISTORY.read_text().splitlines()]
+    history = [json.loads(ln) for ln in wd.RESTART_HISTORY.read_text().splitlines()]
     assert any(e["outcome"] == "skipped_trading_channel_loop_guard" for e in history)
 
 
@@ -304,7 +303,7 @@ def test_loop_guard_blocks_third_restart_within_hour(watchdog):
     assert "DECLENCHEE" in body
 
     # L'event skipped doit être loggué dans l'historique pour audit
-    history_lines = [json.loads(l) for l in wd.RESTART_HISTORY.read_text().splitlines() if l.strip()]
+    history_lines = [json.loads(ln) for ln in wd.RESTART_HISTORY.read_text().splitlines() if ln.strip()]
     skipped = [e for e in history_lines if e["outcome"] == "skipped_loop_guard"]
     assert len(skipped) == 1, "skipped_loop_guard doit être loggué"
 
@@ -485,7 +484,7 @@ def test_restart_failure_logs_and_notifies(watchdog):
     assert "ECHEC" in title or "ECHEC" in body or "ECHOUE" in body
 
     # L'historique doit avoir une entrée "failed"
-    history_lines = [json.loads(l) for l in wd.RESTART_HISTORY.read_text().splitlines() if l.strip()]
+    history_lines = [json.loads(ln) for ln in wd.RESTART_HISTORY.read_text().splitlines() if ln.strip()]
     failed = [e for e in history_lines if e["outcome"] == "failed"]
     assert len(failed) == 1
 

@@ -23,7 +23,8 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT)); sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
 
 import pandas as pd
 import yaml
@@ -137,7 +138,7 @@ def main():
         verdict = "low_coverage_variance"
 
     lines = [
-        f"# Audit couverture & biais de sélection",
+        "# Audit couverture & biais de sélection",
         f"- Généré : {until.isoformat()}",
         f"- Fenêtre : {since.date()} → {until.date()} (extension+glissade)",
         f"- Population théorique : n={n_theo}  ΣR_theo={sum(x['r'] for x in theo):+.2f}  meanR_theo={mr_pop:+.3f}",

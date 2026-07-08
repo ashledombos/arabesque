@@ -30,11 +30,9 @@ CORRECTION v2.4 (2026-02-20) — TD-007 final :
 from __future__ import annotations
 
 import json
-import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable
 import numpy as np
 import pandas as pd
 
@@ -477,22 +475,31 @@ class BacktestRunner:
         }
         if len(inst) == 6 and inst[:3] in fx_currencies and inst[3:] in fx_currencies:
             return 100_000
-        if inst in ("XAUUSD", "GOLD"): return 100
-        if inst in ("XAGUSD", "SILVER"): return 5_000
-        if inst in ("XPTUSD", "PLATINUM", "XPDUSD", "PALLADIUM"): return 100
-        if inst in ("COPPER",): return 25_000
+        if inst in ("XAUUSD", "GOLD"):
+            return 100
+        if inst in ("XAGUSD", "SILVER"):
+            return 5_000
+        if inst in ("XPTUSD", "PLATINUM", "XPDUSD", "PALLADIUM"):
+            return 100
+        if inst in ("COPPER",):
+            return 25_000
         crypto = {"BTC", "ETH", "LTC", "SOL", "BNB", "BCH", "XRP", "DOGE",
                   "ADA", "DOT", "XMR", "DASH", "NEO", "UNI", "XLM", "AAVE",
                   "MANA", "IMX", "GRT", "ETC", "ALGO", "NEAR", "LINK", "AVAX",
                   "XTZ", "FET", "ICP", "SAND", "GAL", "VET"}
-        if inst in crypto: return 1
+        if inst in crypto:
+            return 1
         indices = {"SP500", "NAS100", "US30", "US2000", "GER40", "UK100",
                    "FRA40", "EU50", "IBEX35", "AEX25", "JPN225", "HK50", "AUS200", "USTEC", "USDX"}
-        if inst in indices: return 1
-        if inst in ("USOIL", "UKOIL", "BRENT"): return 1_000
-        if inst in ("NATGAS",): return 10_000
+        if inst in indices:
+            return 1
+        if inst in ("USOIL", "UKOIL", "BRENT"):
+            return 1_000
+        if inst in ("NATGAS",):
+            return 10_000
         agri = {"COCOA", "COFFEE", "CORN", "COTTON", "SOYBEAN", "WHEAT", "SUGAR"}
-        if inst in agri: return 100
+        if inst in agri:
+            return 100
         return 1
 
     def _update_positions_hlc(
@@ -848,7 +855,6 @@ def _aggregate_walk_forward(
 ) -> WalkForwardResult:
     """Agrège les résultats walk-forward."""
     oos_metrics_list = [w.oos_metrics for w in windows]
-    is_metrics_list = [w.is_metrics for w in windows]
 
     # Trades OOS totaux
     total_trades = sum(m.n_trades for m in oos_metrics_list)

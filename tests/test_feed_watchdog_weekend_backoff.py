@@ -244,7 +244,7 @@ def test_weekend_cap_blocks_fifth_restart_with_urgent_alert(watchdog):
     assert "weekend" in body or "weekend" in title
 
     # L'évènement doit être loggué pour audit
-    lines = [json.loads(l) for l in wd.RESTART_HISTORY.read_text().splitlines() if l.strip()]
+    lines = [json.loads(ln) for ln in wd.RESTART_HISTORY.read_text().splitlines() if ln.strip()]
     skipped = [
         e for e in lines
         if e.get("outcome") == "skipped_weekend_backoff" and e.get("weekend") is True
@@ -351,7 +351,7 @@ def test_weekend_restart_tag_propagated_end_to_end(watchdog):
         ok, msg = wd._attempt_auto_restart(sat, reason="test_e2e", weekend=True)
 
     assert ok is True, f"Restart simulé doit réussir, reçu msg={msg}"
-    lines = [json.loads(l) for l in wd.RESTART_HISTORY.read_text().splitlines() if l.strip()]
+    lines = [json.loads(ln) for ln in wd.RESTART_HISTORY.read_text().splitlines() if ln.strip()]
     assert len(lines) == 1
     assert lines[0]["outcome"] == "ok"
     assert lines[0]["weekend"] is True, (

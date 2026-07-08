@@ -1015,10 +1015,10 @@ def main() -> int:
         state["last_status"] = "no_bar_data_in_window"
         state.pop("feed_stale_since_ts", None)
         body = (
-            f"Aucune barre fermee trouvee dans les 30 dernieres minutes.\n"
-            f"Engine systemctl=active mais BarAggregator inactif.\n"
-            f"Verifier: journalctl --user -u arabesque-live | tail -30\n"
-            f"Reco: investigation manuelle (pas d'auto-restart sur ce cas)."
+            "Aucune barre fermee trouvee dans les 30 dernieres minutes.\n"
+            "Engine systemctl=active mais BarAggregator inactif.\n"
+            "Verifier: journalctl --user -u arabesque-live | tail -30\n"
+            "Reco: investigation manuelle (pas d'auto-restart sur ce cas)."
         )
         title = "Feed Arabesque — pas de barres"
 

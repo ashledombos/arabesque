@@ -73,6 +73,11 @@ extend-exclude = ["tmp", "barres_au_sol", "logs", "reports", "resources", ".venv
 select = ["E", "F"]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+# Les scripts autonomes insèrent la racine du repo dans sys.path avant les
+# imports arabesque — E402 y est structurel, pas un oubli.
+"scripts/*" = ["E402"]
+
 [tool.vulture]
 min_confidence = 80
 paths = ["arabesque"]

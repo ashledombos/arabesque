@@ -60,7 +60,7 @@ def fake_context():
 def _read_log(log_path: Path) -> list[dict]:
     if not log_path.exists():
         return []
-    return [json.loads(l) for l in log_path.read_text().splitlines() if l.strip()]
+    return [json.loads(ln) for ln in log_path.read_text().splitlines() if ln.strip()]
 
 
 def _write_state(state_file: Path, positions: list[dict]) -> None:

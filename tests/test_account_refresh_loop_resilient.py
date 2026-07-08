@@ -16,7 +16,6 @@ import asyncio
 import logging
 from unittest.mock import patch
 
-import pytest
 
 from arabesque.execution.live import LiveEngine
 

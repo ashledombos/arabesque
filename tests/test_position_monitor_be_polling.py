@@ -396,7 +396,7 @@ def test_pass_swallows_broker_exception():
 def test_pass_broker_missing_is_skipped_not_error():
     """pos.broker_id absent du registry → skip, pas d'erreur."""
     mon = _make_monitor(brokers={})  # registry vide
-    pos = _register_long(mon, broker_id="ftmo")
+    _register_long(mon, broker_id="ftmo")
 
     checked, armed, skipped = asyncio.run(mon._be_polling_pass(freshness_threshold_s=300))
 

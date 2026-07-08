@@ -185,23 +185,23 @@ def simulate_pure(df: pd.DataFrame, entry_ts: pd.Timestamp, side: str,
     mfe_r = 0.0
 
     for i, (ts, row) in enumerate(df_after.iterrows()):
-        h, l = float(row["High"]), float(row["Low"])
+        h, lo = float(row["High"]), float(row["Low"])
 
         # 1. MFE tracking (pas d'effet sur le SL de cette barre)
         if side == "LONG":
             mfe_bar = (h - entry_price) / risk
         else:
-            mfe_bar = (entry_price - l) / risk
+            mfe_bar = (entry_price - lo) / risk
         if mfe_bar > mfe_r:
             mfe_r = mfe_bar
 
         # 2. Check SL/TP avec cur_sl AVANT update BE de cette barre
         if side == "LONG":
-            sl_hit = l <= cur_sl
+            sl_hit = lo <= cur_sl
             tp_hit = h >= tp
         else:
             sl_hit = h >= cur_sl
-            tp_hit = l <= tp
+            tp_hit = lo <= tp
 
         # 3. Ambiguïté SL+TP touchés sur la même barre → SL (pessimiste, BT convention)
         if sl_hit and tp_hit:
@@ -257,7 +257,7 @@ def simulate_pure(df: pd.DataFrame, entry_ts: pd.Timestamp, side: str,
             be_armed = True
             cur_sl = be_sl
             be_armed_ts = ts
-            be_armed_price = h if side == "LONG" else l
+            be_armed_price = h if side == "LONG" else lo
 
     last_close = float(df_after.iloc[-1]["Close"])
     r = ((last_close - entry_price) / risk if side == "LONG"
@@ -523,7 +523,7 @@ def main() -> int:
         print("  Mon script applique la stratégie complète (BE 0.3R, TP 2R). Divergences numériques attendues.")
         print("  Sanity OK = matching complet trade↔ref. Les Δ_R doivent par construction différer.")
         if diverg:
-            print(f"  Aperçu des 5 plus gros écarts (lecture : modèle naïf vs stratégie complète) :")
+            print("  Aperçu des 5 plus gros écarts (lecture : modèle naïf vs stratégie complète) :")
             for r, ref_r, gap in diverg[:5]:
                 print(f"    {r['instrument']:<8s} {r['entry_ts'][:16]} "
                       f"new={r['delta_r']:+.2f} ref={ref_r['delta_r']:+.2f} gap={gap:.2f}")

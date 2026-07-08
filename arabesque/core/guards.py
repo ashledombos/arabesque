@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from enum import Enum
 
-from arabesque.core.models import Signal, Decision, Counterfactual, DecisionType, RejectReason, Side
+from arabesque.core.models import Signal, Decision, DecisionType, RejectReason, Side
 
 logger = logging.getLogger("arabesque.guards")
 

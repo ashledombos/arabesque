@@ -275,7 +275,6 @@ def format_report(stats: dict, equity_snaps: list[dict], period: str) -> str:
             dd_total = last.get("total_dd_pct", 0)
             bid_short = bid.replace("_challenge", "").replace("_compte1", "")
             if bal_start and bal_end:
-                delta = bal_end - bal_start
                 broker_parts.append(f"{bid_short} ${bal_end:,.0f} ({dd_total:+.1f}%)")
             level = last.get("protection_level") or last.get("level", "normal")
             if level != "normal":

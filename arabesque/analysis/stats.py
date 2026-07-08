@@ -333,15 +333,15 @@ def full_statistical_analysis(
 
     lines = [
         f"{'='*60}",
-        f"  ANALYSE STATISTIQUE AVANCÉE",
+        "  ANALYSE STATISTIQUE AVANCÉE",
         f"{'='*60}",
-        f"",
-        f"  WILSON SCORE INTERVAL (Win Rate) :",
+        "",
+        "  WILSON SCORE INTERVAL (Win Rate) :",
         f"    Observé     : {w.observed_wr:.1%} ({wins}/{n})",
         f"    IC80        : [{w.ci80_low:.1%}, {w.ci80_high:.1%}]",
         f"    IC95        : [{w.ci95_low:.1%}, {w.ci95_high:.1%}]",
         f"    WR > 50% ?  : {'OUI' if w.significant_at_95 else 'NON — pas significatif'}",
-        f"",
+        "",
         f"  BOOTSTRAP MONTE CARLO (Expectancy, {n_simulations} sims) :",
         f"    Observé     : {b.observed_exp:+.4f}R",
         f"    Moyenne     : {b.mean_exp:+.4f}R  (std: {b.std_exp:.4f})",
@@ -349,7 +349,7 @@ def full_statistical_analysis(
         f"    IC95        : [{b.ci95_low:+.4f}R, {b.ci95_high:+.4f}R]",
         f"    P(exp > 0)  : {b.p_positive:.1%}",
         f"    Significatif: {'OUI' if b.significant_at_95 else 'NON — IC95 croise zéro'}",
-        f"",
+        "",
         f"  MONTE CARLO EQUITY CURVE (Drawdown, {n_simulations} sims) :",
         f"    DD observé  : {d.observed_dd:.1f}%",
         f"    DD médian   : {d.median_dd:.1f}%",
@@ -358,7 +358,7 @@ def full_statistical_analysis(
         f"    P(breach 3% daily)  : {d.p_breach_daily:.1%}",
         f"    P(breach 8% total)  : {d.p_breach_total:.1%}",
         f"    FTMO compatible     : {'OUI' if d.ftmo_compatible else 'NON — P(breach) >= 10%'}",
-        f"",
+        "",
     ]
 
     if b.significant_at_95 and d.ftmo_compatible:

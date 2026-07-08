@@ -18,10 +18,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Iterable, Optional
+from typing import Dict
 
 logger = logging.getLogger(__name__)
 

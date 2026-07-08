@@ -43,7 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from arabesque.execution.backtest import BacktestRunner, BacktestConfig
 from arabesque.data.store import load_ohlc, split_in_out_sample
-from arabesque.core.models import Position, Side
+from arabesque.core.models import Position
 
 
 # =============================================================================
@@ -166,7 +166,6 @@ def evaluate_filters(
     if n_total == 0:
         return []
 
-    total_r = sum(p.result_r or 0 for p in positions)
     wr_baseline = sum(1 for p in positions if (p.result_r or 0) > 0) / n_total
 
     for sf in filters:

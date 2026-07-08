@@ -3,8 +3,9 @@
 # Garde-fou hygiène Arabesque — à lancer avant tout commit (humain ou agent).
 #
 # Couvre le scénario « un ajout/retrait casse le code » :
-#   - ruff F821 (nom non défini = référence dangle après un retrait de module/import)
-#   - ruff F811 (redéfinition)
+#   - ruff complet (config pyproject : E + F — noms non définis, redéfinitions,
+#     imports/variables inutilisés) sur arabesque/, scripts/ et tests/.
+#     Base assainie le 2026-07-09 (252 → 0 erreurs) : tout nouvel écart bloque.
 #   - pytest  (régression de comportement)
 #
 # Usage : scripts/check.sh        (ou via le pre-commit hook / la CI)
@@ -17,8 +18,8 @@ cd "$(dirname "$0")/.."
 PY=".venv/bin/python";  [ -x "$PY" ]   || PY="python"
 RUFF=".venv/bin/ruff";  [ -x "$RUFF" ] || RUFF="ruff"
 
-echo "▶ ruff — codes de rupture (F821 undefined-name, F811 redefined)…"
-"$RUFF" check arabesque/ --select F821,F811
+echo "▶ ruff — lint complet (E + F, config pyproject)…"
+"$RUFF" check arabesque/ scripts/ tests/
 
 echo "▶ pytest — suite complète…"
 "$PY" -m pytest tests/ -q

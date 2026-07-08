@@ -30,7 +30,6 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
-import os
 import subprocess
 import sys
 from collections import defaultdict
@@ -193,9 +192,6 @@ def check_sizing_anomalies(alerts: list[Alert]):
 
     if not entry_trades:
         return
-
-    settings = load_settings()
-    base_risk_pct = settings.get("general", {}).get("risk_percent", 0.45)
 
     for trade in entry_trades:
         risk_cash = trade.get("risk_cash", 0)
@@ -619,7 +615,6 @@ def check_cross_broker_consistency(alerts: list[Alert]):
         return
 
     # Group exits by approximate timestamp + instrument + side (= same signal)
-    from itertools import groupby
 
     # Build trade pairs: same instrument, same strategy, close timestamps
     by_signal = defaultdict(list)
@@ -628,7 +623,6 @@ def check_cross_broker_consistency(alerts: list[Alert]):
         strat = _normalize_strategy(trade.get("strategy", ""))
         side = trade.get("side", "")
         ts_str = trade.get("ts") or trade.get("timestamp") or ""
-        broker = trade.get("broker_id", "")
         try:
             ts = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
             # Round to 10-minute window for matching
@@ -676,7 +670,6 @@ def check_cross_broker_consistency(alerts: list[Alert]):
         if len(brokers) < 2:
             continue
 
-        volumes = {bid: t.get("volume", 0) for bid, t in brokers.items()}
         risk_cashes = {bid: t.get("risk_cash", 0) for bid, t in brokers.items()}
         inst = trades[0].get("instrument", "?")
 
@@ -729,9 +722,7 @@ def check_broker_dd_levels(alerts: list[Alert]):
         balance = latest.get("balance", 0)
 
         acc = accounts.get(bid, {})
-        max_daily = acc.get("max_daily_dd_pct", 3.0)
         max_total = acc.get("max_total_dd_pct", 8.0)
-        prop_firm = acc.get("prop_firm", "")
         label = acc.get("label", bid)
 
         if abs(total_dd) >= max_total * 0.8:

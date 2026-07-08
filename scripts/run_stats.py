@@ -83,7 +83,7 @@ def main():
 
     # ── Résumé décisionnel ──
     print(f"\n{'#'*60}")
-    print(f"  DÉCISION")
+    print("  DÉCISION")
     print(f"{'#'*60}")
     print(f"  IS  : {len(results_r_is)} trades, exp={sum(results_r_is)/len(results_r_is):+.4f}R")
     print(f"  OOS : {len(results_r_oos)} trades, exp={sum(results_r_oos)/len(results_r_oos):+.4f}R")
@@ -95,11 +95,11 @@ def main():
     print(f"  Dégradation IS→OOS : {degradation:.0f}%")
 
     if degradation > 70:
-        print(f"  ⚠️  Dégradation > 70% — probable overfitting IS")
+        print("  ⚠️  Dégradation > 70% — probable overfitting IS")
     elif degradation > 40:
-        print(f"  ⚠️  Dégradation modérée — surveiller en forward-test")
+        print("  ⚠️  Dégradation modérée — surveiller en forward-test")
     else:
-        print(f"  ✓  Dégradation faible — bon signe de robustesse")
+        print("  ✓  Dégradation faible — bon signe de robustesse")
 
 
 if __name__ == "__main__":

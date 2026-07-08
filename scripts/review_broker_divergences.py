@@ -21,7 +21,6 @@ from __future__ import annotations
 import argparse
 import json
 from collections import defaultdict
-from datetime import datetime
 from pathlib import Path
 from statistics import mean, median
 

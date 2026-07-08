@@ -55,12 +55,12 @@ Statut : PLACEHOLDER — rien n'est implémenté ci-dessous.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import pandas as pd
 
-from arabesque.core.models import Side, Signal
+from arabesque.core.models import Signal
 
 logger = logging.getLogger(__name__)
 

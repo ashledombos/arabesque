@@ -34,7 +34,6 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pandas as pd
-import pytest
 
 from arabesque.execution.live import LiveEngine
 

@@ -262,15 +262,15 @@ def render_markdown(audit_result: dict) -> str:
     period = f"{audit_result['period_start']} → {audit_result['period_end']}"
     ts = audit_result["ts"]
     lines = [
-        f"# Audit edge live vs backtest",
-        f"",
+        "# Audit edge live vs backtest",
+        "",
         f"- **Généré** : {ts}",
         f"- **Période analysée** : {period}",
-        f"",
-        f"## Synthèse par stratégie",
-        f"",
-        f"| Strat | Live n | Live Exp | BT n | BT Exp | ΔExp | BT vs baseline | Verdict |",
-        f"|---|---|---|---|---|---|---|---|",
+        "",
+        "## Synthèse par stratégie",
+        "",
+        "| Strat | Live n | Live Exp | BT n | BT Exp | ΔExp | BT vs baseline | Verdict |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for strat, s in audit_result["strategies"].items():
         L = s["live"]
@@ -357,11 +357,11 @@ def render_telegram(audit_result: dict) -> str:
     """Message Telegram détaillé mais lisible — explique les chiffres en mots."""
     period_str = f"{audit_result['period_start']} → {audit_result['period_end']}"
     lines = [
-        f"📊 *Audit edge live vs backtest*",
+        "📊 *Audit edge live vs backtest*",
         f"Période : {period_str}",
-        f"",
-        f"_L'edge mesuré en backtest tient-il en live ?_",
-        f"",
+        "",
+        "_L'edge mesuré en backtest tient-il en live ?_",
+        "",
     ]
 
     for name, s in audit_result["strategies"].items():
@@ -376,9 +376,9 @@ def render_telegram(audit_result: dict) -> str:
         lines.append(f"*{name.upper()}* — {verdict}")
 
         if n_live == 0:
-            lines.append(f"  Aucun trade live sur la période.")
+            lines.append("  Aucun trade live sur la période.")
             if B["n"] == 0:
-                lines.append(f"  Backtest aussi : 0 signal — conditions de marché.")
+                lines.append("  Backtest aussi : 0 signal — conditions de marché.")
             else:
                 lines.append(f"  Backtest : {B['n']} signaux théoriques (Exp {B['exp']:+.2f}R).")
             lines.append("")
@@ -415,7 +415,7 @@ def render_telegram(audit_result: dict) -> str:
         elif s["verdict_code"] == "edge_intact":
             lines.append(f"  Live colle au backtest ({delta:+.2f}R écart) — edge conservé.")
         elif s["verdict_code"] == "live_meilleur":
-            lines.append(f"  Live mieux que backtest (small-n).")
+            lines.append("  Live mieux que backtest (small-n).")
         elif s["verdict_code"] == "small_n_inconclusif":
             lines.append(f"  Trop peu de trades (n={n_live}) — pas de conclusion.")
         lines.append("")
@@ -446,7 +446,9 @@ def send_notifications(audit_result: dict) -> None:
         return
 
     try:
-        import asyncio, yaml, apprise
+        import asyncio
+        import yaml
+        import apprise
         secrets_path = Path(__file__).resolve().parent.parent / "config" / "secrets.yaml"
         secrets = yaml.safe_load(secrets_path.read_text()) or {}
         telegram_channels = select_notification_channels(

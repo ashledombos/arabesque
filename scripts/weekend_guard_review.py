@@ -111,16 +111,16 @@ def _simulate_one(blocked: dict) -> dict | None:
     be_armed = False
     eff_sl = sl_price
     for ts, row in df.iterrows():
-        h, l = float(row["High"]), float(row["Low"])
+        h, lo = float(row["High"]), float(row["Low"])
         if not be_armed:
             if (side == "LONG" and h >= be_trigger_price) or (
-                side == "SHORT" and l <= be_trigger_price
+                side == "SHORT" and lo <= be_trigger_price
             ):
                 be_armed = True
                 eff_sl = be_price
         # Conservateur : SL avant TP si la bougie touche les deux
         if side == "LONG":
-            if l <= eff_sl:
+            if lo <= eff_sl:
                 R = (eff_sl - entry) / risk
                 return {"strategy": blocked.get("strategy") or "?",
                         "R": R, "outcome": "be" if be_armed else "sl"}
@@ -132,7 +132,7 @@ def _simulate_one(blocked: dict) -> dict | None:
                 R = (entry - eff_sl) / risk
                 return {"strategy": blocked.get("strategy") or "?",
                         "R": R, "outcome": "be" if be_armed else "sl"}
-            if l <= tp_price:
+            if lo <= tp_price:
                 return {"strategy": blocked.get("strategy") or "?",
                         "R": TP_R, "outcome": "tp"}
     last_close = float(df.iloc[-1]["Close"])

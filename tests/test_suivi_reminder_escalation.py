@@ -27,7 +27,6 @@ from __future__ import annotations
 import datetime as dt
 import importlib
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -54,7 +53,7 @@ def _write_watchdog(sr, state: dict) -> None:
 
 def _write_main_state(sr, *lines: dict) -> None:
     sr.STATE.parent.mkdir(parents=True, exist_ok=True)
-    sr.STATE.write_text("\n".join(json.dumps(l) for l in lines) + "\n")
+    sr.STATE.write_text("\n".join(json.dumps(ln) for ln in lines) + "\n")
 
 
 def _mock_apprise():
@@ -273,9 +272,9 @@ def test_escalation_logged_to_state(reminder):
     with patch.object(sr, "_load_apprise", lambda: mod):
         sr.main()
     lines = [
-        json.loads(l) for l in sr.STATE.read_text().splitlines() if l.strip()
+        json.loads(ln) for ln in sr.STATE.read_text().splitlines() if ln.strip()
     ]
-    events = [l for l in lines if l.get("event") == "escalation_sent"]
+    events = [ln for ln in lines if ln.get("event") == "escalation_sent"]
     assert len(events) == 1
     assert events[0]["reason"]
     assert events[0]["ok"] is True

@@ -33,8 +33,8 @@ jobs:
           # les tests qui en dépendent devraient utiliser importorskip.
           pip install PyJWT joblib python-dotenv || true
 
-      - name: Lint — codes de rupture (F821/F811)
-        run: ruff check arabesque/ --select F821,F811
+      - name: Lint — ruff complet (E + F, config pyproject)
+        run: ruff check arabesque/ scripts/ tests/
 
       - name: Tests
         run: pytest tests/ -q

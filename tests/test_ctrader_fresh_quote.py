@@ -15,9 +15,7 @@ Deux tests complémentaires :
 from __future__ import annotations
 
 import asyncio
-import inspect
 
-import pytest
 
 from arabesque.broker.base import PriceTick
 from arabesque.broker.ctrader import CTraderBroker

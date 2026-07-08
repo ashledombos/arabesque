@@ -129,7 +129,7 @@ async def run_test(verbose: bool):
                       f"Equity: {info.equity:.2f} | "
                       f"Leverage: 1:{info.leverage}")
             else:
-                print(f"  ⚠️  Pas d'info compte")
+                print("  ⚠️  Pas d'info compte")
         except Exception as e:
             print(f"  ⚠️  Erreur info compte: {e}")
 
@@ -161,7 +161,7 @@ async def run_test(verbose: bool):
         for issue in all_issues:
             print(f"    • {issue}")
     else:
-        print(f"\n  ✅ Tous les mappings sont valides")
+        print("\n  ✅ Tous les mappings sont valides")
 
     # Déconnexion
     for broker_id, broker in connected_brokers.items():

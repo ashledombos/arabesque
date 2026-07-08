@@ -474,7 +474,7 @@ def cmd_positions(args: argparse.Namespace) -> int:
 
             info = await broker.get_account_info()
             if info:
-                print(f"\nCompte :")
+                print("\nCompte :")
                 print(f"  Balance : {info.balance:.2f} {info.currency}")
                 print(f"  Equity  : {info.equity:.2f} {info.currency}")
                 print(f"  P&L     : {info.equity - info.balance:+.2f}")
@@ -492,7 +492,7 @@ def cmd_positions(args: argparse.Namespace) -> int:
 def cmd_ablation(args: argparse.Namespace) -> int:
     """Lance une étude d'ablation multi-instruments."""
     _setup_logging(args.log_level)
-    from arabesque.analysis.ablation import run_ablation, VARIANTS
+    from arabesque.analysis.ablation import run_ablation
 
     instruments = _resolve_instruments(args)
     if not instruments:

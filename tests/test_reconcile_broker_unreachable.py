@@ -18,7 +18,6 @@ import json
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 from arabesque.execution.live import LiveEngine
 

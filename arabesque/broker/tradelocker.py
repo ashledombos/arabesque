@@ -12,8 +12,7 @@ from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any
 
 from .base import (
-    BaseBroker, OrderRequest, OrderResult, OrderSide, OrderType, OrderStatus,
-    Position, PendingOrder, AccountInfo, SymbolInfo, PriceTick, FreshQuote,
+    BaseBroker, OrderRequest, OrderResult, OrderSide, OrderType, Position, PendingOrder, AccountInfo, SymbolInfo, PriceTick, FreshQuote,
 )
 
 os.environ.setdefault('TRADELOCKER_LOG_LEVEL', 'WARNING')

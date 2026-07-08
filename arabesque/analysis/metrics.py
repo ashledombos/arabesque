@@ -17,9 +17,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import numpy as np
-import pandas as pd
 
-from arabesque.core.models import Position, Side
+from arabesque.core.models import Position
 
 
 @dataclass
@@ -160,7 +159,6 @@ def compute_metrics(
     peak = equity[0]
     max_dd = 0
     max_dd_cash = 0
-    dd_start = 0
     max_dd_duration = 0
     current_dd_start = 0
 
@@ -330,23 +328,23 @@ def format_report(m: BacktestMetrics) -> str:
         f"  Period     : {m.start_date} → {m.end_date}",
         f"  Bars       : {m.n_bars}",
         f"  Signals    : {m.n_signals_generated} generated, {m.n_signals_rejected} rejected",
-        f"",
+        "",
         f"  TRADES     : {m.n_trades}  (min 30 = {'OK' if m.n_trades >= 30 else 'INSUFFISANT'})",
         f"  Win rate   : {m.win_rate:.1%}",
         f"  Avg win    : {m.avg_win_r:+.2f}R",
         f"  Avg loss   : {m.avg_loss_r:+.2f}R",
-        f"",
+        "",
         f"  EXPECTANCY : {m.expectancy_r:+.3f}R  ({m.expectancy_cash:+.0f} cash)",
         f"  Total R    : {m.total_r:+.1f}R  ({m.total_pnl_cash:+,.0f} cash)",
         f"  Median R   : {m.median_r:+.2f}R",
         f"  Best/Worst : {m.best_trade_r:+.2f}R / {m.worst_trade_r:+.2f}R",
-        f"",
+        "",
         f"  PROFIT FACTOR : {m.profit_factor:.2f}",
-        f"",
+        "",
         f"  MAX DD     : {m.max_dd_pct:.1f}%  ({m.max_dd_cash:,.0f} cash)",
         f"  DD duration: {m.max_dd_duration_bars} trades",
-        f"",
-        f"  PROP FIRM  :",
+        "",
+        "  PROP FIRM  :",
         f"    Jours disqualifiants : {m.n_disqualifying_days}",
         f"    Pire DD daily        : {m.worst_daily_dd_pct:.1f}%",
         f"    Best day (% profits) : {m.best_day_pct:.1f}%",
@@ -359,11 +357,11 @@ def format_report(m: BacktestMetrics) -> str:
             lines.append(f"      ... et {len(m.disqualifying_days) - 5} autres")
 
     lines.extend([
-        f"",
-        f"  TIMING     :",
+        "",
+        "  TIMING     :",
         f"    Avg bars   : {m.avg_bars_in_trade:.0f}  (wins: {m.avg_bars_win:.0f}, losses: {m.avg_bars_loss:.0f})",
-        f"",
-        f"  EXITS      :",
+        "",
+        "  EXITS      :",
     ])
     for exit_type, count in sorted(m.exits_by_type.items(), key=lambda x: -x[1]):
         avg_r = m.exits_by_type_r.get(exit_type, 0) / count if count > 0 else 0
@@ -373,12 +371,12 @@ def format_report(m: BacktestMetrics) -> str:
     lines.extend(_format_trailing_section(m))
 
     if m.rejection_reasons:
-        lines.extend([f"", f"  REJECTIONS :"])
+        lines.extend(["", "  REJECTIONS :"])
         for reason, count in sorted(m.rejection_reasons.items(), key=lambda x: -x[1]):
             lines.append(f"    {reason:25s} : {count:3d}")
 
     if m.guard_cf:
-        lines.extend([f"", f"  GUARD COUNTERFACTUALS :"])
+        lines.extend(["", "  GUARD COUNTERFACTUALS :"])
         for reason in sorted(m.guard_cf.keys()):
             g = m.guard_cf[reason]
             lines.append(f"    {reason:25s}: {g['count']:3d} bloqués  "
@@ -386,7 +384,7 @@ def format_report(m: BacktestMetrics) -> str:
                          f"avgR:{g['avg_r']:+.3f}  → {g['verdict']}")
 
     if m.slippage_sensitivity:
-        lines.extend([f"", f"  SLIPPAGE SENSITIVITY :"])
+        lines.extend(["", "  SLIPPAGE SENSITIVITY :"])
         for mult, exp in m.slippage_sensitivity.items():
             lines.append(f"    {mult:5s} slippage : expectancy = {exp:+.4f}R")
 
@@ -399,7 +397,7 @@ def _format_trailing_section(m: BacktestMetrics) -> list[str]:
     lines = []
 
     if m.exits_by_trailing_tier:
-        lines.extend([f"", f"  TRAILING TIERS :"])
+        lines.extend(["", "  TRAILING TIERS :"])
         for tier in sorted(m.exits_by_trailing_tier.keys()):
             count = m.exits_by_trailing_tier[tier]
             total_r = m.exits_by_trailing_tier_r.get(tier, 0)
@@ -408,7 +406,7 @@ def _format_trailing_section(m: BacktestMetrics) -> list[str]:
             lines.append(f"    {label:15s} : {count:3d} trades  avg {avg_r:+.2f}R  total {total_r:+.1f}R")
 
     if m.mfe_distribution:
-        lines.extend([f"", f"  MFE DISTRIBUTION (combien loin vont les trades) :"])
+        lines.extend(["", "  MFE DISTRIBUTION (combien loin vont les trades) :"])
         # Ordre fixe des buckets
         bucket_order = ["<0.25R", "0.25-0.5R", "0.5-1.0R",
                         "1.0-1.5R", "1.5-2.0R", "2.0-3.0R", "3.0R+"]

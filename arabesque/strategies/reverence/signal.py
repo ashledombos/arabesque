@@ -163,7 +163,6 @@ class ReverenceSignalGenerator:
         Close = df["Close"]
         atr = df["atr"]
         nr = df["nr"]
-        inside_bar = df["inside_bar"]
         inside_count = df["inside_count"]
         ema200 = df.get("ema200", pd.Series(np.nan, index=df.index))
 

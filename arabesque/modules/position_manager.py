@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 
 from arabesque.core.models import (
     Position, Signal, Decision, Counterfactual,
-    DecisionType, RejectReason, Side,
+    DecisionType, Side,
 )
 
 

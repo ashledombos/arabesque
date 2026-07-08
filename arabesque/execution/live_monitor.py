@@ -561,7 +561,6 @@ class LiveMonitor:
                                      open_positions, protection}}
         """
         parts = []
-        has_issue = False
         for bid, s in broker_states.items():
             level = self._protection_per_broker.get(bid, ProtectionLevel.NORMAL)
             dd = s['total_dd_pct']
@@ -569,12 +568,10 @@ class LiveMonitor:
             part = f"{bid} ${s['balance']:.0f} ({dd:+.1f}%)"
             if not s.get("positions_known", True):
                 part += " pos?"
-                has_issue = True
             elif pos:
                 part += f" {pos}pos"
             if level != ProtectionLevel.NORMAL:
                 part += f" [{level.value.upper()}]"
-                has_issue = True
             parts.append(part)
 
         msg = "Arabesque restart — " + " | ".join(parts)

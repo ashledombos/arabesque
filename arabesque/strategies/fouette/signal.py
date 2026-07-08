@@ -37,7 +37,7 @@ mode=fvg_multiple,range=30m, RR=1, ema_filter=True → PF 2.43–3.0 (WR ~37%)
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np

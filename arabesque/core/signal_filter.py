@@ -129,7 +129,6 @@ class SignalFilter:
         return "\n".join(lines)
 
     def __repr__(self) -> str:
-        n_rules = sum(len(v) for v in self._matrix.items())
         return f"SignalFilter(path={self._path!r}, sub_types={list(self._matrix)})"
 
 

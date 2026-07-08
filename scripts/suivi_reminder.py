@@ -64,7 +64,7 @@ def _last_state_line() -> dict | None:
     """Retourne la dernière ligne hors events ``reminder_sent`` / ``escalation_sent``."""
     if not STATE.exists():
         return None
-    lines = [l for l in STATE.read_text().splitlines() if l.strip()]
+    lines = [ln for ln in STATE.read_text().splitlines() if ln.strip()]
     skip_events = {"reminder_sent", "escalation_sent"}
     for line in reversed(lines):
         try:

@@ -15,7 +15,6 @@ Usage programmatique :
 
 from __future__ import annotations
 
-import copy
 import logging
 from dataclasses import dataclass, field
 from typing import Callable
@@ -23,11 +22,10 @@ from typing import Callable
 import pandas as pd
 
 from arabesque.execution.backtest import (
-    BacktestRunner, BacktestConfig, BacktestResult,
+    BacktestRunner, BacktestConfig,
 )
-from arabesque.modules.position_manager import ManagerConfig, RoiTier
+from arabesque.modules.position_manager import ManagerConfig
 from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
-from arabesque.analysis.metrics import BacktestMetrics
 from arabesque.data.store import load_ohlc, _categorize
 
 logger = logging.getLogger(__name__)

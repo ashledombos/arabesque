@@ -62,7 +62,7 @@ def _signal(side="LONG", instrument="BTCUSD", sl=98.0):
 
 
 def _exits(path):
-    rows = [json.loads(l) for l in path.read_text().splitlines() if l.strip()]
+    rows = [json.loads(ln) for ln in path.read_text().splitlines() if ln.strip()]
     return [r for r in rows if r["event"] == "exit"]
 
 
