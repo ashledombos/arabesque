@@ -29,3 +29,27 @@ def _isolate_position_monitor_state_file(tmp_path, monkeypatch):
         pm_module, "STATE_FILE", tmp_path / "position_monitor_state.json"
     )
     yield
+
+
+@pytest.fixture(autouse=True)
+def _isolate_dispatcher_log_paths(tmp_path, monkeypatch):
+    """Même classe de bug que STATE_FILE : les chemins relatifs du dispatcher
+    (``logs/*.jsonl``) pointent sur les logs de production quand pytest tourne
+    depuis la racine du repo. Découvert 2026-07-08 — 178 entrées
+    ``signal_id=gft-risk`` (fixture de test) accumulées dans
+    ``logs/broker_guard_rejects.jsonl`` depuis le 27/05, polluant les métriques
+    de la watchlist /suivi (``ftmo_minlot_overshoot`` compte ces rejets)."""
+    from arabesque.execution import order_dispatcher as od_module
+    monkeypatch.setattr(od_module, "SHADOW_LOG_PATH", tmp_path / "shadow_filters.jsonl")
+    monkeypatch.setattr(
+        od_module, "WEEKEND_GUARD_LOG_PATH", tmp_path / "weekend_crypto_guard.jsonl"
+    )
+    monkeypatch.setattr(
+        od_module, "BROKER_REJECT_LOG_PATH", tmp_path / "broker_guard_rejects.jsonl"
+    )
+    monkeypatch.setattr(
+        od_module,
+        "GFT_QUOTE_COHERENCE_LOG_PATH",
+        tmp_path / "gft_quote_coherence.jsonl",
+    )
+    yield
