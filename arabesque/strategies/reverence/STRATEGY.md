@@ -135,13 +135,20 @@ pour déploiement immédiat. À réévaluer si l'edge se confirme sur plus d'ins
 
 ## Statut
 
+> **⚰️ TUÉE au re-WF régime récent (2026-07-03, banc d'essai « étagère sous filtre
+> dur », EXPERIMENT_LOG § 2026-07-03)** : WF 4H (is 1095/oos 365), 18 forex/métaux
+> → **-6.8R / 69 trades ; XAUUSD -0.125R (n=16), XAGUSD -0.099R (n=11)** ; les
+> instruments « positifs » = 100 % sorties BE à n=1-5. L'edge du PASS 2026-05-04
+> n'a pas survécu au régime 2025-26 (même destin qu'Extension, Fouetté-US100).
+> Réhabilitation = règle standard (re-WF trimestriel), pas avant octobre 2026.
+
 | Phase | État |
 |---|---|
 | Concept documenté | ✅ |
 | Code signal.py | ✅ (NR7 + body ratio + EMA200) |
 | Ablation | ✅ H1 breakeven, H4 edge mince |
 | Backtest | ✅ 4/10 instruments positifs sur H4 |
-| Walk-forward | ✅ **XAUUSD PASS stable** (2026-05-04 : WR 92%, Exp +0.145R, 25t OOS, σ=0.3%), DOGEUSD PASS instable, **EURJPY PASS stable** (WR 91%, +0.064R, 11t OOS small-n), **USDJPY PASS stable** (WR 89%, +0.044R, 9t OOS small-n), ETHUSD MARGINAL, SOLUSD/BTCUSD/EURUSD/GBPUSD/XAGUSD/GBPJPY FAIL |
-| Overlap check | ✅ 14% DOGEUSD (2026-03-27) + **13.2% XAUUSD H4 vs Extension H1** (2026-05-04, 37/280 signaux, 100% même direction) = complémentaire et stable |
-| Shadow live | ❌ |
+| Walk-forward | ❌ **KILL régime récent (2026-07-03)** — supersède le PASS du 2026-05-04 (XAUUSD WR 92%, +0.145R, 25t OOS ; EURJPY/USDJPY small-n), conservé pour référence historique |
+| Overlap check | ✅ 14% DOGEUSD (2026-03-27) + 13.2% XAUUSD H4 vs Extension H1 (2026-05-04) — sans objet tant que l'edge est mort |
+| Shadow live | ❌ (non justifié) |
 | Live | ❌ |

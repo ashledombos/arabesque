@@ -3870,3 +3870,27 @@ Distinction actée : le R/mois = qualité du moteur, le %/trade = accélérateur
 `config/validation_policy.yaml` (`risk_regimes`). Aucun changement live immédiat
 (on reste en VALIDATION). Chaque bascule = go opérateur documenté ici.
 Question 1-step vs 2-step challenge : explicitement reportée par l'opérateur.
+
+## Décision 2026-07-09 — Roadmap R&D post-DEX + moniteur funding (go opérateur, plan approuvé)
+
+**Contexte** : séquence DEX close (5 études, 0 candidat viable). Question
+opérateur « que reste-t-il à tester ? » → plan approuvé (batterie priorisée).
+
+**Décisions** :
+1. **Révérence : statut STRATEGY.md corrigé** — le re-WF régime récent du
+   07-03 (banc « étagère sous filtre dur » : -6.8R/69t, XAUUSD -0.125R) avait
+   tué la stratégie mais le STRATEGY.md affichait encore le PASS du 05-04.
+   L'item n°1 du plan (re-WF Révérence) était donc déjà rendu — leçon : tenir
+   les STRATEGY.md à jour au moment du verdict (règle de fin de session).
+2. **Moniteur de régime funding HL installé** (`scripts/hl_funding_regime.py`
+   + ligne watchlist `/suivi` `hl_funding_regime`) : read-only, ~10 s, verdict
+   `dormant`/`wake`/`wake_confirmed` (≥3 instruments > 20 %/an soutenu ≥ 7 j),
+   historique `logs/hl_funding_regime.jsonl`. Seule voie de réveil du
+   cash-and-carry PARK ; toute réouverture = nouveau protocole conditionnel
+   pré-enregistré, décision opérateur. Entorse minime au focus Phase 4,
+   validée opérateur (plan 2026-07-09). Premier run : `dormant` (5-12 %/an).
+3. **File R&D restante actée** : momentum cross-sectionnel crypto long-short
+   (famille neuve, protocole à pré-enregistrer, sur go) → dataset calendrier
+   macro puis étude annonces (n°2 sourcing 07-07) → conditionnels selon go
+   session-métaux (turn-of-month amplificateur, gap weekend or) →
+   réhabilitations trimestrielles en octobre.
