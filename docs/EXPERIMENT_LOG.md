@@ -877,3 +877,28 @@ short REÇOIT ~9 %/an pendant que la long paie ~idem → carry de paire ≈ neut
 contrairement aux CFD où les deux jambes payaient le swap écrémé broker
 (sonde 07-05/07). Rappel : le KILL Pas de Deux 07-04 était compliance
 prop-firm only, « réutilisable hors prop firm » — HL est exactement ce cas.
+
+## 2026-07-09 — Pas de Deux DEX : étape (b) exécutée sous protocole pré-enregistré — KILL (le spread crypto ne revient pas)
+
+**Protocole figé et commité AVANT résultats** :
+`docs/audit/pas_de_deux_dex_protocole_2026-07-09.md` (WF roulant 180 j
+sélection → 90 j trading, Engle-Granger numpy ADF<-3.34, half-life 12 h-30 j,
+max 5 paires/fenêtre, z-score figé entrée 2/stop 3.5, coûts HL 2 jambes +
+funding réel signé, 5 critères de verdict pré-écrits). Script :
+`tmp/pas_de_deux_dex_screen.py` ; trades : `tmp/pas_de_deux_dex_trades.jsonl`.
+
+Résultat (608 trades OOS, 8 fenêtres, 25 tr/mois) :
+- ensemble : brut **+0.007R**, coût 0.025R → net **-0.019R** ; récent (≥2025-07) :
+  brut +0.020R → net **-0.006R** ; ratio brut/coût **0.3×** (vs 3× requis).
+- **Critères : 1 ❌ 2 ❌ 3 ❌ 4 ✅ (25/mois) 5 ✅ → KILL.**
+- **Mode d'échec instructif** : 81 % des sorties au **stop** (494/608), WR 16 % —
+  la cointégration sélectionnée in-sample **ne tient pas hors échantillon** :
+  le spread continue de dériver au lieu de revenir (fenêtre 6 : 0 paire
+  cointégrée trouvée ; instabilité de régime typique crypto). Le coût n'est
+  pas le tueur (0.025R modéré) — c'est le mécanisme.
+- **Réhabilitation** : toute variante (β roulant, z adaptatif, univers élargi
+  aux 231 perps) = optimisation post-hoc interdite sur CE dossier ; si
+  souhaitée un jour → NOUVEAU protocole pré-enregistré, un seul tir.
+- Bilan de la piste DEX à ce stade : Extension ✗, Glissade ✗, Pas de Deux ✗ —
+  reste, sur décision opérateur : cash-and-carry funding (edge structurel
+  mesuré +9,3 %/an côté short, cf. addendum) et MR-aux-coûts-HL.
