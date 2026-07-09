@@ -828,3 +828,38 @@ données/faisabilité uniquement. Scripts : `tmp/probe_hyperliquid.py`,
   filtre dur avec coûts Hyperliquid — pas une réactivation du legacy. Le
   nettoyage des pointeurs cassés (`analysis/pipeline.py` défaut `combined`,
   `scripts/backtest.py`) ne détruit donc rien.
+
+## 2026-07-09 — Hyperliquid étape 2 : edge net des stratégies existantes aux coûts DEX — KILL des deux candidats
+
+Banc d'essai `tmp/hyperliquid_edge_step2.py` (détail par trade :
+`tmp/hyperliquid_edge_trades.jsonl`). Backtests sur 20 mois Binance (proxy
+validé étape 1), conventions CLI répliquées (Extension H4 + sub-bar M1,
+Glissade H1, risk 0,40 %, spread/slippage simulés conservés), coûts
+Hyperliquid injectés PAR TRADE : fees taker 4,5 bps/côté + **funding réel
+horaire** matché sur [entry, exit] (74 % des trades couverts en réel,
+fallback pessimiste sinon). Univers : 14 crypto liquides ∩ listings HL.
+
+| Candidat | Fenêtre | n | brut | coût HL | net | brut/coût |
+|---|---|---|---|---|---|---|
+| Extension H4 | full 20m | 585 | +0.057R | 0.032R | **+0.025R** | 1.8× |
+| Extension H4 | **récent 12m** | 244 | +0.034R | 0.034R | **+0.000R** | **1.0×** |
+| Glissade H1 | full 20m | 1580 | +0.004R | 0.077R | **-0.073R** | 0.1× |
+| Glissade H1 | **récent 12m** | 635 | -0.003R | 0.082R | **-0.085R** | ~0× |
+
+- **KILL filtre dur** (ratio ≥ 3× jamais approché ; stabilité régime récent ✗).
+- **Lecture clé : la venue n'est PAS le problème.** Le coût HL Extension
+  (0.034R) est même < CFD FTMO liquide (~0.045R, table P1 07-03), mais l'edge
+  brut récent (+0.034R) est mort — même diagnostic que le banc 07-01/03
+  (l'edge, pas les coûts). Les fees dominent (funding négligeable sur holds
+  2-4 h médians : 0.002R) ; le coût en R est fixé par la distance de stop
+  (H4 stop ~3,4 % → 0.026R ; H1 stop ~1,65 % → 0.055R → les stratégies à stop
+  serré restent structurellement chères sur DEX aussi).
+- Sensibilité maker-entrée (1,5 bps) : Extension récent +0.011R, Glissade
+  -0.058R — ne change pas le verdict.
+- Dispersion par instrument = bruit (LTC +0.234R vs DOT -0.357R en récent) —
+  pas de cherry-picking (règle anti-instrument-isolé).
+- **Conséquence** : pas de dry-run, pas de connecteur Hyperliquid pour les
+  stratégies existantes. La porte restante côté DEX = familles *spécifiques*
+  DEX (mean-reversion re-testée aux coûts HL — hypothèse notée 07-08 —,
+  stratégies côté receveur de funding, etc.) = nouveau chantier, décision
+  opérateur, hors Phase 4.
