@@ -931,3 +931,36 @@ frais 29 bps A/R amortis, deux variantes figées (always-on / filtre moy-7j).
 - **Piste DEX soldée pour cette séquence** : Extension ✗, Glissade ✗,
   Pas de Deux ✗, cash-and-carry ⏸ PARK. Dernier candidat non instruit :
   MR-aux-coûts-HL (nouvelle stratégie, chantier plus lourd, sur go).
+
+## 2026-07-09 — MR v3.3 aux coûts Hyperliquid : KILL sans appel (pas d'edge brut, hypothèse funding réfutée) — SÉQUENCE DEX CLOSE
+
+**Protocole figé et commité avant résultats** :
+`docs/audit/mr_hl_protocole_2026-07-09.md`. Générateur historique v3.3
+exhumé INTACT de `0c15991^` (les shims v9 ont absorbé les imports tels
+quels ; seul le labeler cosmétique neutralisé), runner moderne, SignalFilter
+OFF, sub-bar M1, coûts HL par trade (fees + funding réel, 72 % couverture).
+Scripts : `tmp/mr_hl_study.py` + `tmp/mr_signal_gen_patched.py` ;
+trades : `tmp/mr_hl_trades.jsonl`.
+
+Résultat (**7 076 trades**, 14 instruments, 237/mois) :
+- full 20m : brut **-0.025R**, coût 0.064R → net **-0.089R** (ΣR -629) ;
+- récent 12m : brut -0.004R → net -0.072R ;
+- **post-abandon (OOS pur)** : brut **-0.005R** → net **-0.077R** ;
+- **14/14 instruments négatifs nets**. Critères : 1-4 ❌, 5-6 ✅ → **KILL**.
+- **Lectures** : (1) le mécanisme n'a **pas d'edge brut** sur crypto H1 —
+  l'abandon CFD de 2026-02 est confirmé sur DEX, ce n'était pas une question
+  de coûts ; (2) l'hypothèse « le funding paie le côté MR » est **réfutée** :
+  le funding pèse ~0.002R vs 0.06-0.07R de fees (stops MR serrés → chers en
+  R, même problème structurel que Glissade) ; (3) WR_net 75 % avec Exp
+  négative = la BE-machine convertit tout en petits gains sauf les pertes
+  pleines — le profil boussole sans l'edge ne vaut rien.
+
+**BILAN SÉQUENCE DEX (07-08 → 07-09, close)** : 5 études, 3 protocoles
+pré-enregistrés, ~15 000 trades simulés, **zéro euro risqué, zéro candidat
+viable aujourd'hui**. Extension ✗, Glissade ✗, Pas de Deux ✗ (cointégration
+instable OOS), MR ✗ (pas d'edge brut), cash-and-carry ⏸ PARK (2 conditions
+de réouverture nommées : régime funding euphorique / collatéral spot même
+venue). Acquis durables : proxy Binance validé, coûts HL mesurés, 21 mois de
+funding réel en cache, méthode du protocole pré-enregistré. **Pas de
+connecteur, pas de wallet, pas de poche — le capital d'exploration reste
+entier.** Retour au fil prop : go/no-go session-métaux (2026-07-10).
