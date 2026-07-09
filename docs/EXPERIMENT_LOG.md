@@ -964,3 +964,35 @@ venue). Acquis durables : proxy Binance validé, coûts HL mesurés, 21 mois de
 funding réel en cache, méthode du protocole pré-enregistré. **Pas de
 connecteur, pas de wallet, pas de poche — le capital d'exploration reste
 entier.** Retour au fil prop : go/no-go session-métaux (2026-07-10).
+
+## 2026-07-09 — Momentum cross-sectionnel crypto L/S : KILL des deux variantes déclarées (volatilité ruineuse, concentration, ratio insuffisant)
+
+**Protocole figé et commité avant résultats** :
+`docs/audit/momentum_xs_crypto_protocole_2026-07-09.md` (rebalance hebdo,
+top-3/bottom-3 equal-weight dollar-neutre, 14 instruments, lookbacks déclarés
+7 j et 30 j UNIQUEMENT, fees taker × turnover + funding réel signé). Script :
+`tmp/momentum_xs_crypto_study.py` ; semaines : `tmp/momentum_xs_*_weeks.jsonl`.
+
+| Variante | Fenêtre | brut/an | coût/an | net/an | Sharpe | maxDD |
+|---|---|---|---|---|---|---|
+| 7 j | full (125 sem) | +20,4 % | 10,8 % | **+9,5 %** | **0,16** | **-115 %** |
+| 7 j | récent (51 sem) | +23,3 % | 10,7 % | +12,6 % | 0,32 | -22,5 % |
+| 30 j | full | -16,9 % | 6,5 % | **-23,4 %** | -0,49 | -101 % |
+| 30 j | récent | -77,0 % | 6,0 % | -82,9 % | -1,92 | -101 % |
+
+- **7 j : KILL sur 3 critères** — ratio brut/coût 1,9× (< 3×), **Sharpe 0,16**
+  (< 1,0), **DOTUSD porte 65 % du P&L** (> 50 %). Le signal brut positif existe
+  mais la volatilité est **ruineuse** : maxDD -115 % du notionnel d'une jambe =
+  la poche aurait sauté. « Neutre marché » sur 3 longs / 3 shorts crypto ne
+  neutralise pas le risque idiosyncratique — les jambes divergent violemment.
+- **30 j : KILL total** — à cet horizon c'est du REVERSAL sur notre fenêtre
+  (brut très négatif), pas du momentum.
+- Turnover hebdo → coût 6-11 %/an : absorbable, PAS le tueur ; le tueur est le
+  rapport signal/bruit.
+- **Conclusion famille** : le momentum XS crypto à k=3 sur 14 instruments n'est
+  pas déployable en poche petite taille. Toute variante (k plus grand, vol
+  targeting par jambe, univers élargi 231 perps) = NOUVEAU protocole
+  pré-enregistré, un tir — noter que vol-targeting a déjà été rejeté ailleurs
+  (§7) et que l'anti-concentration résiste rarement à k petit.
+- Roadmap restante (DECISIONS 07-09) : dataset calendrier macro → étude
+  annonces ; conditionnels post-go session-métaux ; réhabilitations octobre.
