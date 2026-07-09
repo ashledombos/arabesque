@@ -902,3 +902,32 @@ Résultat (608 trades OOS, 8 fenêtres, 25 tr/mois) :
 - Bilan de la piste DEX à ce stade : Extension ✗, Glissade ✗, Pas de Deux ✗ —
   reste, sur décision opérateur : cash-and-carry funding (edge structurel
   mesuré +9,3 %/an côté short, cf. addendum) et MR-aux-coûts-HL.
+
+## 2026-07-09 — Cash-and-carry funding HL : étude sous protocole pré-enregistré — PARK (le stress de pump dilue le rendement sous la barre)
+
+**Protocole figé et commité avant résultats** :
+`docs/audit/cash_and_carry_hl_protocole_2026-07-09.md`. Script :
+`tmp/cash_and_carry_hl_study.py` (funding réel 21 mois × 14 instruments +
+closes 4h pour le stress). Structure : long spot + short perp HL, marge m,
+frais 29 bps A/R amortis, deux variantes figées (always-on / filtre moy-7j).
+
+- **Critère 1 ✅** : 5 instruments ≥ 8 %/an net sur capital à m=0,5
+  (AAVE 9,8 %, LINK 8,9 %, UNI 8,6 %, LTC 8,4 %, NEAR 8,3 %).
+- **Critère 3 ❌ partout** : pires hausses 7 j historiques énormes
+  (AAVE +51 %, LINK +52 %, NEAR +108 %, DOGE +146 %) → à m=0,5, la jambe
+  short se fait liquider sur un pump. À m=1 (qui survit sur AAVE/LINK/LTC),
+  le rendement se dilue à 6,3-7,3 % — sous la barre des 8 % (prime de risque
+  venue). BTC survit à m=0,5 (runup max +31 %) mais ne rend que 6,9 %.
+- **Conclusion structurelle** : l'edge est réel mais **le trade-off
+  marge/rendement est défavorable** — la version rentable n'est pas sûre,
+  la version sûre ne bat pas significativement le benchmark sans-risque-venue.
+- **PARK (pas kill)** — deux conditions de réouverture nommées :
+  (1) **régime de funding euphorique** (le funding alt monte à 30-100 %/an
+  en bull : une entrée conditionnelle à ces régimes changerait l'arithmétique
+  — nouveau protocole pré-enregistré à ce moment-là) ;
+  (2) **collatéralisation spot de la jambe short sur la même venue**
+  (si le short perp peut être margé par l'actif spot lui-même, le risque de
+  liquidation ≈ disparaît — question opérationnelle HL/Unit à instruire).
+- **Piste DEX soldée pour cette séquence** : Extension ✗, Glissade ✗,
+  Pas de Deux ✗, cash-and-carry ⏸ PARK. Dernier candidat non instruit :
+  MR-aux-coûts-HL (nouvelle stratégie, chantier plus lourd, sur go).
