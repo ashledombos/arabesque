@@ -863,3 +863,17 @@ fallback pessimiste sinon). Univers : 14 crypto liquides ∩ listings HL.
   DEX (mean-reversion re-testée aux coûts HL — hypothèse notée 07-08 —,
   stratégies côté receveur de funding, etc.) = nouveau chantier, décision
   opérateur, hors Phase 4.
+
+**Addendum (mesure, même session) — prime de funding structurelle HL** :
+sur 21 mois de funding réel (15 509 h × 14 instruments, 2024-10→2026-07), le
+côté SHORT perçoit en moyenne **+9,3 %/an de notionnel** (AAVE 14,8 %,
+LINK 13,5 % — positifs 94-95 % des heures ; DOT 1,9 % le plus faible).
+Deux implications pour les familles neutres : (1) **cash-and-carry**
+(short perp + long ailleurs) capte cette prime structurelle — edge non
+statistique, donc zéro risque de sur-optimisation ; rendement modeste sur
+capital (~2 jambes) mais réel ; risques = liquidation de la jambe short sur
+pump (levier bas obligatoire), venue. (2) **Pas de Deux sur HL** : la jambe
+short REÇOIT ~9 %/an pendant que la long paie ~idem → carry de paire ≈ neutre,
+contrairement aux CFD où les deux jambes payaient le swap écrémé broker
+(sonde 07-05/07). Rappel : le KILL Pas de Deux 07-04 était compliance
+prop-firm only, « réutilisable hors prop firm » — HL est exactement ce cas.
