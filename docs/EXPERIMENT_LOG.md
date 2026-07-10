@@ -996,3 +996,35 @@ top-3/bottom-3 equal-weight dollar-neutre, 14 instruments, lookbacks déclarés
   (§7) et que l'anti-concentration résiste rarement à k petit.
 - Roadmap restante (DECISIONS 07-09) : dataset calendrier macro → étude
   annonces ; conditionnels post-go session-métaux ; réhabilitations octobre.
+
+## 2026-07-10 — Annonces macro : dataset livré + drift pré-annonce KILL au portefeuille (pas de significativité, sous 3× coût)
+
+**Livrable durable** : `config/macro_calendar.csv` — 94 événements FOMC/NFP/CPI
+2024-2026, heures UTC exactes (DST géré), sources officielles Fed +
+BLS (pages mensuelles archivées ; les dates sont EFFECTIVES : le trou du
+shutdown d'oct. 2025 et le NFP rattrapé au 20 nov. y figurent — validation
+croisée avec la page schedule courante).
+
+**Étude sous protocole figé** (`docs/audit/annonces_macro_protocole_2026-07-10.md`,
+commité avant résultats) : long US500 sur [T−25h, T−1h], portefeuille des 3
+événements (le débit vient de la famille), coût figé 5 bps/fenêtre (spread
+0,56 bps mesuré + commission + swap -2,16 bps/nuit mesuré). Script :
+`tmp/annonces_macro_study.py` ; fenêtres : `tmp/annonces_macro_windows.jsonl`.
+
+Résultat (78 fenêtres, 2024-01→2026-07) :
+- **Portefeuille US500 : +11,0 bps/fenêtre, t = 0,67, WR 56 %** → critère 1
+  (t ≥ 2) ❌ et critère 2 (≥ 15 bps = 3× coût) ❌ ; 5/6 semestres positifs ✅
+  mais **2026-S1 négatif** (-6,5 bps — le régime récent, encore).
+- Ventilation (lecture, PAS un re-découpage de verdict) : CPI +43,0 bps
+  (t=1,24, WR 69 %), FOMC +21,7 (t=1,29), **NFP -26,7** (t=-1,18) — le NFP
+  détruit le portefeuille. XAUUSD informatif : FOMC +41,9 bps (t=1,59), le
+  plus proche d'un signal, toujours sous t=2.
+- **VERDICT : KILL** (critères 1-2 ❌). L'anomalie existe faiblement dans la
+  direction attendue mais ~2× le coût sans significativité — sous le filtre
+  dur. **Seule réouverture légitime** : variante « FOMC+CPI sans NFP » en
+  NOUVEAU protocole un-tir (avertissement pré-écrit : même les meilleures
+  tranches sont à t < 1,6, l'espérance de PASS est faible) — sinon attendre
+  plus d'échantillon (le calendrier 2026 est livré, l'étude se re-lance en
+  une commande).
+- **La file du sourcing 07-07 est soldée** : candidats 1-5 tous instruits
+  (4 KILL chiffrés + turn-of-month en réserve conditionnelle session-métaux).
