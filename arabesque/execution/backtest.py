@@ -205,15 +205,16 @@ class BacktestRunner:
 
                     # Itérer les M1 en ordre chronologique
                     for _, sb in sub_bars.iterrows():
+                        sb_ts = sb.name if hasattr(sb, 'name') else bar_date
                         for pos in list(self.manager.open_positions):
                             decisions = self.manager.update_position(
-                                pos, sb["High"], sb["Low"], sb["Close"], indicators
+                                pos, sb["High"], sb["Low"], sb["Close"], indicators,
+                                bar_ts=sb_ts,
                             )
                             all_decisions.extend(decisions)
                             if not pos.is_open and pos.result_r is not None:
                                 # Restaurer bars_open correct (1 barre parente)
                                 pos.bars_open = saved_bars.get(id(pos), pos.bars_open - 1) + 1
-                                sb_ts = sb.name if hasattr(sb, 'name') else bar_date
                                 pos.ts_exit = sb_ts.to_pydatetime() if hasattr(sb_ts, 'to_pydatetime') else sb_ts
                                 pnl = pos.result_r * pos.risk_cash
                                 self.account.equity += pnl
@@ -510,7 +511,8 @@ class BacktestRunner:
     ) -> None:
         """Met à jour les positions ouvertes avec le H/L/C agrégé d'une barre."""
         for pos in list(self.manager.open_positions):
-            decisions = self.manager.update_position(pos, high, low, close, indicators)
+            decisions = self.manager.update_position(
+                pos, high, low, close, indicators, bar_ts=bar_date)
             all_decisions.extend(decisions)
             if not pos.is_open and pos.result_r is not None:
                 pos.ts_exit = bar_date.to_pydatetime() if hasattr(bar_date, 'to_pydatetime') else bar_date

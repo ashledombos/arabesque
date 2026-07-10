@@ -312,6 +312,7 @@ class ParquetClock:
                 high=bar["high"],
                 low=bar["low"],
                 close=bar["close"],
+                bar_ts=ts,
             )
 
             # ── GÉNÉRATION SIGNAUX (sur bougie confirmée) ──

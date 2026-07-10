@@ -54,6 +54,7 @@ class DecisionType(str, Enum):
     EXIT_GIVEBACK = "exit_giveback"
     EXIT_DEADFISH = "exit_deadfish"
     EXIT_TIME_STOP = "exit_time_stop"
+    EXIT_SESSION = "exit_session"
     EXIT_MANUAL = "exit_manual"
     EXIT_PROP_GUARD = "exit_prop_guard"
     # Counterfactual

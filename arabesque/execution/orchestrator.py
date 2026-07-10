@@ -202,6 +202,7 @@ class Orchestrator:
         low: float,
         close: float,
         indicators: dict | None = None,
+        bar_ts=None,
     ) -> list[dict]:
         actions = []
 
@@ -209,7 +210,8 @@ class Orchestrator:
             if pos.instrument != instrument:
                 continue
 
-            decisions = self.manager.update_position(pos, high, low, close, indicators)
+            decisions = self.manager.update_position(
+                pos, high, low, close, indicators, bar_ts=bar_ts)
 
             for decision in decisions:
                 self.audit.log_decision(decision)

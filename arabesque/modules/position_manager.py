@@ -21,7 +21,8 @@ DÉCISIONS DÉFINITIVES:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from arabesque.core.models import (
     Position, Signal, Decision, Counterfactual,
@@ -98,8 +99,16 @@ class ManagerConfig:
     #   Offset 0.20R: chaque BE exit rapporte +0.05R de plus
     #     = +16R net sur 570 trades. Le risque additionnel (trades qui
     #     auraient survécu à 0.15R mais pas 0.20R) est minime (0.05R).
+    be_enabled: bool = True
     be_trigger_r: float = 0.3
     be_offset_r: float = 0.20
+
+    # ── Session exit (sortie à heure de mur, ex. session-or) ────────
+    # Format "HH:MM@Zone/IANA" (ex. "08:00@Europe/London") : la position
+    # sort au close de la 1re barre dont le timestamp atteint la prochaine
+    # occurrence de HH:MM dans ce fuseau APRÈS la barre d'entrée (DST géré
+    # par zoneinfo). Ne s'active que si update_position reçoit bar_ts.
+    session_exit: str | None = None
 
     # ── Giveback (seuils abaissés) ──────────────────────────────────
     # v3.0 : MFE ≥ 1.0R → trop haut, rate les profits qui s'érodent
@@ -185,6 +194,13 @@ class PositionManager:
         self.counterfactuals: list[Counterfactual] = []
         # Trier du plus haut au plus bas pour le trailing
         self.cfg.trailing_tiers.sort(key=lambda t: t.mfe_threshold_r, reverse=True)
+        # Parse fail-fast de session_exit (config invalide = erreur à l'init,
+        # pas au milieu d'un backtest)
+        self._session_exit_time: time | None = None
+        self._session_exit_tz: ZoneInfo | None = None
+        if self.cfg.session_exit:
+            self._session_exit_time, self._session_exit_tz = \
+                self._parse_session_exit(self.cfg.session_exit)
 
     @property
     def open_positions(self) -> list[Position]:
@@ -244,6 +260,7 @@ class PositionManager:
         low: float,
         close: float,
         indicators: dict | None = None,
+        bar_ts: datetime | None = None,
     ) -> list[Decision]:
         """Met à jour une position avec les données OHLC d'une bougie.
 
@@ -255,6 +272,9 @@ class PositionManager:
             low: Low de la bougie
             close: Close de la bougie
             indicators: {"rsi": x, "cmf": x, "bb_width": x, "ema200": x}
+            bar_ts: Timestamp de la bougie (naïf = UTC). Requis uniquement
+                pour le mécanisme session_exit ; None = comportement
+                strictement inchangé.
 
         Returns:
             Liste des décisions générées (SL move, exit, etc.)
@@ -309,6 +329,13 @@ class PositionManager:
                     f"(bars={pos.bars_open}, tp_roi={pos.tp:.5f})")
                 pos.exit_reason = DecisionType.EXIT_ROI.value
             return [exit_decision]
+
+        # ── 1b. Session exit (heure de mur, avant BE — le SL intrabar
+        #    reste prioritaire sur la barre du mur : convention pessimiste) ──
+        if self._session_exit_time is not None and bar_ts is not None:
+            session_decision = self._check_session_exit(pos, close, bar_ts)
+            if session_decision:
+                return [session_decision]
 
         # ── 2. Break-even ──
         be_decision = self._update_breakeven(pos, close)
@@ -426,9 +453,71 @@ class PositionManager:
         else:
             return pos.entry - applicable_tier.min_profit_r * pos.R
 
+    # ── Session exit (heure de mur) ──────────────────────────────────
+
+    @staticmethod
+    def _parse_session_exit(spec: str) -> tuple[time, ZoneInfo]:
+        """Parse "HH:MM@Zone/IANA" → (time, ZoneInfo). ValueError si invalide."""
+        try:
+            hhmm, tz_name = spec.split("@", 1)
+            hh, mm = hhmm.split(":")
+            return time(int(hh), int(mm)), ZoneInfo(tz_name)
+        except (ValueError, KeyError) as e:
+            raise ValueError(
+                f"session_exit invalide {spec!r} "
+                f"(attendu 'HH:MM@Zone/IANA', ex. '08:00@Europe/London'): {e}"
+            ) from e
+
+    @staticmethod
+    def _ensure_utc(ts) -> datetime:
+        """Normalise un timestamp (pd.Timestamp ou datetime, naïf = UTC) en UTC aware."""
+        if hasattr(ts, "to_pydatetime"):
+            ts = ts.to_pydatetime()
+        if ts.tzinfo is None:
+            return ts.replace(tzinfo=timezone.utc)
+        return ts.astimezone(timezone.utc)
+
+    def _session_exit_deadline(self, pos: Position, bar_ts_utc: datetime) -> datetime:
+        """Deadline UTC de la sortie session pour cette position.
+
+        Ancrée sur le PREMIER bar_ts observé (== barre d'entrée dans les
+        chemins backtest/sub-bar/dryrun — pos.ts_entry est l'horloge murale
+        hors backtest, donc inutilisable) : prochaine occurrence de HH:MM
+        dans le fuseau configuré, strictement après l'ancre. Persistée en
+        ISO dans signal_data (auditable dans les journaux).
+        """
+        iso = pos.signal_data.get("session_exit_deadline")
+        if iso:
+            return datetime.fromisoformat(iso)
+
+        anchor_local = bar_ts_utc.astimezone(self._session_exit_tz)
+        candidate = datetime.combine(
+            anchor_local.date(), self._session_exit_time,
+            tzinfo=self._session_exit_tz)
+        if candidate <= anchor_local:
+            candidate = datetime.combine(
+                anchor_local.date() + timedelta(days=1), self._session_exit_time,
+                tzinfo=self._session_exit_tz)
+        deadline = candidate.astimezone(timezone.utc)
+        pos.signal_data["session_exit_deadline"] = deadline.isoformat()
+        return deadline
+
+    def _check_session_exit(self, pos: Position, close: float,
+                            bar_ts) -> Decision | None:
+        bar_ts_utc = self._ensure_utc(bar_ts)
+        deadline = self._session_exit_deadline(pos, bar_ts_utc)
+        if bar_ts_utc < deadline:
+            return None
+        return self._close_position(
+            pos, close, DecisionType.EXIT_SESSION,
+            f"Session exit {self.cfg.session_exit}: barre {bar_ts_utc.isoformat()} "
+            f">= mur {deadline.isoformat()}, profit={pos.current_r:.2f}R")
+
     # ── Break-even ───────────────────────────────────────────────────
 
     def _update_breakeven(self, pos: Position, current_price: float) -> Decision | None:
+        if not self.cfg.be_enabled:
+            return None
         if pos.breakeven_set:
             return None
         if pos.mfe_r < self.cfg.be_trigger_r:
