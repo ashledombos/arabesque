@@ -78,6 +78,7 @@ arabesque/strategies/
   └── pas_de_deux/       ← Pairs trading cointégration (placeholder, long terme)
   └── renverse/          ← Liquidity sweep + FVG retrace H1 (testé, edge insuffisant)
   └── reverence/         ← NR7 contraction → expansion H4 (DOGEUSD WF PASS, overlap à vérifier)
+  └── adage/             ← Session-hold nocturne XAUUSD min1 (WF PASS dérogations, jalon 3 dry-run)
 arabesque/execution/     ← live.py, backtest.py, dryrun.py, bar_aggregator.py
 arabesque/broker/        ← cTrader, TradeLocker
 arabesque/data/          ← store.py (parquet-first loader), fetch.py, backends.py
@@ -118,6 +119,9 @@ python -m arabesque run --strategy glissade --mode backtest XAUUSD BTCUSD
 # Backtest Cabriole (Donchian breakout 4H)
 python -m arabesque run --strategy cabriole --mode backtest --interval 4h DOGEUSD LINKUSD
 
+# Backtest Adage (session-hold nocturne or, min1 automatique)
+python -m arabesque run --strategy adage --mode backtest --universe adage --period 3000d
+
 # Live
 python -m arabesque.live.engine
 
@@ -153,6 +157,7 @@ Terme français, relation imagée avec la logique de trading.
 - Pas de Deux = pairs trading cointégration (danse à deux partenaires en miroir)
 - Renversé = liquidity sweep + structure shift + FVG retrace H1 (bascule puis retournement brusque)
 - Révérence = range contraction NR4/NR7 → expansion breakout (inclinaison puis redressement)
+- Adage = session-hold nocturne or (position tenue en équilibre toute la nuit, relâchée au mur du matin)
 
 ## Données
 

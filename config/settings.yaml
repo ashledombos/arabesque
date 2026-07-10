@@ -74,6 +74,14 @@ live:
   broker_reconcile_timeout_s: 10
   broker_reconcile_missing_threshold: 3
 
+  # Session exit (lot 2 session-or, 2026-07-10) — map stratégie → mur
+  # "HH:MM@Zone/IANA". Une position de ces stratégies n'a AUCUN overlay
+  # BE/trailing (le monitor la ferme market au mur, reconcile corrobore le
+  # fill réel). Défaut {} = mécanisme inactif. À DÉCOMMENTER au jalon 4
+  # (ombre/live Adage) — le backtest/dry-run passe par adage_manager_config().
+  #session_exit_by_strategy:
+  #  adage: "08:00@Europe/London"
+
 # -----------------------------------------------------------------------------
 # RODAGE — Prudence renforcée pour les stratégies non validées en live
 # Multiplicateur appliqué au risk_cash pour les stratégies listées.

@@ -3943,3 +3943,34 @@ le jalon 3 (dry-run) et l'ombre le montreront avant tout risque réel.
 **Prochain jalon (retour opérateur)** : jalon 2 = chiffrage de l'implémentation
 time-exit (zone Opus, position_manager/live) — spec + estimation, zéro code
 sans validation.
+
+## Décision 2026-07-10 (ter) — Session-or jalon 2bis complet : stratégie « Adage », conventions moteur actées
+
+Les 3 lots du chiffrage (`docs/audit/session_or_time_exit_chiffrage_2026-07-10.md`)
+sont livrés. Décisions du lot 3 :
+
+1. **Nom de code : Adage** (danse classique — section lente où une position
+   est tenue en équilibre puis relâchée avec contrôle ; conforme à la
+   convention de nommage). `arabesque/strategies/adage/`, timeframe min1,
+   XAUUSD uniquement (univers `adage`).
+2. **Convention de sortie du moteur CONSERVÉE** : sortie au **close** de la
+   barre du mur (l'étude sortait à l'open). Motif : plus proche du live
+   (le monitor déclenche l'ordre market AU mur, le fill arrive après) et
+   neutre en agrégat (Δ Exp -0,0017R sur 634 sessions, prouvé par
+   décomposition |Δr|=0,0000R aux conventions moteur — EXPERIMENT_LOG
+   07-10). Le chiffre de référence du dossier reste **+0,070R net**.
+3. **Guard spread reformulé pour les stratégies de session** : `signal.atr`
+   porte la distance de risque (1 σ de session), le guard devient
+   « spread ≤ 0,10 × R » — l'ATR min1 de la barre pré-fermeture (minute la
+   plus calme du jour) rejetait 100 % des entrées, alors que le spread est
+   un coût compté (2,4 bps au dossier), pas un critère de sélection.
+   4 nuits anormales rejetées sur 634 (-0,142R de moyenne = bénéfique).
+4. **Profil manager imposé partout** : `adage_manager_config()` (AUCUN
+   overlay, `session_exit="08:00@Europe/London"`) câblé dans `run` ET
+   `walkforward` — le défaut par famille remettrait le BE et casserait le
+   design. Côté live, `live.session_exit_by_strategy` reste **commenté**
+   dans settings.yaml, à décommenter au jalon 4 (ombre).
+
+Validation croisée moteur vs étude : **PASS** (634/634 appariées, Exp nette
++0,068R vs +0,070R, détail EXPERIMENT_LOG § 2026-07-10 lot 3). **Prochaine
+étape : jalon 3 = dry-run parquet 3 mois, zéro code.**

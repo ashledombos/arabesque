@@ -57,6 +57,11 @@ crypto:
   - SUIUSD
   - AAVEUSD
 
+# Adage (session-hold nocturne or) : XAUUSD UNIQUEMENT — le dossier 07-04 ne
+# valide que 18hNY→8hLondres sur l'or (XAG = kill, spread nuit 10-11 bps).
+adage:
+  - XAUUSD
+
 # ── Univers combinés ───────────────────────────────────────────────────────
 
 # Pool rapide pour dégrossir une stratégie (1 par famille, liquides)

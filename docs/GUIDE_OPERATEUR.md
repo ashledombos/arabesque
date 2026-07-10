@@ -95,6 +95,23 @@ rachètent.
 échantillon mince, d'où la prudence), ~1-2 trades/mois. Coût or : ~0.015R
 chez GFT. En live à taille réduite (rodage ×0.25).
 
+### 🟡 Adage — CANDIDAT (or) — implémentée, en route vers le dry-run
+**Le pari** : la performance de l'or se concentre **la nuit** (heures
+asiatiques/européennes), pas pendant les heures américaines. On achète l'or à
+la réouverture du marché (18h New York), on tient la position toute la nuit
+sans y toucher — comme un adage en danse : une position tenue en équilibre —
+et on la relâche à heure fixe le matin (8h Londres). Pas d'objectif de prix :
+**la sortie, c'est l'heure**. Un filet de sécurité (stop à -1R) et c'est tout —
+les mécanismes habituels (break-even, trailing) sont volontairement coupés
+car ils détruisent cet edge (l'or « respire » sous leurs seuils la nuit).
+**Chiffres** (validation formelle 07-10) : +0.07R net par session, ~+1.5R/mois,
+~22 sessions/mois, 3/3 semestres récents positifs. Deux dérogations actées en
+connaissance de cause (taux de gagnants 58,6 % sous la boussole ; pire creux
+-16R ≈ -3 à -5 % du compte à la taille gravée 0,20-0,30 %/session).
+**Où elle en est (2026-07-10)** : le moteur sait maintenant la jouer (sortie à
+heure fixe implémentée et testée, backtest moteur = étude à l'identique).
+Prochaines étapes : rejeu 3 mois (dry-run), puis ombre, puis ta décision.
+
 ### 🟡 Renversé — CANDIDAT (métaux) — en instruction
 **Le pari** : les stops des particuliers s'accumulent sous les creux évidents.
 Les gros acteurs « balaient » ces niveaux (le prix casse brièvement le creux,
@@ -202,9 +219,10 @@ Production ≈ 0,36R/mois. Comptes : FTMO -7 % (micro-taille, sert de point de
 mesure), GFT -5,4 % (venue principale, frais 3× plus bas sur l'or).
 
 **La cible** : 1,5R net/mois = un portefeuille de **4 à 6 moteurs** de la
-qualité actuelle (~8-12 trades/mois cumulés à ~0.2R). Il en existe 1 validé +
-1 candidat + 1 à l'étude → **il en manque 2-4**, que la R&D cherche au rythme
-d'un candidat instruit par quinzaine.
+qualité actuelle (~8-12 trades/mois cumulés à ~0.2R). Il en existe 1 validé
+(Glissade) + 2 candidats (Renversé en ombre, Adage en route vers le dry-run —
+et Adage vaudrait à lui seul ~+1,5R/mois s'il confirme) → **il en manque
+2-4**, que la R&D cherche au rythme d'un candidat instruit par quinzaine.
 
 **Jalons** : ≥0,8R/mois quand Glissade + Renversé sont validés ensemble →
 montée en taille par crans → ≥1,5R/mois → achat d'un nouveau challenge

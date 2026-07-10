@@ -1060,3 +1060,33 @@ Journée charnière du candidat n°1 :
    risque réel. **Prochain jalon : chiffrage time-exit (zone Opus).**
    C'est le premier candidat à franchir le filtre régime récent depuis la
    concentration du 07-03.
+
+## 2026-07-10 — Session-or lot 3 : validation croisée moteur vs étude = PASS (stratégie « Adage » livrée)
+
+La stratégie session-or est implémentée dans le moteur sous le nom **Adage**
+(`arabesque/strategies/adage/`, min1, profil `adage_manager_config()` sans
+aucun overlay, sortie au mur `session_exit`). Validation croisée
+(`tmp/validation_croisee_adage.py`, tolérances écrites avant le run) :
+
+- **634/634 sessions appariées** au timestamp d'entrée près (moteur à coûts
+  nuls vs étude figée `tmp/wf_session_or.py` à coût 0) — aucune session en
+  plus ni en moins.
+- Exp brut moteur +0,1203R vs étude +0,1220R (Δ -0,0017R) ; **Exp nette
+  moteur +0,068R vs cible dossier +0,070R** (coût étude 2,4 bps appliqué
+  par session) → dans la tolérance ±0,010R.
+- **Amendement documenté** : la tolérance par session (|Δr| moyen < 0,02R)
+  a d'abord échoué à 0,0346R — root-causé à 100 % par la **convention de
+  sortie** : l'étude sortait à l'OPEN de la barre du mur (R en log-return),
+  le moteur sort au CLOSE (R linéaire, plus proche du live : ordre market
+  déclenché AU mur, fill après). Preuve : étude re-simulée aux conventions
+  moteur → **|Δr| = 0,0000R (moyenne, p95 ET max)**. Le moteur reproduit
+  l'étude à l'identique, modulo cette convention (neutre en agrégat :
+  Δ Exp -0,0017R). Convention moteur conservée (pessimiste-réaliste).
+- Backtest CLI aux coûts moteur par défaut (spread 1,5 bps + slippage
+  0,03R) : **+0,060R, +38,0R, maxDD 6,5 %** — plus pessimiste que le
+  dossier (slippage moteur > 0,5 bps mesuré), cohérent. Les 4 rejets
+  `spread_too_wide` (guard spread ≤ 0,10 × R) sont des nuits anormales à
+  -0,142R de moyenne → guard bénéfique.
+
+Verdict : **lot 3 PASS, jalon 2bis complet. Prochaine étape : jalon 3 =
+dry-run parquet 3 mois (sans code), puis jalon 4 = ombre.**

@@ -142,6 +142,16 @@ def _run_backtest(args: argparse.Namespace) -> int:
         sig_gen = ReverenceSignalGenerator(ReverenceConfig())
         timeframe = "1h"    # Révérence = NR contraction → expansion H1
         exec_cfg = None
+    elif strategy == "adage":
+        from arabesque.strategies.adage.signal import (
+            AdageSignalGenerator, AdageConfig, adage_manager_config,
+        )
+        from arabesque.core.guards import ExecConfig
+        sig_gen = AdageSignalGenerator(AdageConfig())
+        timeframe = "min1"  # Adage = session-hold nocturne, entrée à la barre min1
+        # signal.atr = distance de risque (1 sigma de session) → le guard
+        # spread lit « spread <= 0.10 × R » (cf. AdageConfig.max_spread_atr).
+        exec_cfg = ExecConfig(max_spread_atr=0.10, max_slippage_atr=0.5)
     else:
         from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
         sig_gen = ExtensionSignalGenerator(ExtensionConfig())
@@ -203,7 +213,12 @@ def _run_backtest(args: argparse.Namespace) -> int:
     results: dict[str, object] = {}
     for inst in instruments:
         try:
-            mgr_cfg = manager_config_for(inst, timeframe)
+            # Adage impose son profil (AUCUN overlay, sortie au mur) —
+            # le défaut par famille remettrait le BE et casserait le design.
+            if strategy == "adage":
+                mgr_cfg = adage_manager_config()
+            else:
+                mgr_cfg = manager_config_for(inst, timeframe)
             runner = BacktestRunner(cfg, manager_config=mgr_cfg, signal_generator=sig_gen, exec_config=exec_cfg)
             df = load_ohlc(inst, period=period, interval=timeframe)
             if df is None or len(df) < 100:
@@ -348,6 +363,10 @@ def cmd_walkforward(args: argparse.Namespace) -> int:
         from arabesque.strategies.reverence.signal import ReverenceSignalGenerator, ReverenceConfig
         sig_gen = ReverenceSignalGenerator(ReverenceConfig())
         default_tf = "1h"
+    elif strategy == "adage":
+        from arabesque.strategies.adage.signal import AdageSignalGenerator, AdageConfig
+        sig_gen = AdageSignalGenerator(AdageConfig())
+        default_tf = "min1"
     else:
         from arabesque.strategies.extension.signal import ExtensionSignalGenerator, ExtensionConfig
         sig_gen = ExtensionSignalGenerator(ExtensionConfig())
@@ -388,6 +407,11 @@ def cmd_walkforward(args: argparse.Namespace) -> int:
         strategy=strategy,
         interval=timeframe,
     )
+    if strategy == "adage":
+        # Profil obligatoire (AUCUN overlay, sortie au mur) — sans lui le
+        # walk-forward tournerait avec le BE par défaut et fausserait l'edge.
+        from arabesque.strategies.adage.signal import adage_manager_config
+        kwargs["manager_config"] = adage_manager_config()
 
     if len(instruments) == 1:
         run_walk_forward(instruments[0], **kwargs)
