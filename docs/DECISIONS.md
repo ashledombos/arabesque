@@ -3894,3 +3894,28 @@ opérateur « que reste-t-il à tester ? » → plan approuvé (batterie prioris
    macro puis étude annonces (n°2 sourcing 07-07) → conditionnels selon go
    session-métaux (turn-of-month amplificateur, gap weekend or) →
    réhabilitations trimestrielles en octobre.
+
+## Décision 2026-07-10 — GO session-métaux (pipeline par étapes) : dérogation de profil WR actée
+
+**Contexte** : candidat n°1 Phase C (dossier `docs/audit/session_metaux_2026-07-04.md`).
+Toutes les réserves mesurables levées : spread nocturne XAU **0,98 bps médian**
+(sondeur 7 nuits, addendum §8 — hypothèse de coût confirmée au centième), swap
+FTMO quasi nul (-0,019 bps/nuit, capté 07-05). Edge net simulé **+0,071R/session,
+~+1,5R/mois, 5/5 sous-périodes**, ratio edge/coût 3,3-5×, ~21 trades/mois.
+
+**Décision opérateur** : GO pipeline PAR ÉTAPES, avec **dérogation explicite au
+critère WR ≥ 70 %** (mesuré : 58,6 %). Motivation : l'esprit de la boussole est
+respecté — pertes bornées -1R, trades petits et nombreux → courbe d'équité
+régulière par agrégation ; la lettre du filtre visait les profils à pertes
+larges/rares, pas celui-ci. La dérogation vaut pour CE candidat uniquement.
+
+**Jalons (retour opérateur à chacun, rien en live sans go final)** :
+1. WF formel IS/OOS (protocole pré-enregistré, offline) ;
+2. chiffrage de l'implémentation time-exit (zone Opus, position_manager) ;
+3. dry-run parquet ;
+4. ombre live (≥100 trades ou revue à n≥30) ;
+5. go final opérateur (risque, venue — FTMO favori : swap quasi nul mesuré).
+
+**Risque assumé documenté** : jambe long-or dépendante du régime haussier
+(réserve n°4) — l'anomalie a 30+ ans de littérature mais un bear market or
+affaiblirait la jambe ; à surveiller comme les autres stratégies (edge_audit).
