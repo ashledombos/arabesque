@@ -91,3 +91,22 @@ PAS la machinerie BE/trailing existante.
 Lever les réserves 1-2 (mesures passives, ~1 semaine, coût nul) pendant que
 l'ombre Renversé tourne. Puis go/no-go opérateur sur le profil (réserve 3).
 Si go : WF rigoureux IS/OOS + implémentation time-exit + pipeline standard.
+
+## 8. Addendum 2026-07-10 — Réserve n°1 LEVÉE (sondeur spread nocturne, verdict J-1)
+
+7 nuits de collecte (`logs/metals_night_spread.jsonl`, 532 quotes GFT, 04→10 juil.) :
+
+| Fenêtre | XAUUSD médian / p90 | XAGUSD |
+|---|---|---|
+| Jour 04-20h UTC | 0,86 / 0,97 bps | 9,85 / 11,18 |
+| **Nuit 21-03h UTC (fenêtre de la dérive)** | **0,98 / 1,05 bps** | 10,90 / 12,30 |
+
+- **Pas d'élargissement significatif à la réouverture** (h22 = 0,98, h23 = 0,94) :
+  l'hypothèse de coût de la simulation (1,0 bps) est confirmée au centième.
+- Avec le swap FTMO quasi nul (réserve n°2, -0,019 bps/nuit), le coût total
+  réel ≈ 2 bps/session aller-retour → **ratio edge/coût ~3,3-5×** confirmé.
+- XAGUSD : 10-11 bps la nuit — le KILL argent est re-confirmé par les coûts.
+
+**État des réserves** : 1 ✅ levée · 2 ✅ quasi levée (FTMO ; GFT empirique au
+1er hold) · 3 ⚠️ WR 58,6 % = décision opérateur (LE point du go/no-go) ·
+4 = risque de régime assumé · 5 = implémentation time-exit à chiffrer si go.
