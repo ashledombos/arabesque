@@ -1028,3 +1028,35 @@ Résultat (78 fenêtres, 2024-01→2026-07) :
   une commande).
 - **La file du sourcing 07-07 est soldée** : candidats 1-5 tous instruits
   (4 KILL chiffrés + turn-of-month en réserve conditionnelle session-métaux).
+
+## 2026-07-10 — Session-or : réserve spread levée, GO opérateur, WF formel jalon 1 = PASS par dérogation DD
+
+Journée charnière du candidat n°1 :
+1. **Réserve n°1 levée par le sondeur** (7 nuits, 532 quotes GFT) : spread
+   XAUUSD nuit (21-03h UTC) **0,98 bps médian / 1,05 p90** — pas
+   d'élargissement à la réouverture, hypothèse de coût confirmée au centième.
+   XAG 10-11 bps = kill argent re-confirmé. Addendum §8 du dossier 07-04.
+2. **GO opérateur pipeline par étapes** avec dérogation WR 58,6 % actée
+   (DECISIONS 07-10).
+3. **WF formel sous protocole gelé** (`session_or_wf_protocole_2026-07-10.md`,
+   design 07-04 à l'identique, zéro paramètre libre, coût primaire 2,4 bps) :
+
+| Fenêtre | n | Exp net | R/mois |
+|---|---|---|---|
+| 2024-S1 | 110 | -0.004R | -0.10 |
+| 2024-S2 | 133 | +0.060R | +1.32 |
+| **2025-S1** | 129 | **+0.098R** | +2.16 |
+| **2025-S2** | 132 | **+0.112R** | +2.45 |
+| **2026-S1** | 124 | **+0.059R** | +1.24 |
+| GLOBAL | 634 | **+0.070R** | +1.51 |
+
+   Critères : 3/3 fenêtres récentes ✅, Exp ≥ 0,05R ✅, ≥1R/mois ✅,
+   WR 58,5 % ✅, **maxDD -16,2R vs seuil 15R ❌** → KILL au protocole strict.
+   **Dérogation opérateur** (DECISIONS 07-10 bis) : seuil non dérivé des
+   contraintes réelles ; en equity le pire DD = 3,2 % à 0,20 %/session →
+   **sizing gravé 0,20-0,30 %/session max**. Sensibilité coût mesuré 2,0 bps :
+   +0,078R. ⚠️ Fait assumé : le pire creux (54 j) date de mai-juin 2026 —
+   les jalons 3-4 (dry-run, ombre) trancheront si l'edge meurt, avant tout
+   risque réel. **Prochain jalon : chiffrage time-exit (zone Opus).**
+   C'est le premier candidat à franchir le filtre régime récent depuis la
+   concentration du 07-03.

@@ -3919,3 +3919,27 @@ larges/rares, pas celui-ci. La dérogation vaut pour CE candidat uniquement.
 **Risque assumé documenté** : jambe long-or dépendante du régime haussier
 (réserve n°4) — l'anomalie a 30+ ans de littérature mais un bear market or
 affaiblirait la jambe ; à surveiller comme les autres stratégies (edge_audit).
+
+## Décision 2026-07-10 (bis) — Session-or jalon 1 : PASS par dérogation DD (opérateur)
+
+WF formel exécuté sous protocole gelé (`docs/audit/session_or_wf_protocole_2026-07-10.md`,
+script `tmp/wf_session_or.py`, 634 sessions) : critères 1-3 et 5 ✅ (3/3 fenêtres
+récentes positives, Exp +0,070R, +1,51R/mois récent, WR 58,5 %), critère 4 ❌
+(maxDD **-16,2R** vs seuil 15R). Verdict protocole strict = KILL.
+
+**Dérogation opérateur actée** : le seuil 15R était un choix de protocole non
+dérivé des contraintes réelles ; traduit en equity, le pire DD historique =
+3,2 % à 0,20 %/session (6,5 % à 0,40 %) — prop-compatible. Décision de
+tolérance au risque (même nature que la dérogation WR du GO initial), PAS un
+retuning de stratégie. **Conséquence de sizing GRAVÉE : l'entrée en
+ombre/live de session-or se fera à 0,20-0,30 %/session max** (le DD dérive
+le sizing, pas l'inverse).
+
+**Fait notable assumé** : le pire creux (16,2R, 54 j) date de mai-juin 2026 —
+tout frais. Les 3 fenêtres récentes restent positives creux inclus et le
+semestre en cours repart (+2,0R/6 sessions). Si l'edge est en train de mourir,
+le jalon 3 (dry-run) et l'ombre le montreront avant tout risque réel.
+
+**Prochain jalon (retour opérateur)** : jalon 2 = chiffrage de l'implémentation
+time-exit (zone Opus, position_manager/live) — spec + estimation, zéro code
+sans validation.
