@@ -7,6 +7,18 @@
 > **Contrat de validation portable (humain/agent) : `docs/VALIDATION_CONTRACT.md` + `config/validation_policy.yaml`.** Toute proposition de hausse de risque doit lire ces deux fichiers avant les anciens comptes rendus.
 > **À lire en premier dans toute session de bilan/suivi : `logs/edge_audit_latest.md`** — état actuel de l'edge par stratégie, sans refaire l'analyse. Rafraîchir si > 24h via `python scripts/audit_edge_live_vs_backtest.py`.
 >
+> **📋 FILE DES GO (ordre de priorité, actée opérateur 2026-07-10)** — à la question « quelle est la prochaine étape ? », répondre avec le 1er item non soldé :
+> 1. ✅ EN COURS — **Session-métaux : décision opérateur** (réserve n°1 spread nuit LEVÉE le 07-10 : XAU 0,98 bps médian sur 21h-03h, hypothèse confirmée ; reste la décision de profil WR 58,6 %).
+> 2. Si go métaux → **WF formel IS/OOS session-or** (1 session, offline) puis chiffrage implémentation time-exit (zone Opus) → dry-run → ombre.
+> 3. Si go métaux → **turn-of-month en amplificateur** (1 session).
+> 4. **Collatéral spot Hyperliquid** (recherche documentaire, 1 session) — rouvrirait le carry PARK.
+> 5. **Nouveau cycle de sourcing de familles** (1 session) — regarnir l'étagère.
+> 6. **Gap weekend or** (½ session, fond de tiroir).
+> 7. **Variante annonces FOMC+CPI** (1 session, espérance faible, un-tir).
+> 8. Octobre : **réhabilitations trimestrielles** (Extension+filtres régime, Fouetté, Révérence).
+> 9. Sur motif fonctionnel : découpage des gros modules (live.py 2 710 l.).
+> Hors file (automatique) : ombre Renversé, collecte `portefeuille_ramp`, moniteur funding, fenêtres /bilan.
+>
 > 2026-07-10 (vendredi) — **📅 Annonces macro : dataset LIVRÉ (`config/macro_calendar.csv`, 94 événements FOMC/NFP/CPI 2024-2026 UTC, dates effectives sources Fed/BLS) + drift pré-annonce KILL au protocole gelé**. Portefeuille US500 [T−25h,T−1h] : **+11,0 bps/fenêtre, t=0,67** (n=78) — sous 3× coût (15 bps) et sans significativité ; 2026-S1 négatif. Lecture : CPI +43 bps (t=1,24) / FOMC +21,7 (t=1,29) / **NFP -26,7 détruit le portefeuille** ; XAU-FOMC +41,9 (t=1,59) = le plus proche, toujours < t=2. Réouverture légitime unique : variante FOMC+CPI en nouveau protocole un-tir (espérance faible, t<1,6 partout) ou ré-échantillonnage futur (calendrier livré, étude relançable en 1 commande). **File sourcing 07-07 SOLDÉE (candidats 1-5 tous instruits). Roadmap restante : conditionnels post-go session-métaux (AUJOURD'HUI) + réhabilitations octobre + moniteur funding en veille.**
 >
 > 2026-07-09 (jeudi, nuit, +1) — **📉 Momentum cross-sectionnel crypto L/S : KILL des 2 variantes déclarées (protocole gelé)**. 7 j : net +9,5 %/an full MAIS Sharpe 0,16, **maxDD -115 % du notionnel d'une jambe** (la poche saute), DOTUSD = 65 % du P&L, ratio 1,9× — le signal brut existe, la volatilité le rend indéployable ; « neutre marché » à k=3 ne neutralise pas l'idiosyncratique crypto. 30 j : reversal franc (net -23 %/an full, -83 % récent). Coûts 6-11 %/an = pas le tueur. Variante future (k↑, vol-target, univers 231) = nouveau protocole, un tir. Détail : EXPERIMENT_LOG § momentum XS ; `docs/audit/momentum_xs_crypto_protocole_2026-07-09.md`. **Roadmap restante : calendrier macro → annonces (sur go) ; conditionnels post-session-métaux ; réhabilitations octobre.**
