@@ -27,6 +27,10 @@ from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 from arabesque.core.models import Side
+from arabesque.modules.position_manager import (
+    next_session_deadline_utc,
+    parse_session_exit,
+)
 
 STATE_FILE = Path("logs/position_monitor_state.json")
 
@@ -65,6 +69,17 @@ class TrackedPosition:
     # de retrait forcé). Ici on alerte URGENT à 3 cycles consécutifs puis on
     # retire la position du tracking (anti-spam par retrait, pas par cooldown).
     broker_missing_cycles: int = 0
+
+    # Session exit (stratégies à heure de mur, ex. session-or) —
+    # session_exit_at > 0 ⇒ AUCUN overlay (BE/trailing/polling désactivés),
+    # sortie market au passage du mur par la boucle _session_close_loop.
+    strategy: str = ""
+    session_exit_at: float = 0.0          # epoch UTC du mur (0 = pas de mur)
+    exit_label: str = ""                  # raison imposée au reconcile (ex. "session_exit")
+    exit_price_hint: float = 0.0          # quote côté position au moment du close (estimation)
+    session_close_failures: int = 0
+    session_close_requested_at: float = 0.0   # throttle re-close (anti-spam POSITION_NOT_FOUND)
+    last_session_close_alert_time: float = 0.0
 
     @property
     def R(self) -> float:
@@ -134,6 +149,18 @@ class MonitorConfig:
     broker_reconcile_interval_s: float = 60.0
     broker_reconcile_timeout_s: float = 10.0
     broker_reconcile_missing_threshold: int = 3
+    # Session exit (stratégies à heure de mur, ex. session-or 08:00 Londres).
+    # Map strategy → "HH:MM@Zone/IANA". Une position de ces stratégies n'a
+    # AUCUN overlay (BE/trailing/polling skippés) et est fermée market au mur.
+    session_exit_by_strategy: Dict[str, str] = field(default_factory=dict)
+    session_close_interval_s: float = 10.0
+    # Broker injoignable au mur : retry chaque cycle, alerte URGENT à partir
+    # de N échecs consécutifs (cooldown anti-spam), JAMAIS d'exit inventé.
+    session_close_failures_before_alert: int = 3
+    session_close_alert_cooldown_s: float = 1800.0
+    # Close accepté mais position toujours trackée (reconcile pas encore
+    # passé, ou broker menteur) : re-tenter le close après ce délai.
+    session_close_reissue_after_s: float = 180.0
 
 
 class LivePositionMonitor:
@@ -154,6 +181,7 @@ class LivePositionMonitor:
         on_audit_event: Optional[Callable[[dict], None]] = None,
         on_amend_abandoned: Optional[Callable[[dict], None]] = None,
         on_position_missing_broker: Optional[Callable[[dict], None]] = None,
+        on_session_close_failed: Optional[Callable[[dict], None]] = None,
     ):
         self._brokers = brokers
         self._cfg = config or MonitorConfig()
@@ -187,6 +215,28 @@ class LivePositionMonitor:
         self._broker_reconcile_stop: Optional[asyncio.Event] = None
         # Compteur de timeouts/None consécutifs côté broker (canal mort)
         self._broker_reconcile_consecutive_timeouts: int = 0
+        # Session exit — parse fail-fast des specs (config invalide = erreur
+        # au démarrage, pas au milieu d'une session ouverte). Même parseur et
+        # même règle de deadline que PositionManager (source unique).
+        self._on_session_close_failed = on_session_close_failed
+        self._session_exit_specs: Dict[str, tuple] = {
+            strat: parse_session_exit(spec)
+            for strat, spec in (self._cfg.session_exit_by_strategy or {}).items()
+        }
+        self._session_close_task: Optional[asyncio.Task] = None
+        self._session_close_stop: Optional[asyncio.Event] = None
+        # Snapshot du state file AU DÉMARRAGE : register_position() persiste
+        # immédiatement (Hot Path #2) et ÉCRASE le fichier pendant la
+        # réconciliation de démarrage, AVANT l'appel à load_state() — sans ce
+        # snapshot, l'état pré-restart (MFE/BE/trailing/mur session) serait
+        # perdu à chaque restart (bug capté par le test save/load du lot 2).
+        self._state_snapshot: dict = {}
+        if STATE_FILE.exists():
+            try:
+                self._state_snapshot = json.loads(STATE_FILE.read_text())
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(
+                    f"[Monitor] ⚠️ Snapshot état illisible {STATE_FILE}: {e}")
 
     @property
     def open_positions(self) -> List[TrackedPosition]:
@@ -221,6 +271,10 @@ class LivePositionMonitor:
                 "trailing_active": pos.trailing_active,
                 "trailing_tier": pos.trailing_tier,
                 "registered_at": pos.registered_at,
+                "strategy": pos.strategy,
+                "session_exit_at": pos.session_exit_at,
+                "exit_label": pos.exit_label,
+                "exit_price_hint": pos.exit_price_hint,
             }
 
         STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -237,14 +291,18 @@ class LivePositionMonitor:
 
         Returns: nombre de positions restaurées.
         """
-        if not STATE_FILE.exists():
-            return 0
-
-        try:
-            state = json.loads(STATE_FILE.read_text())
-        except (json.JSONDecodeError, OSError) as e:
-            logger.warning(f"[Monitor] ⚠️ Impossible de lire {STATE_FILE}: {e}")
-            return 0
+        # Priorité au snapshot pris à l'init (le fichier a pu être écrasé par
+        # les save_state() des register de la réconciliation de démarrage)
+        state = self._state_snapshot
+        self._state_snapshot = {}
+        if not state:
+            if not STATE_FILE.exists():
+                return 0
+            try:
+                state = json.loads(STATE_FILE.read_text())
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"[Monitor] ⚠️ Impossible de lire {STATE_FILE}: {e}")
+                return 0
 
         restored = 0
         for key, saved in state.items():
@@ -262,6 +320,16 @@ class LivePositionMonitor:
                 pos.sl = saved_sl
             elif saved_sl and pos.side == Side.SHORT and 0 < saved_sl < pos.sl:
                 pos.sl = saved_sl
+            # Session exit : l'état sauvegardé prime (mur ancré sur l'entrée
+            # d'origine ; un close déjà accepté garde son label pour reconcile)
+            if saved.get("strategy"):
+                pos.strategy = saved["strategy"]
+            if saved.get("session_exit_at"):
+                pos.session_exit_at = saved["session_exit_at"]
+            if saved.get("exit_label"):
+                pos.exit_label = saved["exit_label"]
+            if saved.get("exit_price_hint"):
+                pos.exit_price_hint = saved["exit_price_hint"]
             restored += 1
             logger.info(
                 f"[Monitor] 🔄 État restauré: {pos.symbol} "
@@ -269,10 +337,18 @@ class LivePositionMonitor:
                 f"trail={pos.trailing_tier}"
             )
 
-        # Nettoyer le fichier après restauration
-        STATE_FILE.unlink(missing_ok=True)
+        # Re-persister l'état ENRICHI (les save_state des register de la
+        # réconciliation avaient écrit l'état frais) ; supprime le fichier
+        # s'il n'y a plus de position (comportement save_state standard).
+        try:
+            self.save_state()
+        except Exception as e:
+            logger.debug(f"[Monitor] save_state post-restore failed: {e}")
         if restored:
             logger.info(f"[Monitor] ✅ {restored} position(s) restaurée(s) depuis état précédent")
+            # Une position à mur restaurée doit relancer la boucle session
+            # (un mur passé pendant le downtime ferme au premier cycle)
+            self._maybe_start_session_close()
         return restored
 
     def register_position(
@@ -286,8 +362,17 @@ class LivePositionMonitor:
         tp: float,
         volume: float,
         digits: int = 5,
+        strategy: str = "",
+        entry_ts: "datetime | str | None" = None,
     ) -> TrackedPosition:
-        """Enregistre une position après un fill réussi."""
+        """Enregistre une position après un fill réussi.
+
+        ``strategy`` + ``entry_ts`` (datetime aware/naïf-UTC ou ISO string)
+        servent au mécanisme session_exit : si la stratégie est mappée dans
+        ``session_exit_by_strategy``, le mur est ancré sur l'heure d'entrée
+        (journal à la ré-adoption, sinon maintenant). Un mur déjà passé
+        déclenche le close au premier cycle de la boucle session.
+        """
         key = f"{broker_id}:{position_id}"
         pos = TrackedPosition(
             broker_id=broker_id,
@@ -302,12 +387,22 @@ class LivePositionMonitor:
             digits=digits,
             max_favorable_price=entry,
             registered_at=time.time(),
+            strategy=strategy,
         )
+        spec = self._session_exit_specs.get(strategy) if strategy else None
+        if spec is not None:
+            anchor = self._normalize_entry_ts(entry_ts)
+            deadline = next_session_deadline_utc(anchor, spec[0], spec[1])
+            pos.session_exit_at = deadline.timestamp()
         self._positions[key] = pos
+        session_note = (
+            f" mur_session={datetime.fromtimestamp(pos.session_exit_at, tz=timezone.utc).isoformat()}"
+            if pos.session_exit_at > 0 else ""
+        )
         logger.info(
             f"[Monitor] 📋 Registered {symbol} {side.value} "
             f"entry={entry:.{digits}f} SL={sl:.{digits}f} TP={tp:.{digits}f} "
-            f"R={pos.R:.{digits}f} ({broker_id}:{position_id})"
+            f"R={pos.R:.{digits}f} ({broker_id}:{position_id}){session_note}"
         )
         # Hot Path #2 — persistance immédiate pour que les composants externes
         # (feed_watchdog notamment, qui décide du skip weekend) voient
@@ -319,7 +414,26 @@ class LivePositionMonitor:
         # Hot Path #1 — auto-démarre la boucle broker_reconcile dès la
         # première position trackée (no-op si déjà en route ou désactivée).
         self._maybe_start_broker_reconcile()
+        # Session exit — auto-démarre la boucle de fermeture au mur dès la
+        # première position à mur (no-op si déjà en route ou aucune).
+        self._maybe_start_session_close()
         return pos
+
+    @staticmethod
+    def _normalize_entry_ts(entry_ts) -> datetime:
+        """Normalise l'ancre du mur en datetime UTC aware (défaut : now)."""
+        if entry_ts is None:
+            return datetime.now(timezone.utc)
+        if isinstance(entry_ts, str):
+            try:
+                entry_ts = datetime.fromisoformat(entry_ts)
+            except ValueError:
+                logger.warning(
+                    f"[Monitor] entry_ts illisible ({entry_ts!r}) — ancre=now")
+                return datetime.now(timezone.utc)
+        if entry_ts.tzinfo is None:
+            return entry_ts.replace(tzinfo=timezone.utc)
+        return entry_ts.astimezone(timezone.utc)
 
     def unregister_position(self, broker_id: str, position_id: str):
         """Retire une position (fermée ou annulée)."""
@@ -353,6 +467,11 @@ class LivePositionMonitor:
         for pos in matching:
             # Mettre à jour le MFE avec la bougie
             pos.update_mfe(high, low)
+
+            # Session exit : AUCUN overlay (le mur est la seule sortie gérée,
+            # design session-or 07-04 §4 — BE/trailing détruisent l'edge)
+            if pos.session_exit_at > 0:
+                continue
 
             # 1. Breakeven
             if not pos.breakeven_set:
@@ -437,6 +556,10 @@ class LivePositionMonitor:
             return False
 
         pos.update_mfe_tick(price)
+
+        # Session exit : AUCUN overlay (MFE tracké pour l'audit uniquement)
+        if pos.session_exit_at > 0:
+            return False
 
         be_just_armed = False
         if not pos.breakeven_set:
@@ -562,6 +685,8 @@ class LivePositionMonitor:
         positions_snapshot = list(self._positions.values())
 
         for pos in positions_snapshot:
+            if pos.session_exit_at > 0:
+                continue  # session exit : pas de BE, le polling ne s'applique pas
             if pos.breakeven_set:
                 continue  # déjà BE, rien à faire ici
             broker = self._brokers.get(pos.broker_id)
@@ -1062,6 +1187,215 @@ class LivePositionMonitor:
             logger.warning(
                 f"[Monitor] on_position_missing_broker callback failed: {cb_exc}"
             )
+
+    # ------------------------------------------------------------------
+    # Session exit — fermeture à heure de mur (ex. session-or 08:00 Londres)
+    # ------------------------------------------------------------------
+
+    def _maybe_start_session_close(self) -> None:
+        """Démarre la boucle si une position à mur est trackée ; idempotent."""
+        if not any(p.session_exit_at > 0 for p in self._positions.values()):
+            return
+        if self._session_close_task and not self._session_close_task.done():
+            return
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            return  # pas de loop courante (cas hors live)
+        if not loop.is_running():
+            return
+        self._session_close_stop = asyncio.Event()
+        self._session_close_task = asyncio.create_task(
+            self._session_close_loop(),
+            name="session_close_loop",
+        )
+        logger.info(
+            f"[Monitor] ⏰ session_close actif "
+            f"(interval={self._cfg.session_close_interval_s}s, "
+            f"strategies={sorted(self._session_exit_specs)})"
+        )
+
+    async def stop_session_close(self) -> None:
+        """Annule la boucle proprement (signal + cancel + await)."""
+        task = self._session_close_task
+        if not task:
+            return
+        if self._session_close_stop is not None:
+            self._session_close_stop.set()
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.warning(f"[Monitor] session_close stop : exception ignorée: {e}")
+        self._session_close_task = None
+        self._session_close_stop = None
+
+    async def _session_close_loop(self) -> None:
+        """Boucle interne. S'arrête d'elle-même quand plus aucune position
+        à mur n'est trackée. Toute exception d'une passe est avalée pour ne
+        JAMAIS tuer la boucle (le retry est la protection, pas le crash)."""
+        interval = self._cfg.session_close_interval_s
+        stop_evt = self._session_close_stop
+        assert stop_evt is not None
+
+        try:
+            while not stop_evt.is_set():
+                try:
+                    await asyncio.wait_for(stop_evt.wait(), timeout=interval)
+                    break
+                except asyncio.TimeoutError:
+                    pass
+                if stop_evt.is_set():
+                    break
+
+                if not any(p.session_exit_at > 0 for p in self._positions.values()):
+                    logger.info(
+                        "[Monitor] ⏰ session_close arrêté (plus de position à mur)")
+                    break
+
+                try:
+                    await self._session_close_pass()
+                except asyncio.CancelledError:
+                    raise
+                except Exception as e:
+                    logger.warning(
+                        f"[Monitor] session_close pass error (loop continues): {e}")
+                    continue
+        except asyncio.CancelledError:
+            raise
+        finally:
+            self._session_close_task = None
+            self._session_close_stop = None
+
+    async def _session_close_pass(self, now: float | None = None) -> int:
+        """Un passage : ferme market toute position dont le mur est passé.
+
+        Retourne le nombre de close ACCEPTÉS par le broker pendant ce passage.
+        La position n'est PAS retirée du tracking ici : reconcile() corrobore
+        la fermeture (vrai fill) et notifie avec ``exit_label`` — on ne
+        fabrique jamais d'exit (cf. règle reconcile broker injoignable).
+        """
+        now = time.time() if now is None else now
+        closed = 0
+        for pos in list(self._positions.values()):
+            if pos.session_exit_at <= 0 or now < pos.session_exit_at:
+                continue
+            # Close déjà demandé récemment → on laisse reconcile confirmer ;
+            # re-tente après session_close_reissue_after_s (broker menteur,
+            # ou reconcile pas encore passé).
+            if (pos.session_close_requested_at
+                    and now - pos.session_close_requested_at
+                    < self._cfg.session_close_reissue_after_s):
+                continue
+            if await self._close_session_position(pos, now):
+                closed += 1
+        return closed
+
+    async def _close_session_position(self, pos: TrackedPosition,
+                                      now: float) -> bool:
+        """Tente le close market d'une position au mur. True si accepté."""
+        broker = self._brokers.get(pos.broker_id)
+        if broker is None:
+            self._register_session_close_failure(pos, now, "broker_missing")
+            return False
+
+        # Quote best-effort AVANT le close : estimation honnête du fill si le
+        # broker n'expose pas le closed_detail (reconcile préfère le vrai fill).
+        try:
+            tick = await broker.get_quote(pos.symbol)
+            if tick:
+                hint = tick.bid if pos.side == Side.LONG else tick.ask
+                if hint:
+                    pos.exit_price_hint = float(hint)
+        except Exception:
+            pass
+
+        try:
+            result = await broker.close_position(pos.position_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            self._register_session_close_failure(pos, now, str(e))
+            return False
+
+        if result is not None and getattr(result, "success", False):
+            pos.exit_label = "session_exit"
+            pos.session_close_requested_at = now
+            pos.session_close_failures = 0
+            logger.info(
+                f"[Monitor] ⏰ Session exit: close market {pos.symbol} "
+                f"{pos.position_id} ({pos.broker_id}) au mur "
+                f"{datetime.fromtimestamp(pos.session_exit_at, tz=timezone.utc).isoformat()} "
+                f"(MFE={pos.mfe_r:.2f}R, hint={pos.exit_price_hint:.{pos.digits}f}) "
+                f"— reconcile confirmera le fill"
+            )
+            try:
+                self.save_state()
+            except Exception as e:
+                logger.debug(f"[Monitor] save_state on session close failed: {e}")
+            return True
+
+        message = str(getattr(result, "message", result))
+        if "POSITION_NOT_FOUND" in message:
+            # Déjà fermée broker-side (SL touché avant le mur, close manuel…).
+            # PAS de label session : reconcile estimera la vraie raison.
+            pos.session_close_requested_at = now  # throttle les re-tentatives
+            logger.info(
+                f"[Monitor] ⏰ Session exit {pos.symbol} {pos.position_id}: "
+                f"POSITION_NOT_FOUND — déjà fermée broker-side, reconcile nettoiera"
+            )
+            return False
+
+        self._register_session_close_failure(pos, now, message)
+        return False
+
+    def _register_session_close_failure(self, pos: TrackedPosition,
+                                        now: float, error: str) -> None:
+        """Comptabilise un échec de close au mur. Retry au prochain cycle,
+        alerte URGENT à partir de N échecs consécutifs (cooldown anti-spam).
+        La position reste trackée, protégée par son SL broker-side — JAMAIS
+        d'exit inventé, l'edge se dégrade marginalement (risque n°2 assumé)."""
+        pos.session_close_failures += 1
+        threshold = self._cfg.session_close_failures_before_alert
+        logger.warning(
+            f"[Monitor] ⚠️ Session close échoué "
+            f"({pos.session_close_failures}/{threshold} avant alerte): "
+            f"{pos.symbol} {pos.position_id} ({pos.broker_id}) — {error} "
+            f"— retry dans {self._cfg.session_close_interval_s:.0f}s"
+        )
+        if pos.session_close_failures < threshold:
+            return
+        if now - pos.last_session_close_alert_time < self._cfg.session_close_alert_cooldown_s:
+            return
+        pos.last_session_close_alert_time = now
+        logger.error(
+            f"[Monitor] 🚨 URGENT — session close IMPOSSIBLE: {pos.symbol} "
+            f"{pos.position_id} ({pos.broker_id}) après "
+            f"{pos.session_close_failures} tentatives — position déborde du mur "
+            f"(SL broker-side toujours en place), dernier échec: {error}"
+        )
+        if self._on_session_close_failed is None:
+            return
+        try:
+            self._on_session_close_failed({
+                "broker_id": pos.broker_id,
+                "position_id": pos.position_id,
+                "symbol": pos.symbol,
+                "side": pos.side.value,
+                "strategy": pos.strategy,
+                "entry": pos.entry,
+                "sl": pos.sl,
+                "session_exit_at": datetime.fromtimestamp(
+                    pos.session_exit_at, tz=timezone.utc).isoformat(),
+                "failures": pos.session_close_failures,
+                "last_error": error,
+                "mfe_r": round(pos.mfe_r, 4),
+            })
+        except Exception as cb_exc:
+            logger.warning(
+                f"[Monitor] on_session_close_failed callback failed: {cb_exc}")
 
     async def _check_breakeven(self, pos: TrackedPosition, current_price: float):
         """Si MFE >= 0.3R → déplacer SL à entry + 0.20R."""
@@ -1573,6 +1907,10 @@ class LivePositionMonitor:
 
     def _estimate_exit_reason(self, pos: TrackedPosition) -> str:
         """Estime la raison de sortie basée sur l'état du trailing/BE."""
+        if pos.exit_label:
+            # Fermeture initiée par le monitor lui-même (ex. session_exit au
+            # mur) : la raison est CONNUE, pas estimée.
+            return pos.exit_label
         if pos.trailing_active and pos.trailing_tier > 0:
             return "trailing_stop"
         if pos.breakeven_set:
@@ -1589,6 +1927,10 @@ class LivePositionMonitor:
 
     def _estimate_exit_price(self, pos: TrackedPosition, reason: str) -> float:
         """Estime le prix de sortie basé sur la raison."""
+        if reason == "session_exit":
+            # Close market au mur : quote capturée juste avant le close,
+            # sinon entry (neutre). Le vrai fill de reconcile prime toujours.
+            return pos.exit_price_hint or pos.entry
         if reason == "take_profit" and pos.tp > 0:
             return pos.tp
         if reason == "stop_loss":
@@ -1616,6 +1958,12 @@ class LivePositionMonitor:
                     "trailing_tier": p.trailing_tier,
                     "broker_id": p.broker_id,
                     "position_id": p.position_id,
+                    "strategy": p.strategy,
+                    "session_exit_at": (
+                        datetime.fromtimestamp(
+                            p.session_exit_at, tz=timezone.utc).isoformat()
+                        if p.session_exit_at > 0 else None
+                    ),
                 }
                 for p in self._positions.values()
             ],

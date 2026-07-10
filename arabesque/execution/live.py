@@ -212,6 +212,10 @@ class LiveEngine:
                 await self._position_monitor.stop_broker_reconcile()
             except Exception as e:
                 logger.warning(f"[Engine] broker_reconcile stop error: {e}")
+            try:
+                await self._position_monitor.stop_session_close()
+            except Exception as e:
+                logger.warning(f"[Engine] session_close stop error: {e}")
         # Sauvegarder l'état du position monitor AVANT de déconnecter
         if self._position_monitor:
             try:
@@ -592,6 +596,26 @@ class LiveEngine:
             asyncio.ensure_future(self._live_monitor._notify_telegram(msg))
             asyncio.ensure_future(self._live_monitor._notify_ntfy(msg))
 
+        # Session exit — alerte URGENT quand le close au mur échoue N fois
+        # de suite (broker injoignable) : la position déborde de son heure de
+        # sortie, protégée par le SL broker-side, retry en continu.
+        def on_session_close_failed(payload: dict):
+            if not self._live_monitor:
+                return
+            msg = (
+                f"🚨 URGENT — session close IMPOSSIBLE — "
+                f"{payload.get('symbol', '?')} ({payload.get('broker_id', '?')})\n"
+                f"position_id={payload.get('position_id', '?')} "
+                f"strategy={payload.get('strategy', '?')}\n"
+                f"mur={payload.get('session_exit_at', '?')} "
+                f"échecs={payload.get('failures', 0)}\n"
+                f"erreur: {payload.get('last_error', '')}\n"
+                f"→ position déborde du mur (SL broker toujours en place), "
+                f"retry automatique en cours ; vérifier le canal trading"
+            )
+            asyncio.ensure_future(self._live_monitor._notify_telegram(msg))
+            asyncio.ensure_future(self._live_monitor._notify_ntfy(msg))
+
         live_cfg = self.settings.get("live", {}) or {}
         monitor_cfg = MonitorConfig(
             be_polling_enabled=bool(live_cfg.get("be_polling_backup", False)),
@@ -611,6 +635,9 @@ class LiveEngine:
             broker_reconcile_missing_threshold=int(
                 live_cfg.get("broker_reconcile_missing_threshold", 3)
             ),
+            session_exit_by_strategy=dict(
+                live_cfg.get("session_exit_by_strategy", {}) or {}
+            ),
         )
         monitor = LivePositionMonitor(
             brokers=self._brokers,
@@ -619,6 +646,7 @@ class LiveEngine:
             on_audit_event=on_audit,
             on_amend_abandoned=on_amend_abandoned,
             on_position_missing_broker=on_position_missing_broker,
+            on_session_close_failed=on_session_close_failed,
         )
         if monitor_cfg.be_polling_enabled:
             logger.info(
@@ -762,6 +790,7 @@ class LiveEngine:
                         tp=effective_tp,
                         volume=match.volume,
                         digits=digits,
+                        strategy=info.get("strategy_type", ""),
                     )
 
                 logger.info(
@@ -946,6 +975,8 @@ class LiveEngine:
                         )
                         continue
 
+                    journal_key = f"{broker_id}:{pos.position_id}"
+                    entry_record = journal_open_entries.get(journal_key)
                     self._position_monitor.register_position(
                         broker_id=broker_id,
                         position_id=str(pos.position_id),
@@ -956,10 +987,10 @@ class LiveEngine:
                         tp=tp,
                         volume=pos.volume,
                         digits=digits,
+                        strategy=(entry_record or {}).get("strategy", ""),
+                        entry_ts=(entry_record or {}).get("ts"),
                     )
                     if live_monitor:
-                        journal_key = f"{broker_id}:{pos.position_id}"
-                        entry_record = journal_open_entries.get(journal_key)
                         if entry_record:
                             live_monitor.restore_open_trade(entry_record)
                         else:
@@ -1060,6 +1091,8 @@ class LiveEngine:
             tp=record.get("tp") or 0.0,
             volume=record.get("volume", 0.0),
             digits=5,
+            strategy=record.get("strategy", ""),
+            entry_ts=record.get("ts"),
         )
         live_monitor = getattr(self, "_live_monitor", None)
         if live_monitor:
@@ -2522,6 +2555,7 @@ class LiveEngine:
                 tp=effective_tp,
                 volume=volume,
                 digits=digits,
+                strategy=getattr(signal, "strategy_type", ""),
             )
         except Exception as e:
             logger.error(

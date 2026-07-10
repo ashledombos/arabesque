@@ -30,6 +30,36 @@ from arabesque.core.models import (
 )
 
 
+# ── Session exit — règles partagées backtest/live ────────────────────
+# Fonctions module-level UNIQUES : PositionManager (backtest/dry-run) et
+# LivePositionMonitor (miroir live) importent le MÊME code de parsing et
+# de calcul de deadline — zéro divergence possible sur la règle du mur.
+
+def parse_session_exit(spec: str) -> tuple[time, ZoneInfo]:
+    """Parse "HH:MM@Zone/IANA" → (time, ZoneInfo). ValueError si invalide."""
+    try:
+        hhmm, tz_name = spec.split("@", 1)
+        hh, mm = hhmm.split(":")
+        return time(int(hh), int(mm)), ZoneInfo(tz_name)
+    except (ValueError, KeyError) as e:
+        raise ValueError(
+            f"session_exit invalide {spec!r} "
+            f"(attendu 'HH:MM@Zone/IANA', ex. '08:00@Europe/London'): {e}"
+        ) from e
+
+
+def next_session_deadline_utc(anchor_utc: datetime, exit_time: time,
+                              tz: ZoneInfo) -> datetime:
+    """Prochaine occurrence de ``exit_time`` dans ``tz`` STRICTEMENT après
+    ``anchor_utc`` (aware UTC), renvoyée en UTC. DST géré par zoneinfo."""
+    anchor_local = anchor_utc.astimezone(tz)
+    candidate = datetime.combine(anchor_local.date(), exit_time, tzinfo=tz)
+    if candidate <= anchor_local:
+        candidate = datetime.combine(
+            anchor_local.date() + timedelta(days=1), exit_time, tzinfo=tz)
+    return candidate.astimezone(timezone.utc)
+
+
 # ── Configuration ────────────────────────────────────────────────────
 
 @dataclass
@@ -455,18 +485,7 @@ class PositionManager:
 
     # ── Session exit (heure de mur) ──────────────────────────────────
 
-    @staticmethod
-    def _parse_session_exit(spec: str) -> tuple[time, ZoneInfo]:
-        """Parse "HH:MM@Zone/IANA" → (time, ZoneInfo). ValueError si invalide."""
-        try:
-            hhmm, tz_name = spec.split("@", 1)
-            hh, mm = hhmm.split(":")
-            return time(int(hh), int(mm)), ZoneInfo(tz_name)
-        except (ValueError, KeyError) as e:
-            raise ValueError(
-                f"session_exit invalide {spec!r} "
-                f"(attendu 'HH:MM@Zone/IANA', ex. '08:00@Europe/London'): {e}"
-            ) from e
+    _parse_session_exit = staticmethod(parse_session_exit)
 
     @staticmethod
     def _ensure_utc(ts) -> datetime:
@@ -490,15 +509,8 @@ class PositionManager:
         if iso:
             return datetime.fromisoformat(iso)
 
-        anchor_local = bar_ts_utc.astimezone(self._session_exit_tz)
-        candidate = datetime.combine(
-            anchor_local.date(), self._session_exit_time,
-            tzinfo=self._session_exit_tz)
-        if candidate <= anchor_local:
-            candidate = datetime.combine(
-                anchor_local.date() + timedelta(days=1), self._session_exit_time,
-                tzinfo=self._session_exit_tz)
-        deadline = candidate.astimezone(timezone.utc)
+        deadline = next_session_deadline_utc(
+            bar_ts_utc, self._session_exit_time, self._session_exit_tz)
         pos.signal_data["session_exit_deadline"] = deadline.isoformat()
         return deadline
 
