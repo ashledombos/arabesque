@@ -67,3 +67,30 @@ Rapportés à titre descriptif (non décisionnels) : n par groupe, t de Welch su
 Script un-tir `tmp/tom_amplificateur_study.py` → `tmp/tom_amplificateur_results.txt`.
 Verdict annexé à ce document + EXPERIMENT_LOG + HANDOFF ; DECISIONS si décision
 de sizing gravée.
+
+---
+
+## VERDICT (2026-07-11, calcul post-gel) : **KILL — 4/4 critères FAIL, signe inversé**
+
+635 sessions (187 ToM / 448 hors, 152 jours ToM sur 508 de grille).
+
+- **(a) FAIL** : Δ = **−0,0544R** (ToM +0,0372R net vs hors +0,0916R) — la
+  fenêtre ToM fait PIRE que le reste, à l'opposé de l'hypothèse. t(Welch)
+  −0,58. Le brut confirme (+0,089 vs +0,144) : pas un artefact de coûts.
+- **(b) FAIL** : 2/5 blocs positifs seulement. Pattern temporel INVERSÉ de
+  l'écrémage 07-07 : les 3 blocs 2024→mi-2025 sont franchement négatifs
+  (−0,27/−0,24/−0,11), les 2 récents positifs (+0,12/+0,21) — instabilité de
+  signe, pas un effet exploitable.
+- **(c) FAIL** : Δ sans top-3 ToM = −0,102R.
+- **(d) FAIL** : politique 0,30/0,20 → Σ +10,29 %eq, ratio 2,96 vs uniforme
+  Σ +11,99 %eq, ratio 3,04 (seuil exigé 3,35). La politique dégrade à la fois
+  le gain total ET l'efficience rendement/DD.
+
+**Lecture** : l'effet ToM mesuré au sourcing 07-07 (+19,1 bps/j) portait sur le
+drift quotidien 24 h de l'or ; il ne vit PAS dans le hold nocturne d'Adage
+(fenêtre 22:00 UTC → 08:00 Londres) — s'il existe encore, il est diurne, hors
+du périmètre de la session-or. **Conséquence : sizing Adage jalon 5 = uniforme
+dans la bande gravée 0,20-0,30 %/session, AUCUN modulateur calendaire. Réserve
+ToM (sourcing 07-07 §3) enterrée avec chiffres.** Toute variante (fenêtre
+décalée, version diurne, autre politique) = nouveau protocole pré-enregistré,
+un tir.

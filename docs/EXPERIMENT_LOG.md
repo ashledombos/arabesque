@@ -1249,3 +1249,28 @@ BTC/ETH spot sans levier, ne décide PAS de l'allocation (opérateur).
   `tmp/dca_ameliore_study.py`, sortie `tmp/dca_ameliore_results.txt`.
   **File DeFi : P1 ✗, P2 ⏸ moniteur, P2bis ✅ SOLDÉ — reste P3 trésorerie
   (quand poche capitalisée). Prochain go = turn-of-month (item 3).**
+
+## 2026-07-11 — Turn-of-month en amplificateur d'Adage : KILL au protocole pré-enregistré — signe inversé, l'effet ToM ne vit pas dans le hold nocturne
+
+Item 3 file des GO. Protocole gelé et commité AVANT calcul (`05e45bc`,
+`docs/audit/tom_amplificateur_protocole_2026-07-11.md`) : fenêtre J-2..J+3
+figée (identique écrémage 07-07), politique unique 0,30 % ToM / 0,20 % hors
+(bornes de la bande gravée jalon 5), critères (a)-(d), un tir. Données :
+`logs/adage_ombre_sessions.jsonl` (635 sessions nettes chaîne Orchestrator,
+2024-01-29 → 2026-07-09 ; 187 ToM / 448 hors).
+
+- **KILL 4/4** : (a) Δ = **−0,0544R** (ToM +0,037R net vs hors +0,092R — la
+  fenêtre fait PIRE, brut idem +0,089/+0,144, t=−0,58) ; (b) 2/5 blocs
+  positifs, pattern inversé dans le temps (2024→mi-2025 franchement négatif,
+  2 blocs récents positifs = instabilité de signe) ; (c) Δ sans top-3 ToM
+  −0,102R ; (d) politique 0,30/0,20 dégrade gain ET efficience
+  (Σ +10,29 %eq ratio 2,96 vs uniforme +11,99 %eq ratio 3,04).
+- **Lecture** : le +19,1 bps/j du sourcing 07-07 = drift quotidien 24 h ;
+  la part nocturne 22:00 UTC → 08:00 Londres n'en porte rien (voire
+  l'inverse). Pas de contradiction : périmètres disjoints.
+- **Conséquence : sizing Adage jalon 5 = UNIFORME 0,20-0,30 %/session, aucun
+  modulateur calendaire ; réserve ToM du sourcing 07-07 enterrée avec
+  chiffres.** Toute variante (fenêtre décalée, version diurne) = nouveau
+  protocole un tir. Scripts : `tmp/tom_amplificateur_study.py` →
+  `tmp/tom_amplificateur_results.txt`. **Prochain go = item 5 : nouveau
+  cycle de sourcing de familles.**

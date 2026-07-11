@@ -61,6 +61,11 @@ coût primaire 2,4 bps/session = 1,0 spread + 1,4 swap, pessimiste) :
 
 **Sizing gravé : 0,20-0,30 %/session max** (maxDD -16,2R ≈ -3,2 à -4,9 %
 d'equity). ⚠️ Le pire creux (54 j) date de mai-juin 2026, tout frais.
+**Sizing UNIFORME — modulateur turn-of-month KILL au protocole gelé 07-11**
+(`docs/audit/tom_amplificateur_protocole_2026-07-11.md`) : les sessions en
+fenêtre ToM J-2..J+3 font PIRE que le reste (Δ = −0,054R net, 4/4 critères
+FAIL) — l'effet ToM quotidien du sourcing 07-07 ne vit pas dans le hold
+nocturne.
 
 **Validation croisée moteur vs étude (lot 3, 2026-07-10) : PASS** —
 634/634 sessions appariées, |Δr| = 0,0000R aux conventions moteur (sortie
