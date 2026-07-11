@@ -118,6 +118,14 @@ le résultat s'accumule. Deux déclencheurs gravés d'avance : si le creux
 dépasse le pire creux historique que tu as accepté → on te propose d'arrêter ;
 après ~30 nuits (~6 semaines) → revue ensemble pour décider du passage en
 réel à toute petite taille. Rien ne part en live d'ici là.
+**Idée annexe testée et écartée (11/07) — miser plus gros en fin de mois** :
+on avait remarqué en juillet que l'or monte plus que d'habitude les quelques
+jours autour du changement de mois. Vérifié sur les 635 nuits d'Adage, avec
+les critères de réussite écrits AVANT de regarder les chiffres : c'est
+l'inverse — **les nuits de fin de mois rapportent MOINS que les autres**
+(+0,04R contre +0,09R). L'effet fin-de-mois existe peut-être en journée, mais
+Adage ne tient que la nuit, et la nuit n'en profite pas. Conclusion : même
+taille de mise toutes les nuits, l'idée est enterrée avec ses chiffres.
 
 ### 🟡 Renversé — CANDIDAT (métaux) — en instruction
 **Le pari** : les stops des particuliers s'accumulent sous les creux évidents.
