@@ -1090,3 +1090,43 @@ aucun overlay, sortie au mur `session_exit`). Validation croisée
 
 Verdict : **lot 3 PASS, jalon 2bis complet. Prochaine étape : jalon 3 =
 dry-run parquet 3 mois (sans code), puis jalon 4 = ombre.**
+
+## 2026-07-11 — Adage jalon 3 : dry-run parquet 3 mois = mécanique PASS, edge fenêtre fraîche non re-prouvé
+
+Driver `tmp/dryrun_adage_jalon3.py` (zéro code moteur) : rejeu min1
+2026-04-09 → 2026-07-09 (fin des données) à travers la **chaîne Orchestrator
+complète** — dict signal → `Signal.from_webhook_json` → Guards (spread ≤
+0,10×R, DD, positions) → sizing 0,25 %/session (milieu du sizing gravé) →
+`DryRunAdapter` (fill à l'open de la barre suivante, spread 1 bps) →
+`PositionManager(adage_manager_config())` → audit. σ(20 sessions) réchauffé
+sur l'historique complet ; `account.new_day()` au rythme des jours rejoués
+(sans quoi le guard daily-DD verrait 3 mois comme un seul jour).
+
+**Mécanique : PASS.**
+- 65/65 sessions traversent la chaîne (0 rejet guard, 0 position orpheline,
+  0 encore ouverte en fin de replay).
+- Sorties : **46 `exit_session`** (bars_open médiane ET max = 541 = pile la
+  1re barre min1 ≥ 08:00 Londres après le fill 22:00 UTC ; min 421 = trous
+  de densité min1) + **19 `exit_sl`** — aucun overlay déclenché.
+- Contre-vérification CLI même fenêtre : concordant sur le sous-ensemble
+  commun (dry-run brut -0,215R vs CLI -0,271R, écart = coûts d'entrée CLI
+  + 2 SL borderline sous slippage). ⚠️ **Piège CLI documenté** : `run
+  --from/--to` tranche APRÈS `prepare()` (préserve l'ATR) mais le σ(20
+  sessions) est calculé dans `generate_signals` → il se réchauffe DANS la
+  fenêtre et perd ~19 sessions en tête (46 trades au lieu de 65). Toute
+  lecture fenêtrée d'Adage passe par le driver, pas par le CLI fenêtré.
+
+**Edge fenêtre fraîche : net -0,016R/session (brut +0,009R), n=65** vs
++0,070R attendu. Mensuel net : avril **+7,36R** (n=16) · mai **-3,05R**
+(n=20) · juin **-7,74R** (n=23) · juillet **+2,39R** (n=6, rebond).
+maxDD fenêtre -15,8R net ≈ **-3,9 % équity à 0,25 %/session** (dans
+l'enveloppe de la dérogation DD, pire historique -16,2R). Débit 21,7
+sessions/mois ✓. Mai-juin = exactement le pire creux historique assumé au
+jalon 1 (« tout frais ») ; il ne s'est pas résorbé sur la fenêtre, le
+rebond de juillet est en cours.
+
+Verdict : **jalon 3 exécuté — le moteur est prêt, l'edge frais est dans le
+creux connu. Décision opérateur requise : jalon 4 ombre maintenant (coût
+quasi nul, l'ombre tranche creux-vs-mort) ou re-mesure à +~20 sessions
+(relancer le driver, 1 commande).** Sessions : 
+`tmp/dryrun_adage_jalon3_sessions.jsonl`.

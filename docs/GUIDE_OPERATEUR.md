@@ -95,7 +95,7 @@ rachètent.
 échantillon mince, d'où la prudence), ~1-2 trades/mois. Coût or : ~0.015R
 chez GFT. En live à taille réduite (rodage ×0.25).
 
-### 🟡 Adage — CANDIDAT (or) — implémentée, en route vers le dry-run
+### 🟡 Adage — CANDIDAT (or) — dry-run 3 mois fait, ta décision pour l'ombre
 **Le pari** : la performance de l'or se concentre **la nuit** (heures
 asiatiques/européennes), pas pendant les heures américaines. On achète l'or à
 la réouverture du marché (18h New York), on tient la position toute la nuit
@@ -108,9 +108,13 @@ car ils détruisent cet edge (l'or « respire » sous leurs seuils la nuit).
 ~22 sessions/mois, 3/3 semestres récents positifs. Deux dérogations actées en
 connaissance de cause (taux de gagnants 58,6 % sous la boussole ; pire creux
 -16R ≈ -3 à -5 % du compte à la taille gravée 0,20-0,30 %/session).
-**Où elle en est (2026-07-10)** : le moteur sait maintenant la jouer (sortie à
-heure fixe implémentée et testée, backtest moteur = étude à l'identique).
-Prochaines étapes : rejeu 3 mois (dry-run), puis ombre, puis ta décision.
+**Où elle en est (2026-07-11)** : rejeu 3 mois (dry-run) fait. La mécanique est
+irréprochable (65 nuits rejouées, sorties pile à 8h Londres, zéro raté). Côté
+rentabilité, la fenêtre récente est quasi nulle : avril très bon, mai-juin =
+exactement le creux historique déjà assumé lors de ta dérogation, et juillet
+repart bien (+2,4R sur 6 nuits). Rien de cassé, mais l'edge frais n'est pas
+encore re-prouvé. Prochaine étape = ta décision : passer à l'ombre (observer en
+conditions réelles, coût quasi nul) ou attendre ~1 mois de plus et rejouer.
 
 ### 🟡 Renversé — CANDIDAT (métaux) — en instruction
 **Le pari** : les stops des particuliers s'accumulent sous les creux évidents.
@@ -220,8 +224,9 @@ mesure), GFT -5,4 % (venue principale, frais 3× plus bas sur l'or).
 
 **La cible** : 1,5R net/mois = un portefeuille de **4 à 6 moteurs** de la
 qualité actuelle (~8-12 trades/mois cumulés à ~0.2R). Il en existe 1 validé
-(Glissade) + 2 candidats (Renversé en ombre, Adage en route vers le dry-run —
-et Adage vaudrait à lui seul ~+1,5R/mois s'il confirme) → **il en manque
+(Glissade) + 2 candidats (Renversé en ombre, Adage dry-run fait — Adage
+vaudrait à lui seul ~+1,5R/mois s'il confirme, mais sa fenêtre récente est
+dans un creux connu, l'ombre doit trancher) → **il en manque
 2-4**, que la R&D cherche au rythme d'un candidat instruit par quinzaine.
 
 **Jalons** : ≥0,8R/mois quand Glissade + Renversé sont validés ensemble →

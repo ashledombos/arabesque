@@ -69,6 +69,24 @@ au close de la barre du mur, R linéaire), Exp nette moteur +0,068R vs
 (slippage 0,03R > 0,5 bps mesuré = côté pessimiste).
 Scripts : `tmp/wf_session_or.py`, `tmp/validation_croisee_adage.py`.
 
+**Dry-run parquet 3 mois (jalon 3, 2026-07-11) : mécanique PASS, edge
+fenêtre fraîche non re-prouvé** (`tmp/dryrun_adage_jalon3.py`, chaîne
+Orchestrator complète guards→sizing 0,25 %→fill→manager profil Adage) :
+
+| Fenêtre 2026-04-09 → 07-09 | Valeur |
+|---|---|
+| Sessions traversées | 65/65 (0 rejet guard, 0 orpheline) |
+| Sorties | 46 mur `exit_session` (médiane 541 barres = pile 08:00 Londres), 19 SL |
+| Exp nette fenêtre | **-0,016R** (brut +0,009R) vs +0,070R attendu |
+| Mensuel net | avril +7,36R · mai -3,05R · juin -7,74R · juillet +2,39R (n=6) |
+| maxDD fenêtre | -15,8R net ≈ -3,9 % équity à 0,25 %/session (enveloppe dérogation OK) |
+
+Mai-juin = le pire creux historique déjà assumé à la dérogation DD ;
+juillet rebondit. ⚠️ Piège CLI documenté : `run --from/--to` réchauffe le
+σ(20 sessions) DANS la fenêtre (le tranchage post-prepare ne préserve que
+l'ATR) → perd ~19 sessions en tête ; toute lecture fenêtrée passe par le
+driver dry-run, pas par le CLI fenêtré.
+
 ## Instruments
 
 **XAUUSD UNIQUEMENT.** XAG = kill (spread nuit 10-11 bps re-confirmé par le
@@ -89,5 +107,8 @@ si broker injoignable, jamais d'exit inventé — lot 2).
   (dérogation DD) + sizing gravé.
 - 2026-07-10 : jalon 2bis — implémentation moteur (lot 1 manager, lot 2
   monitor live, lot 3 stratégie + validation croisée PASS).
-- **Prochaine étape : jalon 3 = dry-run parquet 3 mois, puis jalon 4 =
-  ombre.** Pas de live avant.
+- 2026-07-11 : jalon 3 dry-run parquet 3 mois — **mécanique PASS**, edge
+  fenêtre fraîche net -0,016R (creux mai-juin assumé + rebond juillet).
+- **Prochaine étape : décision opérateur jalon 4 (ombre à 0,20-0,30 %/
+  session, décommenter `live.session_exit_by_strategy`) ou re-mesure à
+  +~20 sessions (relancer `tmp/dryrun_adage_jalon3.py`).** Pas de live avant.
