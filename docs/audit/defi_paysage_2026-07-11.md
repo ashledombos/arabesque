@@ -18,7 +18,7 @@ vers les jeunes DEX (Lighter, Pacifica, Aster, EdgeX).
 | # | Famille | Rendement indicatif (07-2026) | Risque dominant | Verdict préliminaire |
 |---|---|---|---|---|
 | 1 | **Arb funding cross-DEX** (long venue basse / short venue haute, delta-neutre) | écarts 10-20 % APR récurrents ; MAIS étude nov-2025 (26 venues) : 17 % des observations ≥ 20 bps et **seulement 40 % des meilleures opportunités positives après coûts** | venue jeune ×2 (smart contract, retraits), edge dopé par saisons de points → décroissant | **✗ KILL 07-11 soir au protocole gelé** (`funding_cross_dex_protocole_2026-07-11.md`) : net -1,23 %/an, persistance 5 %, spread réalisé = ½ du spread d'entrée ; même le spread statique HL↔Aster < benchmark sUSDe |
-| 2 | **Cash-and-carry productisé** (Ethena sUSDe ; Pendle PT = version taux fixe) | sUSDe : 8-18 % historique, **haut de single-digit au T2-2026** (régime compressé — cohérent avec notre moniteur `hl_funding_regime` dormant) ; PT-sUSDe fixe 6,4-9 % | depeg USDe, custodian/exchange sur la jambe short (scénario FTX), régulation | **À INSTRUIRE — P2** (benchmark du carry PARK + porte « collatéral spot » item 4 file des GO) |
+| 2 | **Cash-and-carry productisé** (Ethena sUSDe ; Pendle PT = version taux fixe) | sUSDe : 8-18 % historique, **haut de single-digit au T2-2026** (régime compressé — cohérent avec notre moniteur `hl_funding_regime` dormant) ; PT-sUSDe fixe 6,4-9 % ; **CORRIGÉ 07-11 (API officielle Ethena) : sUSDe 3,7 %/an courant, PT ~4 % — la barre passive réelle = lending USDC ~5-6 %** | depeg USDe, custodian/exchange sur la jambe short (scénario FTX), régulation | **✓ INSTRUIT — P2 SOLDÉ 07-11** (`carry_collateralise_dossier_2026-07-11.md`) : porte opérationnelle OUVERTE (portfolio margin HL, BTC/HYPE seuls collatéraux éligibles) mais **PARK maintenu au régime courant** (BTC net ≈ +2,3 %/an, HYPE ≈ +7,8 % ne paie pas le risque venue²) ; réouverture = moniteur funding seul (HYPE ajouté au moniteur) |
 | 3 | **Lending stablecoin** (Aave v3/v4, Morpho, Spark) | 3,5-9 % variable, USDC mainnet ~5-6 % | protocole (le plus audité de la DeFi), taux variable | **Socle de trésorerie** de la poche, pas un edge — instruire seulement si la poche est capitalisée |
 | 4 | **Staking ETH / LST** (Lido stETH) | 2,6-3,3 % net | prix ETH (dominant), slashing marginal | ✗ en tant que *rendement* (sous le lending stable avec risque prix en plus) ; pertinent uniquement si expo ETH voulue = décision d'investissement opérateur, pas de trading |
 | 5 | **Vaults contrepartie** (HLP Hyperliquid, JLP Jupiter) | HLP ~15-30 % APR historique, CAGR ~20 % T1-2026 | **short-vol structurel** : cible d'attaques répétées (JELLY 03-25, POPCAT 11-25, Fartcoin 04-26) ; TVL -55 % en 9 mois = les informés sortent pendant que le P&L affiché monte | **✗** — anti-boussole (petits gains, queue grasse non bornée), et le signal TVL est éloquent |
@@ -52,11 +52,14 @@ mais sa version *maker à 0 frais* (Lighter) rejoint la famille #6, pas un re-te
    viabilité net (coûts 2 jambes + slippage + **prime de risque venue** à expliciter) ;
    la stat qui tue : persistance de l'écart (l'étude académique dit que 60 % des
    meilleures opportunités s'évaporent après coûts).
-2. **P2 — Instruire le carry collatéralisé** : (a) porte déjà nommée au PARK 07-09
-   « collatéralisation spot du short même venue » (item 4 file des GO) ; (b) la
-   version *productisée* (sUSDe/PT Pendle) comme **benchmark passif** : si Ethena
-   livre ~8 % sans travail ni exécution en propre, tout carry maison doit battre
-   ça net de risque venue pour justifier l'infrastructure.
+2. ~~**P2 — Instruire le carry collatéralisé**~~ **EXÉCUTÉ ET SOLDÉ 07-11**
+   (`carry_collateralise_dossier_2026-07-11.md`) : (a) porte opérationnelle
+   OUVERTE — portfolio margin HL = exactement la clause « collatéralisation
+   spot même venue », mais BTC/HYPE seuls éligibles, et le régime courant ne
+   paie pas (BTC +2,3 %, HYPE +7,8 % pour du risque venue²) → **PARK maintenu,
+   réouverture = moniteur funding seul** (HYPE ajouté) ; (b) benchmark passif
+   CORRIGÉ : sUSDe réel courant 3,7 % (API Ethena), barre passive = lending
+   USDC ~5-6 %.
 3. **P2bis — DCA amélioré sur majeures** (1 session, parallèle possible de P2 —
    aucune infrastructure partagée). Protocole à pré-enregistrer : DCA fixe vs
    variantes pondérées (MM200/Mayer/paliers de drawdown) vs lump-sum, historique

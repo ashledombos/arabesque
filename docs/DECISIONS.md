@@ -4017,3 +4017,27 @@ choisir). État initial au 07-11 : 635 sessions historiques, maxDD net
 **Config live INCHANGÉE** : `live.session_exit_by_strategy` reste commenté,
 aucun assignment adage — à câbler au jalon 5 seulement (avec, si besoin, le
 lot chaîne-live différé).
+
+## Décision 2026-07-11 (bis) — Carry PARK : clause opérationnelle levée, réouverture réduite au régime de funding, HYPE ajouté au moniteur
+
+**Contexte** : P2 de la file DeFi (item 4 file des GO « collatéral spot
+Hyperliquid ») exécuté en session documentaire (0 € risqué), dossier
+`docs/audit/carry_collateralise_dossier_2026-07-11.md`.
+
+**Constat** : le portfolio margin Hyperliquid (live ~début 2026) réalise
+exactement la clause de réouverture n°2 du PARK 07-09 (« collatéralisation
+spot du short même venue ») — netting spot/perp, marge empruntée contre le
+spot, le pump ne liquide plus le short (plafond borrow-lend ≈ +80 %/fenêtre
+à 10x). Limite structurelle : **BTC et HYPE seuls collatéraux éligibles**.
+Au régime courant les deux jambes ne paient pas (BTC net ≈ +2,3 %/an,
+HYPE ≈ +7,8 % avec collatéral = token de la venue, motif FTT) — sous ou à
+peine au-dessus de la barre passive corrigée (sUSDe 3,7 % courant par l'API
+officielle Ethena ; lending USDC ~5-6 %).
+
+**Décision** : PARK maintenu ; la réouverture ne dépend plus QUE du moniteur
+`hl_funding_regime` (clause n°1, seuils INCHANGÉS : ≥ 3 instruments
+> 20 %/an soutenu ≥ 7 j). **HYPE ajouté aux instruments surveillés**
+(couverture : avec BTC c'est l'une des deux seules jambes exécutables en
+auto-collatéralisé) — ajout de couverture, pas de seuil. Playbook de réveil
+pré-écrit dans le dossier ; tout réveil passera par un nouveau protocole
+conditionnel pré-enregistré, décision opérateur.

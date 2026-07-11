@@ -1179,3 +1179,39 @@ Validation d'unités PASS : |APR| médian par venue 5-11 %, rapport max
   noter que maker-only réduirait les coûts (~2×) mais pas la
   non-persistance (le tueur principal), et que les alts réveillent le
   stress pump fatal du carry PARK.
+
+## 2026-07-11 — Carry collatéralisé (P2 poche DeFi) : porte opérationnelle OUVERTE (portfolio margin HL), PARK maintenu au régime courant, benchmark passif corrigé
+
+Recherche documentaire + chiffrage sur cache/read-only (0 € risqué). Dossier
+complet : `docs/audit/carry_collateralise_dossier_2026-07-11.md`.
+
+- **La clause de réouverture n°2 du carry PARK 07-09 est LEVÉE** : le
+  portfolio margin Hyperliquid (live ~début 2026, beta élargie 03-2026)
+  fait exactement « collatéralisation spot du short même venue » — compte
+  unifié, netting spot/perp, la doc donne le carry BTC comme exemple
+  canonique. MAIS collatéral limité à **BTC (UBTC/Unit) et HYPE** (LTV
+  0,5) → les 5 instruments du dossier PARK (AAVE, LINK…) restent
+  non-collatéralisables. Le pump ne liquide plus le short (le spot couvre) ;
+  nouveau plafond = liquidation borrow-lend ≈ **+80 %/fenêtre à 10x**, qui
+  se RESSERRE à levier plus bas (~+34 % à 3x — inversion contre-intuitive).
+  Éligibilité : compte > 10 k$, caps, ordre de liquidation non déterministe.
+- **Économie au régime courant (funding réel, frais 29 bps, borrow 5 %)** :
+  BTC net ≈ **+2,3 %/an** (funding 6 m +3,1 %) = mort, sous le lending
+  USDC ; HYPE net ≈ **+7,8 %** (funding 6 m +8,6 %, 19 mois d'historique
+  fetché read-only) = ne paie pas sa prime (collatéral = token de la venue,
+  motif FTT ; 14 fenêtres 7 j > +80 % → rebalancement quotidien requis ;
+  1 seul instrument vs critère gelé ≥ 3 à ≥ 8 %).
+- **Benchmark passif CORRIGÉ** : API officielle Ethena 08-07 → sUSDe
+  **3,7 %/an courant** (30/90 j ; 11,0 % depuis l'origine), PAS les ~8 %
+  cartographiés 07-11 (sources secondaires datées). La barre passive réelle
+  aujourd'hui = lending USDC ~5-6 %. Cohérence : sUSDe EST le carry
+  BTC/ETH — même régime compressé que notre moniteur.
+- **Verdict : PARK MAINTENU, réouverture simplifiée** — ne dépend plus que
+  du régime (moniteur `hl_funding_regime`, seuils inchangés ≥ 3 × > 20 %/an
+  soutenu). **HYPE ajouté au moniteur** (8 instruments, run 07-11 :
+  dormant 0/8, HYPE 14 j +10,1 %). Playbook de réveil pré-écrit dans le
+  dossier (10x, BTC et/ou HYPE, compte ≥ 10 k$, re-benchmarker sUSDe au
+  moment du réveil — il montera avec le même régime).
+- Données : `tmp/hl_funding_HYPE.parquet` (fetch API info, depuis listing
+  12-2024) ; pumps sur closes 4h HL. **File DeFi restante : P2bis DCA
+  amélioré (sur go) ; P3 trésorerie quand la poche sera capitalisée.**

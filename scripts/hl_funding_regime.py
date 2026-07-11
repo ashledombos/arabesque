@@ -4,7 +4,12 @@
 Contexte (2026-07-09) : le cash-and-carry HL est en PARK (protocole
 docs/audit/cash_and_carry_hl_protocole_2026-07-09.md) — rendement de base
 insuffisant une fois la marge de survie payée. Condition de réouverture n°1 :
-régime de funding euphorique. Ce script mesure le funding annualisé des
+régime de funding euphorique. La condition n°2 (collatéralisation spot du
+short même venue) est LEVÉE depuis le 2026-07-11 — portfolio margin HL,
+dossier docs/audit/carry_collateralise_dossier_2026-07-11.md — la réouverture
+ne dépend donc plus QUE de ce moniteur. HYPE ajouté 07-11 (avec BTC, c'est
+l'un des deux seuls collatéraux éligibles = jambes exécutables) ; seuils de
+réveil inchangés. Ce script mesure le funding annualisé des
 14 derniers jours sur les instruments à plus forte prime structurelle et
 rend un verdict :
 
@@ -25,7 +30,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-INSTRUMENTS = ["AAVE", "LINK", "UNI", "LTC", "NEAR", "DOGE", "BTC"]
+INSTRUMENTS = ["AAVE", "LINK", "UNI", "LTC", "NEAR", "DOGE", "BTC", "HYPE"]
 LOOKBACK_DAYS = 14
 WAKE_THRESHOLD = 0.20        # 20 %/an annualisé sur 14 j
 WAKE_MIN_INSTRUMENTS = 3
