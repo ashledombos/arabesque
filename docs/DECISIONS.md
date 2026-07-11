@@ -3974,3 +3974,46 @@ sont livrés. Décisions du lot 3 :
 Validation croisée moteur vs étude : **PASS** (634/634 appariées, Exp nette
 +0,068R vs +0,070R, détail EXPERIMENT_LOG § 2026-07-10 lot 3). **Prochaine
 étape : jalon 3 = dry-run parquet 3 mois, zéro code.**
+
+## Décision 2026-07-11 — Adage jalon 4 : GO ombre, sous forme « ombre données » automatisée (opérateur)
+
+**Jalon 3 exécuté le matin même** (dry-run parquet 3 mois, EXPERIMENT_LOG
+§ 07-11) : mécanique PASS, edge fenêtre fraîche net -0,016R/session (creux
+mai-juin assumé à la dérogation DD + rebond juillet). L'opérateur a choisi
+de passer au jalon 4 (option a) plutôt que d'attendre une re-mesure.
+
+**Découverte de périmètre pendant l'instruction** : l'ombre « chaîne live »
+(pattern Renversé) n'est PAS « décommenter une ligne » pour Adage —
+`bar_aggregator._make_signal_generator` ne connaît pas `adage` (fallback
+silencieux Extension) et le cache/historique de l'aggregator (250-300
+barres, `get_history` cTrader max 5 000/requête) est ~100× trop petit pour
+le σ(20 sessions) ≈ 30 000 barres min1 ; avec les restarts watchdog
+quotidiens, Adage n'émettrait jamais. Câbler tout ça = un lot de dev sur le
+chemin live.
+
+**Décision opérateur (choix éclairé parmi 3 options)** : **ombre « données »
+automatisée**, zéro code moteur. Motifs : le signal Adage est déterministe à
+l'horloge (l'ombre chaîne-live n'ajoute presque rien statistiquement), le
+spread nocturne d'entrée est déjà sondé (0,98 bps, 7 nuits), et la seule
+pièce jamais testée en réel — la fermeture au mur par le monitor sur une
+vraie position broker — n'est couverte par AUCUNE forme d'ombre (pas de
+position en ombre) : elle sera validée aux premières micro-sessions du
+jalon 5. C'est une adaptation de la forme du « shadow live » du pipeline
+(VALIDATION_CONTRACT) pour ce candidat, actée opérateur.
+
+**Mise en œuvre** : `scripts/adage_ombre_daily.py` (fetch incrémental
+Dukascopy XAUUSD + rejeu de TOUTE la série via la chaîne Orchestrator du
+jalon 3 — une seule implémentation, zéro nouvelle convention) →
+`logs/adage_ombre_sessions.jsonl` + `logs/adage_ombre_state.json` ; ligne
+`adage_ombre` dans la watchlist `/suivi`. **Seuils pré-enregistrés** (gravés
+avant la 1re session d'ombre) : `tripwire_dd` si le maxDD net de la série
+complète dépasse **-16,2R** (le pire creux gravé à la dérogation — le
+dépasser invalide factuellement l'hypothèse « creux dans la distribution »
+→ proposer KILL) ; `revue_due` à **n_ombre ≥ 30** sessions (~6 semaines) →
+revue opérateur go/no-go jalon 5 (micro-live 0,20-0,30 %/session, venue à
+choisir). État initial au 07-11 : 635 sessions historiques, maxDD net
+-15,78R, verdict `collecte`.
+
+**Config live INCHANGÉE** : `live.session_exit_by_strategy` reste commenté,
+aucun assignment adage — à câbler au jalon 5 seulement (avec, si besoin, le
+lot chaîne-live différé).

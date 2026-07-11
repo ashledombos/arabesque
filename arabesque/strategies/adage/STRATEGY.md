@@ -109,6 +109,12 @@ si broker injoignable, jamais d'exit inventé — lot 2).
   monitor live, lot 3 stratégie + validation croisée PASS).
 - 2026-07-11 : jalon 3 dry-run parquet 3 mois — **mécanique PASS**, edge
   fenêtre fraîche net -0,016R (creux mai-juin assumé + rebond juillet).
-- **Prochaine étape : décision opérateur jalon 4 (ombre à 0,20-0,30 %/
-  session, décommenter `live.session_exit_by_strategy`) ou re-mesure à
-  +~20 sessions (relancer `tmp/dryrun_adage_jalon3.py`).** Pas de live avant.
+- 2026-07-11 : **jalon 4 ACTIF — ombre « données » automatisée** (go
+  opérateur, DECISIONS 07-11) : `scripts/adage_ombre_daily.py` lancé par
+  `/suivi` (ligne `adage_ombre`), seuils pré-enregistrés `tripwire_dd`
+  -16,2R / `revue_due` n≥30. Config live inchangée (l'ombre chaîne-live
+  aurait exigé un lot de dev aggregator — différé au jalon 5 si besoin).
+- **Prochaine étape : revue opérateur à n_ombre ≥ 30 (~6 semaines) →
+  go/no-go jalon 5 micro-live à 0,20-0,30 %/session** (décommenter
+  `live.session_exit_by_strategy` + assignment à ce moment-là).
+  Pas de live avant.
