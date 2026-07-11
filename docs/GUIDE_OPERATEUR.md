@@ -244,6 +244,24 @@ dans un creux connu, l'ombre doit trancher) → **il en manque
 montée en taille par crans → ≥1,5R/mois → achat d'un nouveau challenge
 (décision : pas avant ce seuil).
 
+**La chasse aux nouveaux moteurs — bilan de la 2e campagne (11/07)** : on a
+pris 5 idées connues des études académiques (l'effet « fin de mois » sur les
+actions US, le creux autour du fixing de l'or à 15h Londres, les devises qui
+baissent pendant leurs heures locales, tenir le pétrole la nuit comme Adage
+tient l'or, le bitcoin pendant les heures américaines) et on les a testées
+sur nos 30 derniers mois de données, règles fixées à l'avance. **Les 5 sont
+mortes, chiffres à l'appui** — soit l'effet a disparu depuis que les études
+l'ont publié, soit il est trop petit pour payer les frais. C'est la 3e
+campagne d'affilée qui finit ainsi, et c'est une information en soi : les
+idées « sur étagère » des livres ne marchent plus sur 2025-26, notre exigence
+« ça doit marcher récemment » fait exactement son travail de filtre. Deux
+leçons : (1) la dérive nocturne est une particularité de l'OR — le même pari
+sur le pétrole PERD, ce qui renforce le caractère spécifique d'Adage ;
+(2) les moteurs manquants viendront plus probablement du pipeline en cours
+(Adage, Renversé) et des réhabilitations d'octobre que d'une trouvaille de
+littérature. Restent en petite file : le gap du week-end sur l'or (½ étude)
+et une variante « annonces FOMC+CPI » (espérance faible, un seul essai).
+
 **Les 3 régimes de risque (décision 2026-07-07)** — le R/mois dit si le moteur
 est bon ; le % risqué par trade dit à quelle vitesse on roule. Gain mensuel =
 l'un × l'autre :
