@@ -80,3 +80,25 @@ Distribution de |gap| (moyenne, médiane, part ≥ 15 bps), taux de comblement
 `tmp/gap_weekend_fetch_sundays.py`, `tmp/gap_weekend_sundays.parquet`,
 `tmp/gap_weekend_study.py` → `tmp/gap_weekend_results.txt` ; verdict annexé
 ici + EXPERIMENT_LOG + HANDOFF.
+
+---
+
+## VERDICT (annexé après calcul, 2026-07-12) — KILL 0/3 sur les deux variantes
+
+- Données servies : 106/131 dimanches (Dukascopy ne publie pas les dimanches
+  2024-01 → 2024-06-16 ; 25 weekends exclus comptés) → n=102 weekends
+  instruits, série effective ~2024-06-23 → 2026-07-05.
+- **Variante A (n=102)** : fade moyen **−7,93 bps/weekend**, t=−0,96,
+  1/5 sous-périodes positives, ratio brut/coût **−2,6×** → KILL 0/3.
+- **Variante B |gap| ≥ 15 bps (n=33)** : fade moyen **−22,13 bps**, t=−1,14,
+  2/5, ratio **−7,4×** → KILL 0/3.
+- Descriptif : |gap| médian 6,9 bps, 32 % ≥ 15 bps ; **comblement 86 %** avant
+  lundi 21:00 — taux élevé mais espérance signée du fade négative (illusion
+  du « gap fill ») ; asymétrie : fade d'un gap UP = −16,3 bps (l'or qui ouvre
+  haut continue, cohérent drift nocturne Adage), gap down ≈ 0.
+- La continuation (sens opposé) n'atteint pas non plus la significativité
+  (|t| < 1,2) — toute variante continuation = nouveau protocole un tir,
+  espérance a priori faible.
+
+Scripts : `tmp/gap_weekend_fetch_sundays.py`, `tmp/gap_weekend_study.py`
+→ `tmp/gap_weekend_results.txt`, sessions `tmp/gap_weekend_sessions.jsonl`.

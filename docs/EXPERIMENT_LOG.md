@@ -1299,3 +1299,39 @@ Dossier : `docs/audit/sourcing_familles_2026-07-11.md`. Méthode 07-07 reconduit
 **Lecture** : 3e cycle où le régime récent tue toutes les anomalies documentées.
 La matière vivante = pipeline existant (Adage, Renversé, Glissade-or) +
 réhabilitations octobre. **Item 5 SOLDÉ — prochain go = item 6 (gap weekend or).**
+
+## 2026-07-12 — Gap weekend or (item 6 file des GO) : KILL au protocole pré-enregistré — le fade perd, les gaps or continuent
+
+**Protocole gelé et commité `a77c299` AVANT calcul**
+(`docs/audit/gap_weekend_or_protocole_2026-07-12.md`) : hypothèse littérature
+« les gaps se comblent » jouée en FADE, définitions figées (gap = close
+dernière barre réelle vendredi → open 1re barre réelle dimanche, entrée
++5 min, sortie lundi 08:00 UTC, zéro rollover traversé), variantes A (tous
+gaps) et B (|gap| ≥ 15 bps) pré-déclarées, coût 3 bps A/R pessimiste
+(réouverture non sondée), seuils identiques cycles 07-07/07-11, un tir.
+
+**Données** : store min1 (exclut structurellement sam/dim) + fetch ad hoc des
+dimanches via `_dukascopy_fetch_day` (`tmp/gap_weekend_fetch_sundays.py` →
+`tmp/gap_weekend_sundays.parquet`) : 106/131 dimanches servis — Dukascopy ne
+publie pas les dimanches de 2024-01 → 2024-06-16 (bloc contigu) ; 25 weekends
+exclus comptés, série effective ~2024-06-23 → 2026-07-05, n=102.
+
+**Verdict KILL 0/3 sur les deux variantes**
+(`tmp/gap_weekend_study.py` → `tmp/gap_weekend_results.txt`) :
+
+- **A (n=102)** : fade moy **−7,93 bps/weekend** (t=−0,96), 1/5 sous-périodes,
+  ratio brut/coût −2,6×.
+- **B |gap| ≥ 15 bps (n=33)** : fade moy **−22,13 bps** (t=−1,14), 2/5,
+  ratio −7,4×.
+- Descriptif : |gap| médian 6,9 bps (32 % ≥ 15 bps), **taux de comblement
+  86 %** avant lundi 21:00 — l'illusion classique : le prix retouche le close
+  vendredi mais l'espérance signée du fade est négative (le chemin déborde
+  dans l'autre sens d'abord). Asymétrie parlante : fader un gap UP coûte
+  −16,3 bps en moyenne (l'or qui ouvre haut continue de monter — cohérent
+  avec le drift nocturne long d'Adage) ; gap down ≈ 0.
+- La continuation (signe opposé) n'est pas significative non plus
+  (|t| < 1,2) : rien à instruire dans l'autre sens sans nouveau protocole.
+
+**Conséquences** : idée enterrée avec chiffres, aucune variante déclarée
+restante. Aucun changement live. **Item 6 SOLDÉ — prochain go = item 7
+(variante annonces FOMC+CPI, un tir, espérance faible).**

@@ -259,8 +259,20 @@ leçons : (1) la dérive nocturne est une particularité de l'OR — le même pa
 sur le pétrole PERD, ce qui renforce le caractère spécifique d'Adage ;
 (2) les moteurs manquants viendront plus probablement du pipeline en cours
 (Adage, Renversé) et des réhabilitations d'octobre que d'une trouvaille de
-littérature. Restent en petite file : le gap du week-end sur l'or (½ étude)
-et une variante « annonces FOMC+CPI » (espérance faible, un seul essai).
+littérature.
+
+**Le gap du week-end sur l'or : mort aussi (12/07)**. L'idée du folklore :
+quand l'or rouvre le dimanche soir à un prix différent du vendredi (le
+« gap »), il reviendrait vers le prix de vendredi — on parierait donc contre
+le gap. Testé règles fixées à l'avance sur 102 week-ends : **le pari perd**
+(−8 points de base par week-end en moyenne, et −22 sur les gros gaps). Le
+piège classique est démonté au passage : le prix retouche bien celui de
+vendredi 86 % du temps (« le gap se comble »), mais il part d'abord du
+mauvais côté — le taux de comblement fait joli dans les livres, l'espérance
+du pari est négative. Bonus cohérent avec Adage : un or qui ouvre HAUT le
+dimanche continue de monter — encore la dérive nocturne de l'or, pas une
+occasion de la contrer. Reste en petite file : la variante « annonces
+FOMC+CPI » (espérance faible, un seul essai).
 
 **Les 3 régimes de risque (décision 2026-07-07)** — le R/mois dit si le moteur
 est bon ; le % risqué par trade dit à quelle vitesse on roule. Gain mensuel =
