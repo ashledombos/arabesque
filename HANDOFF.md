@@ -8,6 +8,7 @@
 > **À lire en premier dans toute session de bilan/suivi : `logs/edge_audit_latest.md`** — état actuel de l'edge par stratégie, sans refaire l'analyse. Rafraîchir si > 24h via `python scripts/audit_edge_live_vs_backtest.py`.
 >
 > **📋 FILE DES GO (ordre de priorité, actée opérateur 2026-07-10)** — à la question « quelle est la prochaine étape ? », répondre avec le 1er item non soldé :
+> **➡️ ORDRE DU PROCHAIN « go » (imposé 07-11, un « go » nu suffit)** : **1) P2bis DCA amélioré majeures** (clôture la file DeFi pendant que le contexte est frais : cartographie + benchmark sUSDe corrigé 3,7 % + barre lending 5-6 % servent directement au protocole) → **2) item 3 turn-of-month** → ensuite reprendre la file ci-dessous dans l'ordre.
 > 1. ✅ SOLDÉ 07-10 — Session-métaux : GO opérateur (dérogation WR) + WF formel jalon 1 **PASS par dérogation DD** (Exp +0,070R, 3/3 fenêtres récentes ✅, sizing gravé 0,20-0,30 %/session).
 > 2. ➡️ **EN COURS : session-or « Adage » — jalon 4 OMBRE « DONNÉES » ACTIF depuis 07-11 (go opérateur, DECISIONS 07-11)** : `scripts/adage_ombre_daily.py` (fetch + rejeu chaîne Orchestrator, lancé par `/suivi` via la ligne `adage_ombre`), seuils pré-enregistrés `tripwire_dd` -16,2R / `revue_due` n≥30 (~6 sem) → go/no-go jalon 5 micro-live 0,20-0,30 %/session. Config live INCHANGÉE (`session_exit_by_strategy` toujours commenté — jalon 5). Jalon 3 dry-run 3 mois : mécanique PASS, edge frais net -0,016R (creux assumé + rebond juillet).
 > 3. **Turn-of-month en amplificateur** de session-or (1 session, débloqu­é par le GO métaux).
