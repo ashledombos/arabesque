@@ -112,3 +112,58 @@ plus tôt 2018-03).
 
 - Script `tmp/dca_ameliore_study.py` (fetch + simulation + tableau).
 - Verdict annexé à ce document + `docs/EXPERIMENT_LOG.md` + HANDOFF.
+
+---
+
+## VERDICT (2026-07-11, nuit — exécuté après gel, sortie brute `tmp/dca_ameliore_results.txt`)
+
+**Données obtenues** : Binance 1d BTC/ETH 2017-08-17 → 2026-07-11 (3 251 j,
+64 cohortes 3 ans par actif) ; extension diagnostic Bitstamp BTC 2011-09 →
+(5 428 j, 136 cohortes).
+
+### Q2 — timing : aucun moteur de timing retenu
+
+- **DCA-M (Mayer) : FAIL au critère (c)** — stress 2021 BTC Δ R_norm
+  **-0,0004** (horizon principal 3 ans). Son MOIC est même *inférieur* au DCA
+  fixe (1,98 vs 2,04 BTC) : l'essentiel de son « avantage » apparent en R_norm
+  vient de dépenser moins (87 %) — de la sous-exposition, pas du timing.
+- **DCA-DD (paliers de drawdown) : PASS technique (a)-(d)** sur BTC ET ETH à
+  l'horizon principal (BTC Δmédian +0,0105, bat 88 % ; ETH +0,0035, bat 84 % ;
+  robuste aux paliers ×0,75/×1,25)… **mais taille d'effet ≈ épsilon** :
+  +0,1 à +0,35 % de l'exposition moyenne PAR 3 ANS (~60-130 $ pour 15 600 $
+  injectés), MOIC identique au centième (2,05 vs 2,04 ; 1,80 vs 1,79). Et le
+  **diagnostic pré-enregistré Bitstamp 2012→ le dégonfle à exactement zéro** :
+  Δmédian **+0,0000**, bat 49 % des 136 cohortes (l'ajout du bear 2014-15
+  efface l'avantage). Sensibilité 2 ans ETH : FAIL aussi (53 %).
+- **Lecture gelée confirmée** : le timing « acheter les creux » ne dégage rien
+  de robuste une fois l'exposition normalisée — la suspicion de survivance
+  était la bonne. **Verdict opérationnel : DCA fixe, pas de moteur de timing.**
+
+### Q1 — lump-sum vs étalement (descriptif, décision opérateur)
+
+- LS gagne en médiane (MOIC BTC 2,67 vs 2,04 ; ETH 3,57 vs 1,79) — l'actif
+  dérive vers le haut, être exposé tôt paie *en moyenne*.
+- Mais queues bien pires : p10 ETH **0,82** (perte) vs 0,98 ; maxDD -79 % vs
+  -61 % ; **cas nommé ETH nov-2021 : LS MOIC 0,59, sous l'eau 98 % du temps**
+  vs DCA-F 1,26 et 55 %. Le DCA fixe achète de la protection de séquence avec
+  de l'espérance. Choix de risque, pas de verdict.
+
+### Q3 — empilement : le seul gain sûr, et il éclipse le timing
+
+- **ETH staké 3 %** : +0,091 MOIC médian sur 3 ans (**+5,1 % relatif** ;
+  bornes 2,6/3,3 % → +4,4/+5,6 %) ≈ **10-20× le gain du meilleur timing**.
+- **Lending sur le buffer cash : ≈ 0 pour un DCA fixe** (le cash est dépensé le
+  jour même) — il ne compte que si on garde une réserve stratégique (DCA-M :
+  +0,5 %). Le vrai levier lending = la trésorerie AVANT décision d'allocation
+  (P3), pas le flux DCA.
+- Risques nommés non chiffrés : smart contract / slashing (staking), custody
+  du wallet, dépeg éventuel d'un LST si staking liquide.
+
+### Conclusion
+
+**DCA fixe hebdomadaire + staking de l'ETH accumulé. Pas de moteur de timing**
+(DCA-DD techniquement PASS mais gain ε non robuste hors échantillon Binance —
+le retenir serait du sur-ajustement béni par les critères). Lump-sum = choix
+de risque opérateur. La décision amont (détenir BTC/ETH, combien) reste une
+décision d'allocation opérateur — hors de cette étude. Toute variante
+(autres signaux, mensuel vs hebdo, autres actifs) = nouveau protocole, un tir.

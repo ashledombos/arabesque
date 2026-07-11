@@ -1215,3 +1215,37 @@ complet : `docs/audit/carry_collateralise_dossier_2026-07-11.md`.
 - Données : `tmp/hl_funding_HYPE.parquet` (fetch API info, depuis listing
   12-2024) ; pumps sur closes 4h HL. **File DeFi restante : P2bis DCA
   amélioré (sur go) ; P3 trésorerie quand la poche sera capitalisée.**
+
+## 2026-07-11 — DCA amélioré sur majeures (P2bis poche DeFi) : pas de moteur de timing, le gain réel = staking — verdict au protocole pré-enregistré
+
+**Protocole gelé et commité AVANT calcul** :
+`docs/audit/dca_ameliore_protocole_2026-07-11.md`. Nature : politique
+d'investissement (hors filtre dur) — optimise l'exécution d'un flux d'épargne
+BTC/ETH spot sans levier, ne décide PAS de l'allocation (opérateur).
+
+- **Setup** : Binance 1d 2017-08 → 2026-07 (64 cohortes mensuelles, horizon
+  3 ans, injection 100 $/sem, frais 10 bps, cash plafonné — jamais de découvert) ;
+  variantes LS / DCA fixe / DCA-Mayer / DCA-paliers-de-drawdown ; stat
+  décisionnelle = **R_norm = excédent / exposition moyenne** (cash à 0 %),
+  critères (a) médiane, (b) ≥ 60 % des cohortes, (c) stress cohortes 2021,
+  (d) paliers ±25 %, exigés sur BTC ET ETH.
+- **Q2 timing** : **DCA-Mayer FAIL** (stress BTC Δ -0,0004 ; dépense 87 % → son
+  avantage = sous-exposition, pas du timing). **DCA-DD PASS technique (a)-(d)**
+  mais Δ ≈ +0,1-0,35 % de l'exposition par 3 ans (~60-130 $ / 15 600 $ injectés),
+  MOIC identique au centième, et le **diagnostic pré-enregistré Bitstamp 2012→
+  (136 cohortes, bear 2014-15 inclus) le ramène à +0,0000 / 49 %** → retenir
+  DCA-DD serait du sur-ajustement. **Verdict : DCA fixe, pas de timing** — la
+  suspicion gelée (survivance de BTC = mirage du « j'achète les creux ») tient.
+- **Q1 lump-sum** (descriptif) : LS gagne en médiane (MOIC 2,67 vs 2,04 BTC ;
+  3,57 vs 1,79 ETH) mais queues pires (p10 ETH 0,82 ; **cohorte ETH nov-2021 :
+  LS 0,59 / 98 % sous l'eau vs DCA-F 1,26 / 55 %**). Choix de risque opérateur.
+- **Q3 empilement** : **staking ETH 3 % = +5,1 % de MOIC relatif sur 3 ans
+  (bornes 4,4-5,6 %) ≈ 10-20× le meilleur timing** ; lending sur buffer ≈ 0 pour
+  un DCA fixe (cash dépensé le jour même) — le lending compte pour la trésorerie
+  (P3), pas pour le flux. Risques nommés : smart contract/slashing, custody,
+  dépeg LST.
+- **Conclusion : DCA fixe hebdo + staker l'ETH accumulé ; toute variante =
+  nouveau protocole un tir.** Scripts : `tmp/dca_fetch_daily.py`,
+  `tmp/dca_ameliore_study.py`, sortie `tmp/dca_ameliore_results.txt`.
+  **File DeFi : P1 ✗, P2 ⏸ moniteur, P2bis ✅ SOLDÉ — reste P3 trésorerie
+  (quand poche capitalisée). Prochain go = turn-of-month (item 3).**
