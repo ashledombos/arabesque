@@ -76,3 +76,19 @@ Fenêtres courtes (Aster ~11 mois, Pacifica inconnue) ; l'edge est probablement
 dopé par les programmes de points des jeunes venues → même un PASS ne prouve
 pas la pérennité, d'où la collecte forward obligatoire avant capital. Aucun
 wallet, aucun connecteur, 0 € dans cette étude.
+
+---
+
+## VERDICT (2026-07-11 soir, après exécution — protocole ci-dessus inchangé) : **KILL**
+
+- Net APR portefeuille (seuil verdict 15 %) : **-1,23 %/an** ; sensibilité
+  10 % : -3,55 % ; 20 % : -0,64 %. Persistance : **5 %** d'épisodes nets
+  positifs (5/111). Stress pump : survivable (seul critère passant).
+- Mécanisme : spread 15,5 % APR à l'entrée → **7,4 % réalisé** en détention
+  (non-persistance) ; brut +553 bps vs coûts 1 917 bps (3,5×).
+- Le spread statique structurel HL↔Aster (~5-6 % APR notionnel) ≈ 2,5-3 % sur
+  capital à levier 1 < benchmark passif sUSDe ~8 % → pas de variante passive
+  à instruire.
+- Détail complet : `docs/EXPERIMENT_LOG.md` § 2026-07-11. Pacifica : profondeur
+  API réelle = 6 semaines (limite découverte au backfill, documentée).
+- Toute variante (alts, maker-only, levier, EdgeX) = nouveau protocole, un tir.

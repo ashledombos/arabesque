@@ -17,7 +17,7 @@ vers les jeunes DEX (Lighter, Pacifica, Aster, EdgeX).
 
 | # | Famille | Rendement indicatif (07-2026) | Risque dominant | Verdict préliminaire |
 |---|---|---|---|---|
-| 1 | **Arb funding cross-DEX** (long venue basse / short venue haute, delta-neutre) | écarts 10-20 % APR récurrents ; MAIS étude nov-2025 (26 venues) : 17 % des observations ≥ 20 bps et **seulement 40 % des meilleures opportunités positives après coûts** | venue jeune ×2 (smart contract, retraits), edge dopé par saisons de points → décroissant | **À INSTRUIRE — P1** |
+| 1 | **Arb funding cross-DEX** (long venue basse / short venue haute, delta-neutre) | écarts 10-20 % APR récurrents ; MAIS étude nov-2025 (26 venues) : 17 % des observations ≥ 20 bps et **seulement 40 % des meilleures opportunités positives après coûts** | venue jeune ×2 (smart contract, retraits), edge dopé par saisons de points → décroissant | **✗ KILL 07-11 soir au protocole gelé** (`funding_cross_dex_protocole_2026-07-11.md`) : net -1,23 %/an, persistance 5 %, spread réalisé = ½ du spread d'entrée ; même le spread statique HL↔Aster < benchmark sUSDe |
 | 2 | **Cash-and-carry productisé** (Ethena sUSDe ; Pendle PT = version taux fixe) | sUSDe : 8-18 % historique, **haut de single-digit au T2-2026** (régime compressé — cohérent avec notre moniteur `hl_funding_regime` dormant) ; PT-sUSDe fixe 6,4-9 % | depeg USDe, custodian/exchange sur la jambe short (scénario FTX), régulation | **À INSTRUIRE — P2** (benchmark du carry PARK + porte « collatéral spot » item 4 file des GO) |
 | 3 | **Lending stablecoin** (Aave v3/v4, Morpho, Spark) | 3,5-9 % variable, USDC mainnet ~5-6 % | protocole (le plus audité de la DeFi), taux variable | **Socle de trésorerie** de la poche, pas un edge — instruire seulement si la poche est capitalisée |
 | 4 | **Staking ETH / LST** (Lido stETH) | 2,6-3,3 % net | prix ETH (dominant), slashing marginal | ✗ en tant que *rendement* (sous le lending stable avec risque prix en plus) ; pertinent uniquement si expo ETH voulue = décision d'investissement opérateur, pas de trading |
@@ -36,7 +36,9 @@ mais sa version *maker à 0 frais* (Lighter) rejoint la famille #6, pas un re-te
 
 ## Priorisation proposée
 
-1. **P1 — Mesurer l'écart de funding cross-DEX** (protocole à pré-enregistrer).
+1. ~~**P1 — Mesurer l'écart de funding cross-DEX**~~ **EXÉCUTÉ ET KILL 07-11 soir**
+   (protocole gelé `cb110d5`, verdict dans le protocole + EXPERIMENT_LOG §
+   2026-07-11). La file DeFi continue à P2/P2bis.
    C'est la seule famille qui étend le carry PARK avec un *mécanisme différent* :
    l'edge vient de l'écart **entre venues** (distorsion d'incitations des jeunes DEX),
    pas du niveau absolu du funding qui a motivé le PARK. Questions de design à

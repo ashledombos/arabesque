@@ -1130,3 +1130,52 @@ creux connu. Décision opérateur requise : jalon 4 ombre maintenant (coût
 quasi nul, l'ombre tranche creux-vs-mort) ou re-mesure à +~20 sessions
 (relancer le driver, 1 commande).** Sessions : 
 `tmp/dryrun_adage_jalon3_sessions.jsonl`.
+
+## 2026-07-11 — Arbitrage de funding cross-DEX (P1 poche DeFi) : KILL au protocole pré-enregistré — le spread ne persiste pas, les coûts font 3,5× le brut
+
+**Protocole gelé et commité avant résultats** (`cb110d5`) :
+`docs/audit/funding_cross_dex_protocole_2026-07-11.md` — BTC/ETH/SOL ×
+6 paires de venues (Hyperliquid, Lighter, Pacifica, Aster), signal spread
+lissé 24 h, entrée > 15 % APR / sortie orientée < 5 %, exécution t+1 h,
+coûts taker pessimistes gelés (HL 4,5 / Aster 4,0 / Pacifica 2,5 /
+Lighter 0 bps par côté + slippage + basis), capital = 2× notionnel
+(levier 1), APR calculé périodes flat incluses. Verdict = fenêtre récente
+2026-01-11 → 07-11. Scripts : `tmp/funding_cross_dex_fetch.py` +
+`tmp/funding_cross_dex_analyse.py` ; données `tmp/fcd_{venue}_{sym}.parquet`.
+
+**Backfill** : Lighter 18 mois (horaire, %/h signé par `direction`),
+Aster 11 mois (8 h Binance-like), Pacifica **6 semaines seulement**
+(l'API plafonne à 1 000 entrées, offset clampé), HL 21 mois (cache).
+Validation d'unités PASS : |APR| médian par venue 5-11 %, rapport max
+2,2× (barrière 5×) ; corr inter-venues 0,1-0,7.
+
+| Seuil d'entrée | paires actives | épisodes | nets positifs | net APR capital |
+|---|---|---|---|---|
+| 10 % APR | 18 | 280 | 2 % | **-3,55 %/an** |
+| **15 % (verdict)** | 16 | 111 | **5 %** | **-1,23 %/an** |
+| 20 % APR | 13 | 43 | 0 % | -0,64 %/an |
+
+- **KILL sans appel** (seuils gelés : PASS ≥ +12 %, KILL < +8 % ou
+  persistance < 40 %) : négatif aux 3 seuils, persistance 5 %.
+- **Mécanisme d'échec décomposé** (111 épisodes, 44 h de détention
+  moyenne) : spread moyen **15,5 % APR à l'entrée → 7,4 % réalisé**
+  pendant la détention (le spread fond de moitié dès qu'on le touche —
+  confirme l'étude académique nov-2025 : 60 % des meilleures opportunités
+  s'évaporent) ; brut total **+553 bps vs 1 917 bps de coûts** (3,5×) —
+  double tueur : non-persistance ET rotation (aller-retour toutes les
+  ~44 h à ~17 bps). Même le spread STATIQUE structurel (HL ~11 % vs
+  Aster ~5 % médian) ≈ 5-6 % APR notionnel = **~2,5-3 % sur capital à
+  levier 1**, sous le benchmark passif sUSDe ~8 % → aucune variante
+  « buy-and-hold du spread » à instruire non plus.
+- Stress pump 7 j survivable à levier 1 sur les 3 majors (pire +53 %) —
+  seul critère qui passait, sans objet.
+- Les « 20-40 % APR » affichés par les bots publics (djienne et al.)
+  sont des instantanés de spread × levier, AVANT non-persistance et
+  coûts — et l'essentiel de l'EV réelle de ces bots est l'airdrop
+  (points), pas le funding.
+- **Conclusion famille** : arbitrage de funding cross-DEX sur majors =
+  mort aux conditions actuelles. Toute variante (alts, maker-only,
+  levier > 1, venue nouvelle type EdgeX) = nouveau protocole, un tir —
+  noter que maker-only réduirait les coûts (~2×) mais pas la
+  non-persistance (le tueur principal), et que les alts réveillent le
+  stress pump fatal du carry PARK.
