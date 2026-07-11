@@ -1274,3 +1274,28 @@ figée (identique écrémage 07-07), politique unique 0,30 % ToM / 0,20 % hors
   protocole un tir. Scripts : `tmp/tom_amplificateur_study.py` →
   `tmp/tom_amplificateur_results.txt`. **Prochain go = item 5 : nouveau
   cycle de sourcing de familles.**
+
+## 2026-07-11 — Sourcing de familles cycle 2 (item 5 file des GO) — 0 candidat, 5 kills chiffrés
+
+Dossier : `docs/audit/sourcing_familles_2026-07-11.md`. Méthode 07-07 reconduite
+(littérature only, hypothèses figées avant calcul, seuils pré-écrits |t|≥2 +
+4/5 sous-périodes + brut ≥ 3× coût, un tir par famille). Données 30 mois
+(2024-01 → 2026-07-10). Script : `tmp/sourcing_ecremage_2026-07-11.py` →
+`tmp/sourcing_ecremage_2026-07-11_results.txt`.
+
+- ❌ **C1 ToM US500** (McConnell-Xu J-1..J+3) : fenêtre +1,5 bps/j vs hors +8,3
+  (t_Welch −0,74), par événement +6,1 bps vs coût ~9 (financement mesuré) →
+  ratio 0,7×. L'effet canonique actions est absent/inversé — 3e kill ToM.
+- ❌ **C2 fixing PM or 15:00 Londres** (Caminschi-Heaney) : pré-fix −0,74 bps
+  (t=−0,44), post-fix +0,85 (t=+0,76) — signes conformes mais ~6× sous le
+  seuil de 4,5 bps (3× spread diurne).
+- ❌ **C3 time-of-day FX** (Breedon-Ranaldo, 4 majors signées sens littérature) :
+  t ∈ [−0,87 ; +0,53], meilleur ratio 1,1× (AUDUSD) — anomalie morte en 2024-26.
+- ❌ **C4 session-hold nocturne Brent** (analogue Adage) : **−5,8 bps/session**
+  (t=−1,23, 1/5) — le drift nocturne est spécifique OR, négatif avant coûts.
+- ❌ **C5 session US BTC** (ère ETF 13:30-21:00 UTC) : +0,64 bps/j (t=+0,11),
+  hors fenêtre +4,29 (t=+0,71) — rien d'exploitable, venue sans objet.
+
+**Lecture** : 3e cycle où le régime récent tue toutes les anomalies documentées.
+La matière vivante = pipeline existant (Adage, Renversé, Glissade-or) +
+réhabilitations octobre. **Item 5 SOLDÉ — prochain go = item 6 (gap weekend or).**
