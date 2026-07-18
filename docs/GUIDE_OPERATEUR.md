@@ -308,3 +308,5 @@ notification non-urgente finit par « 👉 rien à faire ».
 | `docs/audit/couts_reels_*.md` | La table des frais mesurés | Avant de juger un candidat |
 | `arabesque/strategies/*/STRATEGY.md` | La fiche technique de chaque stratégie | Détail d'une stratégie |
 | `logs/journal/AAAA-MM.md` | Les bilans hebdo/mensuels | Le récit mois par mois |
+| `docs/HYPOTHESES.md` | Le registre des croyances porteuses du système, avec leur date de preuve et un tampon « tient toujours au… » | « Sur quoi repose-t-on, et est-ce encore frais ? » |
+| `docs/audit/table_rase_AAAA-MM.md` | L'audit mensuel « à zéro » : un examinateur vierge redécouvre tout et challenge le dossier (dont nos propres méthodes de suivi) | Une fois par mois, le rapport de non-complaisance |

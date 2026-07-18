@@ -39,6 +39,11 @@ Source d'autorité : `docs/VALIDATION_CONTRACT.md` (phase `portefeuille`).
 
 ## Paramètres de la stratégie Extension (validés sur 20 mois, 1998 trades)
 
+> ⚠️ **Statut 2026-07** : Extension est **coupée du live** (edge mort en régime
+> récent, banc 2026-07-03 ; réhabilitation candidate en octobre). Ces paramètres
+> restent la référence du position manager pour les stratégies actives — mais
+> leur preuve date de l'ère Extension (cf. `docs/HYPOTHESES.md` C1-C3).
+
 Ces valeurs ont été calibrées par simulation exhaustive et validées en production.
 Ne pas les modifier sans rejeu complet (20 mois, 76 instruments) + IC99 > 0.
 
@@ -72,13 +77,13 @@ arabesque/core/          ← IMMUABLE (models, guards, audit) — Opus uniquemen
 arabesque/modules/       ← indicators, position_manager
 arabesque/strategies/
   └── extension/         ← signal.py UNIQUE backtest+live (Opus uniquement pour modifier)
-  └── fouette/           ← ORB M1, WF PASS 4/4 (London XAUUSD, NY US100/BTCUSD)
-  └── glissade/          ← RSI divergence H1, WF PASS 3/3 (XAUUSD, BTCUSD)
-  └── cabriole/          ← Donchian breakout 4H, WF PASS 6/6 (overlap Extension)
-  └── pas_de_deux/       ← Pairs trading cointégration (placeholder, long terme)
-  └── renverse/          ← Liquidity sweep + FVG retrace H1 (testé, edge insuffisant)
-  └── reverence/         ← NR7 contraction → expansion H4 (DOGEUSD WF PASS, overlap à vérifier)
-  └── adage/             ← Session-hold nocturne XAUUSD min1 (WF PASS dérogations, jalon 3 dry-run)
+  └── fouette/           ← ORB M1 (edge 2024 mort en régime récent, kills 07-07/08 — réhab. octobre)
+  └── glissade/          ← RSI divergence H1 — SEULE STRATÉGIE LIVE (XAUUSD only, BTCUSD coupé 07-03)
+  └── cabriole/          ← Donchian breakout 4H (coupée 07-03, overlap Extension)
+  └── pas_de_deux/       ← Pairs trading cointégration (KILL compliance 07-04 + DEX 07-09)
+  └── renverse/          ← Liquidity sweep + FVG retrace H1 (EN OMBRE depuis 07-04)
+  └── reverence/         ← NR7 contraction → expansion H4 (KILL banc 07-03 — réhab. octobre)
+  └── adage/             ← Session-hold nocturne XAUUSD min1 (jalon 4 : ombre données ACTIVE, tripwire -16,2R)
 arabesque/execution/     ← live.py, backtest.py, dryrun.py, bar_aggregator.py
 arabesque/broker/        ← cTrader, TradeLocker
 arabesque/data/          ← store.py (parquet-first loader), fetch.py, backends.py

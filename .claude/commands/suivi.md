@@ -29,7 +29,11 @@ Modes :
 
 ### 1. État du dernier passage
 
-Lis la dernière ligne de `logs/maintenance_state.jsonl` (gitignored, créé si absent) :
+Lis la dernière ligne **de passage /suivi** de `logs/maintenance_state.jsonl`
+(gitignored, créé si absent). ⚠️ Le fichier est PARTAGÉ avec le timer de rappel
+qui y écrit des lignes `{"event": "reminder_sent", ...}` — filtrer : la
+dernière ligne SANS champ `event` (constat table-rase 2026-07-18, un parse
+naïf de la dernière ligne casse sur KeyError) :
 - Calcule `delay_h = now - last_ts` (heures)
 - Note si `delay_h > 168` (> 7j) — pas une faute, juste **« Dernier suivi : il y a Xj »**
 - Si premier passage, dis-le.
@@ -59,8 +63,8 @@ Pour chaque item, calcule la métrique à partir de `logs/trade_journal.jsonl` (
 | ID | Trigger | Action si atteint |
 |---|---|---|
 | `glissade_gft_block` | Glissade GFT : `n ≥ 8` ET `WR < 30%` | Ajouter `glissade: [gft_compte1]` dans `config/settings.yaml → strategy_broker_exclusions`. Append entry DECISIONS.md. Notif Telegram. |
-| `cabriole_gft_unblock` | Cabriole FTMO : `n ≥ 20` ET `WR ≥ 70%` | Retirer `cabriole: gft_compte1`. Append DECISIONS.md. Notif Telegram. |
-| `extension_gft_drift` | Extension : `n_gft ≥ 10` ET `WR_ftmo - WR_gft > 50pp` | Proposer block (ne pas auto-appliquer, demander validation). |
+| `cabriole_gft_unblock` | 💤 DORMANT (cabriole coupée du live 07-03 — réévaluer aux réhabilitations d'octobre). Cabriole FTMO : `n ≥ 20` ET `WR ≥ 70%` | Retirer `cabriole: gft_compte1`. Append DECISIONS.md. Notif Telegram. |
+| `extension_gft_drift` | 💤 DORMANT (extension coupée du live 07-03 — réévaluer aux réhabilitations d'octobre). Extension : `n_gft ≥ 10` ET `WR_ftmo - WR_gft > 50pp` | Proposer block (ne pas auto-appliquer, demander validation). |
 | `phantom_exit_alert` | Nouvel `orphan_cleanup` OU `phantom_fallback=true` dans les dernières 24h | Investiguer (lire les events), composer alerte Telegram. |
 | `engine_uptime_drop` | Engine uptime < 30min OU > 5min sans BarAggregator log | Alerte. Ne pas auto-restart (peut être en cours). |
 | `feed_stale` | **Détection silencieuse — engine actif mais feed mort**. Critère : **0 ligne `BarAggregator.*Résumé`** (aucune barre fermée) dans les 35 dernières minutes (hors weekend vendredi 22:00 UTC → dimanche 22:00 UTC, où les barres crypto FTMO peuvent ne pas fermer) **OU** ≥ 1 occurrence des signatures PRÉCISES `ALREADY_LOGGED_IN` / `TimeoutError.*PriceFeed` / `Feed stale (majeur` / `Feed stale global` / `force reconnect after stale feed`. **⚠️ NE PAS** utiliser `feed.*stale` (matche le logger `price_feed:` + la ligne de statut `N stale majeurs` → faux positifs, cf. 2026-06-20). | 🚨 Alerte critique Telegram+ntfy + escalade en **état `🚨 Alerte`** dans l'output (jamais cas A). Ligne `Reco: vérifie l'état du PriceFeed et redémarre l'engine si nécessaire (\`systemctl --user restart arabesque-live.service\`)`. Ne **JAMAIS** auto-restart sans validation user (un restart peut interrompre un trade en cours). |
@@ -89,7 +93,7 @@ Avant de scanner la TODO, vérifie si on est dans une **fenêtre bilan** :
 
 | Fenêtre | Condition | Action |
 |---|---|---|
-| Bilan semaine | dimanche ≥ 18:00 UTC OU lundi avant 12:00 UTC, ET `logs/journal/YYYY-MM.md` non modifié depuis ≥ 5 jours | Exécute les étapes `/bilan semaine-derniere` dans la même invocation |
+| Bilan semaine | dimanche ≥ 18:00 UTC OU **lundi (toute la journée UTC)**, ET `logs/journal/YYYY-MM.md` non modifié depuis ≥ 5 jours | Exécute les étapes `/bilan semaine-derniere` dans la même invocation (élargi lundi entier — constat table-rase 07-18 : le passage réel du lundi 14/07 à 16:15 UTC était hors fenêtre et le bilan a dû être forcé manuellement) |
 | Bilan mois | jour 1 ou 2 du mois UTC, ET pas de section "## Bilan mois" datée du mois précédent dans `logs/journal/YYYY-MM.md` | Exécute `/bilan mois-dernier` |
 | Bilan jour | demande explicite via mode `+bilan-jour` | Exécute `/bilan jour` |
 

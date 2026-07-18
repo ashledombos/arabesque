@@ -14,11 +14,11 @@ majeure change ; ○ = local.
 
 | ID | Hypothèse | Preuve | Fenêtre | Poids | Tampon |
 |---|---|---|---|---|---|
-| S1 | Glissade-XAUUSD est le seul edge net vivant du parc CFD (+0,24R net) | Banc 07-01→03 | 20 mois, n=16 live | ❗❗ | 2026-07-03 |
-| S2 | Extension n'a d'edge net NULLE PART en régime récent (brut négatif forex/métaux) | Banc 07-03, étape 3.5 | 12-20 mois | ❗❗ | 2026-07-03 |
+| S1 | Glissade-XAUUSD est le seul edge net vivant du parc CFD (+0,24R net) | Banc 07-01→03 | 20 mois, n=16 live | ❗❗ | 2026-07-18 (rien ne le contredit : replay XAUUSD sans drift ; n live insuffisant pour re-juger — critère = ramp n≥30) |
+| S2 | Extension n'a d'edge net NULLE PART en régime récent (brut négatif forex/métaux) | Banc 07-03, étape 3.5 | 12-20 mois | ❗❗ | 2026-07-18 (9 derniers live −0,605R, BT plat ; IC99 live [−0,45;−0,16] contre-expertise) |
 | S3 | Les edges nets survivants sont MÉTAUX only (crypto liquide net ≤ 0 aux coûts réels ~0,11R) | Banc 07-01/03 | 20 mois | ❗ | 2026-07-03 |
 | S4 | Le drift nocturne de l'or est réel (+0,070R net/session) et SPÉCIFIQUE à l'or (Brent −5,8 bps) | WF gelé 07-10 + écrémage 07-11 | 30 mois | ❗❗ | 2026-07-12 |
-| S5 | Le creux Adage mai-juin 2026 est un creux DE la distribution, pas la mort de l'edge (dérogation DD −16,2R) | Dérogation opérateur 07-10 | — | ❗❗ | 🟡 EN TEST (ombre, n=4, tripwire armé) |
+| S5 | Le creux Adage mai-juin 2026 est un creux DE la distribution, pas la mort de l'edge (dérogation DD −16,2R) | Dérogation opérateur 07-10 | — | ❗❗ | 🟡 EN TEST — série à 0,36R du tripwire (−15,84R), 90 derniers jours −9,1R, edge historique concentré sur 3 trimestres (table-rase 07-18) ; le seuil pré-enregistré décide |
 | S6 | Les anomalies calendaires/sessionnelles de la littérature sont mortes en régime 2025-26 (3 cycles, 11 kills) | Sourcing 07-07/11/12 | 30 mois | ❗ | 2026-07-12 |
 | S7 | Renversé : edge brut insuffisant en l'état, l'ombre tranchera | Dossier 07-04 | 20 mois | ○ | 2026-07-04 |
 | S8 | Fouetté (US100/or), Révérence, Cabriole : morts ou redondants en régime récent (réhabilitations = octobre) | Bancs 07-03/07-07 | 18-20 mois | ○ | 2026-07-07 |
@@ -27,7 +27,7 @@ majeure change ; ○ = local.
 
 | ID | Hypothèse | Preuve | Fenêtre | Poids | Tampon |
 |---|---|---|---|---|---|
-| C1 | BE 0,3R / offset 0,20R porte le WR ~45→75 % (0,15 = plancher exact 95 % des sorties) | Sim exhaustive 2025 | 20 mois, 1998 trades | ❗❗ | 🕰️ preuve sur Extension (morte) — gap live = marché, pas exéc. (06-08) |
+| C1 | BE 0,3R / offset 0,20R porte le WR ~45→75 % (0,15 = plancher exact 95 % des sorties) | Sim exhaustive 2025 | 20 mois, 1998 trades | ❗❗ | 🕰️ preuve sur Extension (morte) — gap live = marché, pas exéc. (06-08). **Re-test proposé** (table-rase 07-18, re-test n°1, sur go) |
 | C2 | Risk 0,40 %/trade : maxDD 8,2 % vs 10,3 % à 0,50 % (marge FTMO 1,8 %) | Sim 2025 | 20 mois | ❗ | 🕰️ même chantier que C1 |
 | C3 | Tick-TSL non optionnel (+183R vs +10,4R en H1-only) | Backtest 2025 | 20 mois | ❗ | 🕰️ même chantier que C1 |
 | C4 | Mean-reversion perd partout, toutes venues (y c. aux coûts HL) | 4 replays + MR-HL 07-09 | multi | ❗ | 2026-07-09 |
@@ -54,4 +54,4 @@ majeure change ; ○ = local.
 | I2 | Token refresh 12h ferme la fuite CH_ACCESS_TOKEN_INVALID | Patch 79007cf 05-20 | — | ○ | 🟡 à vérifier au prochain incident |
 | I3 | Ratio live/théo Extension se lit sur sessions dédupées (30-35 % normal) — bougies brutes = drift fantôme | Analyse 06 | — | ○ | 2026-06 |
 | I4 | La machine partagée (builds) ne contamine pas l'exécution (drop-in systemd) — contention à vérifier AVANT de suspecter le broker | Mesure 07-04 | — | ○ | 2026-07-04 |
-| I5 | Le filtre « ça doit marcher en régime récent » est LA pièce qui évite les faux edges (3 edges 2024 morts en 2025-26) | Série de kills | 24 mois | ❗❗ | 2026-07-12 |
+| I5 | Le filtre « ça doit marcher en régime récent » est LA pièce qui évite les faux edges (3 edges 2024 morts en 2025-26) | Série de kills | 24 mois | ❗❗ | 2026-07-18 (contre-expertise à froid a réinventé ce correctif indépendamment — convergence) |
